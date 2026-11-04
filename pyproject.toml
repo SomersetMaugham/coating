@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "coating-studio"
+dynamic = ["version"]
+description = "Multilayer coating simulator and optimiser (v1: microwave / radar absorbers)"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "Somerset" }]
+keywords = ["radar absorber", "transfer matrix", "multilayer", "electromagnetics", "coating"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Environment :: X11 Applications :: Qt",
+]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.11",
+    "matplotlib>=3.7",
+    "PySide6>=6.5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+
+[project.gui-scripts]
+coating-studio = "coating_studio.gui.app:main"
+
+[tool.hatch.version]
+path = "src/coating_studio/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/coating_studio"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
