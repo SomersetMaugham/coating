@@ -119,6 +119,8 @@ class ToleranceSettings:
     sheet: float = 0.05
     per_layer: dict = field(default_factory=dict)  # uid -> {"thickness","eps","mu","sheet"}
     target_db: float = -10.0
+    band_min: float | None = None  # Hz; yield band (None -> whole sweep)
+    band_max: float | None = None
     angle: float = 0.0
     pol: str = "avg"
     lower_pct: float = 5.0

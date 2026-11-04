@@ -1,0 +1,111 @@
+"""Offscreen GUI smoke test: build the window, exercise every view and a short optimisation."""
+
+import os
+
+import pytest
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+pytest.importorskip("PySide6")
+
+
+@pytest.fixture(scope="module")
+def app(tmp_path_factory):
+    import matplotlib
+
+    matplotlib.use("QtAgg")
+    from PySide6.QtCore import QCoreApplication, QSettings
+    from PySide6.QtWidgets import QApplication
+
+    QSettings.setDefaultFormat(QSettings.IniFormat)
+    QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp_path_factory.mktemp("cfg")))
+    QCoreApplication.setOrganizationName("CoatingStudioTest")
+    QCoreApplication.setApplicationName("CoatingStudioTest")
+    a = QApplication.instance() or QApplication([])
+    from coating_studio.gui.fonts import configure_matplotlib_fonts
+
+    configure_matplotlib_fonts()
+    yield a
+
+
+def _pump(app, ms=50):
+    from PySide6.QtCore import QEventLoop, QTimer
+
+    loop = QEventLoop()
+    QTimer.singleShot(ms, loop.quit)
+    loop.exec()
+
+
+@pytest.mark.parametrize("lang", ["en", "ko"])
+def test_main_window_all_tabs(app, lang):
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.i18n import set_language
+
+    set_language(lang)
+    w = MainWindow()
+    w.show()
+    for key in EXAMPLES:
+        w.doc.set_project(EXAMPLES[key][1]())
+        for i in range(w.tabs.count()):
+            w.tabs.setCurrentIndex(i)
+            _pump(app, 10)
+        assert w.results.get("freq") is not None, w.result_error
+    # editing + undo
+    n = len(w.project.structure.layers)
+    w.w_layers.add_sheet()
+    assert len(w.project.structure.layers) == n + 1
+    w.doc.undo_stack.undo()
+    assert len(w.project.structure.layers) == n
+    w.doc.undo_stack.redo()
+    assert len(w.project.structure.layers) == n + 1
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()
+    set_language("en")
+
+
+def test_optimisation_runs_in_background(app):
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+
+    w = MainWindow()
+    p = EXAMPLES["salisbury"][1]()
+    p.optimization.maxiter = 15
+    w.doc.set_project(p)
+    w.p_opt.run()
+    for _ in range(400):
+        _pump(app, 25)
+        if not w.p_opt.is_running():
+            break
+    assert not w.p_opt.is_running()
+    assert w.p_opt.result is not None and w.p_opt.result.terms is not None
+    w.p_opt._apply()
+    assert w.doc.undo_stack.count() == 1
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()
+
+
+def test_material_manager_and_tolerance(app):
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.dialogs.materials import MaterialManager
+    from coating_studio.gui.main_window import MainWindow
+
+    w = MainWindow()
+    w.doc.set_project(EXAMPLES["carbon"][1]())
+    dlg = MaterialManager(w.doc, w)
+    for i in range(dlg.lst.count()):
+        dlg.lst.setCurrentRow(i)
+    dlg._new("dispersive")
+    assert any(n.startswith("New dispersive") for n in w.project.materials)
+    dlg.close()
+    w.p_tol.n.setValue(20)
+    w.p_tol.run()
+    for _ in range(400):
+        _pump(app, 25)
+        if w.p_tol.thread is None:
+            break
+    assert w.p_tol.plot.result is not None
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()

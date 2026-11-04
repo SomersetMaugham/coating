@@ -33,8 +33,8 @@ def builtin_materials():
         DispersiveMaterial("Carbonyl iron / epoxy", eps_inf=12.0, eps_loss=0.4,
                            mu_inf=1.0, mu_terms=[make_term("debye", delta=3.0, f0=3e9)],
                            density=3800.0, note="magnetic RAM composite (representative)"),
-        MixtureMaterial("Carbon / epoxy 5 vol%", matrix="Epoxy", inclusion="Carbon black",
-                        fraction=0.05, model="bruggeman", note="example mixture"),
+        MixtureMaterial("Carbon / epoxy", matrix="Epoxy", inclusion="Carbon black",
+                        fraction=0.30, model="bruggeman", note="example mixture (30 vol% carbon black)"),
     ]
 
 

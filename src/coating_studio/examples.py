@@ -73,13 +73,13 @@ def ferrite_tile():
 def carbon_mixture():
     """Carbon black in epoxy (Bruggeman) with a material-choice example."""
     p = Project(name="Carbon / epoxy mixture")
-    ly = SlabLayer("Carbon / epoxy 5 vol%", 3.0e-3, name="Lossy layer")
+    ly = SlabLayer("Carbon / epoxy", 1.8e-3, name="Lossy layer")
     p.structure = Structure(layers=[ly], backing=Backing("pec"))
     p.sweep = SweepSettings(f_min=2e9, f_max=18e9)
     p.optimization = OptimizationSettings(
         f_min=8e9, f_max=12e9, w_worst=1.0, w_mass=0.1,
         variables=[ContinuousVariable(("layer", ly.uid, "thickness"), 0.5e-3, 8e-3),
-                   ContinuousVariable(("material", "Carbon / epoxy 5 vol%", "fraction"), 0.005, 0.3)],
+                   ContinuousVariable(("material", "Carbon / epoxy", "fraction"), 0.05, 0.45)],
         choices=[])
     return p
 

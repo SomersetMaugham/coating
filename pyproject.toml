@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.18"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.24",
-    "scipy>=1.11",
+    "scipy>=1.12",
     "matplotlib>=3.7",
     "PySide6>=6.5",
 ]
@@ -40,3 +40,4 @@ packages = ["src/coating_studio"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning:matplotlib.backends.backend_qt"]

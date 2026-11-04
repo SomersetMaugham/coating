@@ -41,11 +41,11 @@ def test_mg_equals_bruggeman_dilute():
 
 def test_mixture_material_and_density():
     p = Project()
-    mix = p.materials["Carbon / epoxy 5 vol%"]
+    mix = p.materials["Carbon / epoxy"]
     eps, mu = mix.eps_mu(np.array([1e9, 1e10]), p.resolver)
     assert np.all(eps.imag < 0)
     rho = mix.get_density(p.resolver)
-    assert rho == pytest.approx(0.05 * 1800 + 0.95 * 1200)
+    assert rho == pytest.approx(0.30 * 1800 + 0.70 * 1200)
 
 
 def test_tabulated_out_of_range_and_interp():
@@ -101,8 +101,8 @@ def test_project_roundtrip(tmp_path, key):
 def test_rename_material_updates_references():
     p = EXAMPLES["carbon"][1]()
     p.rename_material("Epoxy", "Resin")
-    assert p.materials["Carbon / epoxy 5 vol%"].matrix == "Resin"
-    p.rename_material("Carbon / epoxy 5 vol%", "Mix")
+    assert p.materials["Carbon / epoxy"].matrix == "Resin"
+    p.rename_material("Carbon / epoxy", "Mix")
     assert p.structure.layers[0].material == "Mix"
     assert any(v.path[:2] == ("material", "Mix") for v in p.optimization.variables)
 
