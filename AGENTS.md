@@ -4,7 +4,9 @@ Shared rules for every coding agent working in this repository (Claude Code, Ant
 
 Coating Studio: a PySide6 desktop app that simulates and optimises planar multilayer coatings.
 v1 targets microwave/radar absorbers (GHz). The engine is meant to stay general enough for later
-optical modes (radiative cooling, AR). The design spec (in Korean) is `docs/PLAN.md`.
+optical modes (radiative cooling, AR). The design spec (in Korean) is `docs/PLAN.md`. Why later
+features were designed the way they are (review findings, compatibility decisions, validation numbers,
+deferred work) is recorded in `docs/DEVELOPMENT_HISTORY.md` (Korean); read it before changing those areas.
 
 ## Commands
 
