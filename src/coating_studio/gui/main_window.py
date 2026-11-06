@@ -379,8 +379,10 @@ class MainWindow(QMainWindow):
             self.p_tol.invalidate()
             self.v_mat.sync_materials()
         else:
+            self.p_tol.refresh()  # its default yield band follows the optimisation targets
             self.p_tol.plot.mark_dirty()
             self._sync_sweep_editors()
+            self.v_freq.mark_dirty()  # target mask
         self._timer.start()
 
     def _sync_sweep_editors(self):

@@ -369,3 +369,68 @@ def test_reference_traces(app, tmp_path):
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()
+
+
+def test_optimisation_targets_editor(app):
+    """Spec targets: list + editor, sign preference, results per target, mask, tolerance band."""
+    from matplotlib.collections import LineCollection
+    from PySide6.QtCore import Qt
+
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.gui.panels.tolerance import yield_intervals
+    from coating_studio.optimize.optimizer import ObjectiveTerms, OptimizationResult
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["dualband"][1]())
+    po, s = w.p_opt, w.project.optimization
+    assert po.tbl_targets.rowCount() == 2 and "≤ -20 dB" in po.tbl_targets.item(0, 1).text()
+    po.tbl_targets.selectRow(1)
+    assert po.a_max.value() == 45 and po.goal.value() == -10
+    w.set_rl_positive(True)
+    assert po.goal.value() == 10 and "≥" in po.lbl_goal.text()
+    po.goal.setValue(12.0)  # user edit in positive dB on the selected (second) target only
+    assert s.targets[1].goal_db == -12.0 and s.targets[0].goal_db == -20.0
+    assert "≥ 12 dB" in po.tbl_targets.item(1, 1).text()
+    w.set_rl_positive(False)
+    # add, duplicate, remove, enable/disable, preset
+    po.btn_t_dup.click()
+    assert len(s.targets) == 3 and s.targets[2] == s.targets[1] and s.targets[2] is not s.targets[1]
+    assert po.tbl_targets.currentRow() == 2
+    po.btn_t_preset.menu().actions()[3].trigger()  # X: 8-12 GHz
+    assert (s.targets[2].f_min, s.targets[2].f_max) == (8e9, 12e9)
+    po.btn_t_del.click()
+    assert len(s.targets) == 2
+    po.tbl_targets.item(1, 0).setCheckState(Qt.Unchecked)
+    assert not s.targets[1].enabled
+    assert yield_intervals(w.project) == [(8e9, 12e9)]  # tolerance follows the enabled targets
+    po.tbl_targets.item(1, 0).setCheckState(Qt.Checked)
+    assert yield_intervals(w.project) == [(8e9, 12e9), (12e9, 18e9)]
+    assert w.p_tol.b_hi.value() == 18  # refreshed on the settings change
+    # per-target result rows; row 0 is still the overall worst RL
+    w.p_opt.result = OptimizationResult(values={}, choices={}, terms=ObjectiveTerms(
+        -15.0, 0.01, 0.0145, 0.75, -0.2, 1.5, ((-21.0, -1.0), (-8.5, 1.5))))
+    w.p_opt.refresh()
+    texts = [w.p_opt.tbl_res.item(r, 0).text() for r in range(w.p_opt.tbl_res.rowCount())]
+    assert texts[0] == "Worst-case RL in band" and texts[1].startswith("Target 1:") and texts[2].startswith("Target 2:")
+    assert "missed by 1.50 dB" in w.p_opt.tbl_res.item(2, 1).text()
+    # spec mask on the Frequency tab: both targets apply at 0°, only Ku at 30°
+    def mask_segments():
+        w.tabs.setCurrentWidget(w.v_freq)
+        w.v_freq.redraw()
+        return sum(len(c.get_segments()) for c in w.v_freq.fig.axes[0].collections if isinstance(c, LineCollection))
+    w.recompute()
+    assert mask_segments() == 2
+    w.v_freq.sp_sweep.setValue(30.0)
+    w.recompute()
+    assert mask_segments() == 1
+    w.v_freq.chk_mask.setChecked(False)
+    assert mask_segments() == 0
+    # the last target cannot be removed
+    while len(s.targets) > 1:
+        po.btn_t_del.click()
+    assert not po.btn_t_del.isEnabled()
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()

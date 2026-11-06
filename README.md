@@ -36,6 +36,10 @@ can be added later without rewriting it.
   - Material ε(f), μ(f) curves.
 - **Optimisation.**
   - Differential evolution with an optional L-BFGS-B polish.
+  - **Spec targets**: a list of requirements, each a band × angle range × polarisations with its own
+    goal level (e.g. X band ≤ −20 dB at normal incidence and Ku band ≤ −10 dB up to 45°). The optimiser
+    minimises the worst margin (worst RL minus goal); the results list each target as met or missed, and
+    the Frequency tab draws the targets as a mask. IEEE letter-band presets are built in.
   - Weighted, normalised objective terms: worst-case RL, mean reflectance, thickness and areal mass, plus an optional thickness limit.
   - Any numeric parameter can be a variable, including dispersion parameters and the volume fraction of a mixture.
   - Each layer's material can be **chosen from a list of candidates**. Small candidate sets are searched exhaustively.

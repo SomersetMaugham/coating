@@ -5,6 +5,7 @@ Saved as ``.coat`` (UTF-8 JSON with a schema version).
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from dataclasses import asdict, dataclass, field
 
@@ -15,7 +16,7 @@ from coating_studio.core.structure import Backing, SheetLayer, SlabLayer, Struct
 from coating_studio.materials.library import builtin_materials
 from coating_studio.materials.models import ConstantMaterial, Material, material_from_dict
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2: optimisation targets list (1: one band)
 FILE_EXTENSION = ".coat"
 
 
@@ -83,7 +84,10 @@ class MaterialChoice:
 
 
 @dataclass
-class OptimizationSettings:
+class BandTarget:
+    """One row of an optimisation spec mask: reflection loss must reach ``goal_db`` (internal sign,
+    20·log10|Γ|, negative = good) over f_min..f_max × angle_min..angle_max for the given polarisations."""
+
     f_min: float = 8e9
     f_max: float = 12e9
     n_f: int = 41
@@ -91,12 +95,44 @@ class OptimizationSettings:
     angle_max: float = 0.0
     n_angle: int = 1
     pols: list = field(default_factory=lambda: ["TE", "TM"])
+    goal_db: float = -20.0
+    enabled: bool = True
+    name: str = ""
+
+    def grid(self):
+        """(f [Hz], theta [deg]) evaluation grid of this target."""
+        f = (np.linspace(self.f_min, self.f_max, max(int(self.n_f), 1)) if self.f_max > self.f_min
+             else np.array([float(self.f_min)]))
+        if self.n_angle > 1 and self.angle_max > self.angle_min:
+            th = np.linspace(self.angle_min, self.angle_max, int(self.n_angle))
+        else:
+            th = np.array([float(self.angle_min)])
+        return f, th
+
+    def to_dict(self):
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d):
+        d = {k: v for k, v in dict(d).items() if k in cls.__dataclass_fields__}
+        if "pols" in d:
+            d["pols"] = list(d["pols"])
+        return cls(**d)
+
+
+# Schema-1 single-band fields; still accepted as keyword arguments and properties (first target).
+_LEGACY_BAND = ("f_min", "f_max", "n_f", "angle_min", "angle_max", "n_angle", "pols")
+
+
+@dataclass(init=False)
+class OptimizationSettings:
+    targets: list = field(default_factory=list)  # [BandTarget]; the objective uses the enabled ones
     # weights of the normalised objective terms
     w_worst: float = 1.0
     w_mean: float = 0.0
     w_thickness: float = 0.0
     w_mass: float = 0.0
-    # reference values used for normalisation
+    # reference values used for normalisation (rl_ref_db: dB scale against thickness / mass)
     rl_ref_db: float = -20.0
     thickness_ref: float = 5e-3  # m
     mass_ref: float = 5.0  # kg/m^2
@@ -109,10 +145,40 @@ class OptimizationSettings:
     variables: list = field(default_factory=list)
     choices: list = field(default_factory=list)
 
+    def __init__(self, targets=None, **kw):
+        legacy = {k: kw.pop(k) for k in _LEGACY_BAND if k in kw}
+        for f in dataclasses.fields(self):
+            if f.name == "targets":
+                continue
+            if f.name in kw:
+                setattr(self, f.name, kw.pop(f.name))
+            elif f.default_factory is not dataclasses.MISSING:
+                setattr(self, f.name, f.default_factory())
+            else:
+                setattr(self, f.name, f.default)
+        if kw:
+            raise TypeError(f"unexpected optimisation settings: {sorted(kw)}")
+        if targets is None:
+            if "pols" in legacy:
+                legacy["pols"] = list(legacy["pols"])
+            # A schema-1 band: its required level is the RL reference, so the objective is unchanged.
+            targets = [BandTarget(goal_db=self.rl_ref_db, **legacy)]
+        elif legacy:
+            raise TypeError("give either targets or the single-band fields, not both")
+        self.targets = list(targets)
+
+    def enabled_targets(self):
+        return [t for t in self.targets if t.enabled]
+
+    def frequency_intervals(self):
+        """[(f_lo, f_hi)] of the enabled targets, in Hz."""
+        return [(t.f_min, t.f_max) for t in self.enabled_targets()]
+
     def to_dict(self):
         d = asdict(self)
         d["variables"] = [v.to_dict() for v in self.variables]
         d["choices"] = [c.to_dict() for c in self.choices]
+        d["targets"] = [t.to_dict() for t in self.targets]
         return d
 
     @classmethod
@@ -120,8 +186,28 @@ class OptimizationSettings:
         d = dict(d)
         variables = [ContinuousVariable.from_dict(v) for v in d.pop("variables", [])]
         choices = [MaterialChoice.from_dict(c) for c in d.pop("choices", [])]
-        known = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
-        return cls(variables=variables, choices=choices, **known)
+        known = {k: v for k, v in d.items() if k in cls.__dataclass_fields__ and k != "targets"}
+        if "targets" in d:  # schema 2 (an explicit empty list stays empty and fails validation)
+            return cls(targets=[BandTarget.from_dict(t) for t in d["targets"]],
+                       variables=variables, choices=choices, **known)
+        legacy = {k: v for k, v in d.items() if k in _LEGACY_BAND}  # schema 1
+        return cls(variables=variables, choices=choices, **known, **legacy)
+
+
+def _band_property(name):
+    def get(self):
+        return getattr(self.targets[0], name)
+
+    def set_(self, value):
+        if not self.targets:
+            self.targets.append(BandTarget(goal_db=self.rl_ref_db))
+        setattr(self.targets[0], name, list(value) if name == "pols" else value)
+
+    return property(get, set_, doc=f"Schema-1 compatibility: {name} of the first target.")
+
+
+for _name in _LEGACY_BAND:
+    setattr(OptimizationSettings, _name, _band_property(_name))
 
 
 @dataclass

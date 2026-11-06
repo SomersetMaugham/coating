@@ -11,7 +11,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
     QHeaderView, QLabel, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSpinBox, QSplitter,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QMenu, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from coating_studio.gui.fmt import fmt_num, from_display, param_label, rl_display, to_display, unit_label
@@ -22,8 +22,14 @@ from coating_studio.gui.workers import OptimizationWorker, start_worker
 from coating_studio.i18n import issue_text, tr
 from coating_studio.materials.checks import check_material
 from coating_studio.optimize import MAX_ENUMERATED_COMBOS, OptimizationError, apply_result
-from coating_studio.optimize.optimizer import band_grid, validate_settings
-from coating_studio.project import ContinuousVariable, available_params, get_param, param_unit
+from coating_studio.optimize.optimizer import target_frequencies, validate_settings
+from coating_studio.project import (
+    BandTarget, ContinuousVariable, available_params, get_param, param_unit,
+)
+
+# IEEE Std 521 radar letter bands [GHz] (not waveguide bands: X is 8-12, WR-90 is 8.2-12.4)
+IEEE_BANDS = (("L", 1, 2), ("S", 2, 4), ("C", 4, 8), ("X", 8, 12), ("Ku", 12, 18), ("K", 18, 27),
+              ("Ka", 27, 40))
 
 
 class OptimizationPanel(QWidget):
@@ -56,31 +62,75 @@ class OptimizationPanel(QWidget):
         ll.setContentsMargins(8, 8, 8, 8)
         ll.setSpacing(10)
 
-        g = QGroupBox(tr("Target band"))
-        f = QFormLayout(g)
-        f.setLabelAlignment(Qt.AlignRight)
+        # ---- spec targets: compact list + a 3-row editor for the selected target -------------
+        g = QGroupBox(tr("Targets"))
+        tl = QVBoxLayout(g)
+        self.tbl_targets = QTableWidget(0, 2)
+        self.tbl_targets.horizontalHeader().setVisible(False)
+        self.tbl_targets.verticalHeader().setVisible(False)
+        self.tbl_targets.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.tbl_targets.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.tbl_targets.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.tbl_targets.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tbl_targets.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.tbl_targets.setMaximumHeight(104)
+        self.tbl_targets.setToolTip(tr("Each row is one requirement; the optimiser minimises the worst "
+                                       "margin (worst RL minus goal) over the enabled rows."))
+        self.tbl_targets.itemSelectionChanged.connect(self._on_target_selected)
+        self.tbl_targets.itemChanged.connect(self._on_target_toggled)
+        tl.addWidget(self.tbl_targets)
+        br = QHBoxLayout()
+        self.btn_t_add = QPushButton(tr("Add"))
+        set_button_icon(self.btn_t_add, "add")
+        self.btn_t_dup = QPushButton(tr("Duplicate"))
+        self.btn_t_del = QPushButton(tr("Remove"))
+        self.btn_t_preset = QPushButton(tr("Band preset"))
+        pm = QMenu(self)
+        for band, lo, hi in IEEE_BANDS:
+            pm.addAction(f"{band}  ({lo:g}–{hi:g} GHz)", lambda lo=lo, hi=hi: self._apply_preset(lo, hi))
+        self.btn_t_preset.setMenu(pm)
+        self.btn_t_add.clicked.connect(lambda: self._add_target(duplicate=False))
+        self.btn_t_dup.clicked.connect(lambda: self._add_target(duplicate=True))
+        self.btn_t_del.clicked.connect(self._remove_target)
+        for b in (self.btn_t_add, self.btn_t_dup, self.btn_t_del):
+            br.addWidget(b)
+        br.addStretch(1)
+        br.addWidget(self.btn_t_preset)
+        tl.addLayout(br)
+        ed = QGridLayout()
+        ed.setHorizontalSpacing(6)
         self.f_min = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="GHz")
         self.f_max = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="GHz")
         self.n_f = QSpinBox()
         self.n_f.setRange(1, 2001)
+        self.n_f.setSuffix(" " + tr("pts"))
         self.a_min = SciSpinBox(minimum=0.0, maximum=89.9, suffix="°")
         self.a_max = SciSpinBox(minimum=0.0, maximum=89.9, suffix="°")
         self.n_a = QSpinBox()
         self.n_a.setRange(1, 181)
+        self.n_a.setSuffix(" " + tr("pts"))
+        self.goal = SciSpinBox(minimum=-200, maximum=0, suffix="dB")
         self.pol_te = QCheckBox("TE")
         self.pol_tm = QCheckBox("TM")
+        self.lbl_goal = QLabel()
+        rows = ((tr("Frequency"), self.f_min, self.f_max, self.n_f),
+                (tr("Angle"), self.a_min, self.a_max, self.n_a))
+        for r, (lab, a, b, n) in enumerate(rows):
+            ed.addWidget(QLabel(lab), r, 0, Qt.AlignRight)
+            ed.addWidget(a, r, 1)
+            ed.addWidget(QLabel("–"), r, 2)
+            ed.addWidget(b, r, 3)
+            ed.addWidget(n, r, 4)
+        ed.addWidget(self.lbl_goal, 2, 0, Qt.AlignRight)
+        ed.addWidget(self.goal, 2, 1)
         pr = QHBoxLayout()
         pr.addWidget(self.pol_te)
         pr.addWidget(self.pol_tm)
         pr.addStretch(1)
-        f.addRow(tr("Frequency from"), self.f_min)
-        f.addRow(tr("to"), self.f_max)
-        f.addRow(tr("Frequency points"), self.n_f)
-        f.addRow(tr("Angle from"), self.a_min)
-        f.addRow(tr("to"), self.a_max)
-        f.addRow(tr("Angle points"), self.n_a)
-        f.addRow(tr("Polarisation"), pr)
+        ed.addLayout(pr, 2, 3, 1, 2)
+        tl.addLayout(ed)
         ll.addWidget(g)
+        self._target_idx = 0
 
         g = QGroupBox(tr("Objective (weighted, normalised terms)"))
         grid = QGridLayout(g)
@@ -216,7 +266,7 @@ class OptimizationPanel(QWidget):
         split.setSizes([520, 560])
         scroll.setMinimumWidth(460)
 
-        for w in (self.f_min, self.f_max, self.a_min, self.a_max, self.w_worst, self.w_mean,
+        for w in (self.f_min, self.f_max, self.a_min, self.a_max, self.goal, self.w_worst, self.w_mean,
                   self.w_thick, self.w_mass, self.rl_ref, self.t_ref, self.m_ref, self.t_max):
             w.valueEdited.connect(self._commit)
         for w in (self.n_f, self.n_a, self.maxiter, self.popsize, self.seed):
@@ -225,20 +275,115 @@ class OptimizationPanel(QWidget):
             w.toggled.connect(self._commit)
         self.refresh()
         self._draw_history()
+        # target edits are settings changes; keep the list and editor in step with the document
+        self.doc.changed.connect(lambda kind: kind == "settings" and self._reload_targets())
+
+    def _reload_targets(self):
+        self._loading = True
+        try:
+            self._refresh_targets()
+        finally:
+            self._loading = False
 
     # -- sync with document --------------------------------------------------
+    # -- targets -----------------------------------------------------------------
+    def target_summary(self, t):
+        pos = self.ctx.rl_positive
+        band = (f"{fmt_num(t.f_min / 1e9, 4)} GHz" if t.f_max <= t.f_min
+                else f"{fmt_num(t.f_min / 1e9, 4)}–{fmt_num(t.f_max / 1e9, 4)} GHz")
+        ang = (f"{t.angle_min:g}°" if t.angle_max <= t.angle_min else f"{t.angle_min:g}–{t.angle_max:g}°")
+        pols = "+".join(t.pols) if t.pols else "—"
+        rel = "≥" if pos else "≤"
+        return f"{band} · {ang} · {pols} · {rel} {rl_display(t.goal_db, pos):g} dB"
+
+    def _selected_target(self):
+        ts = self.doc.project.optimization.targets
+        return ts[self._target_idx] if 0 <= self._target_idx < len(ts) else None
+
+    def _refresh_targets(self):
+        ts = self.doc.project.optimization.targets
+        self._target_idx = min(max(self._target_idx, 0), len(ts) - 1) if ts else -1
+        self.tbl_targets.blockSignals(True)
+        try:
+            self.tbl_targets.setRowCount(len(ts))
+            for r, t in enumerate(ts):
+                chk = QTableWidgetItem()
+                chk.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)
+                chk.setCheckState(Qt.Checked if t.enabled else Qt.Unchecked)
+                chk.setToolTip(tr("Include this target in the optimisation"))
+                self.tbl_targets.setItem(r, 0, chk)
+                it = QTableWidgetItem(self.target_summary(t))
+                it.setToolTip(it.text())
+                self.tbl_targets.setItem(r, 1, it)
+            if self._target_idx >= 0:
+                self.tbl_targets.selectRow(self._target_idx)
+        finally:
+            self.tbl_targets.blockSignals(False)
+        self.btn_t_del.setEnabled(len(ts) > 1)
+        t = self._selected_target()
+        for w in (self.f_min, self.f_max, self.n_f, self.a_min, self.a_max, self.n_a, self.goal,
+                  self.pol_te, self.pol_tm, self.btn_t_dup, self.btn_t_preset):
+            w.setEnabled(t is not None)
+        if t is None:
+            return
+        pos = self.ctx.rl_positive
+        self.f_min.set_value(t.f_min / 1e9)
+        self.f_max.set_value(t.f_max / 1e9)
+        self.n_f.setValue(t.n_f)
+        self.a_min.set_value(t.angle_min)
+        self.a_max.set_value(t.angle_max)
+        self.n_a.setValue(t.n_angle)
+        self.pol_te.setChecked("TE" in t.pols)
+        self.pol_tm.setChecked("TM" in t.pols)
+        self.goal.setRange(*((0, 200) if pos else (-200, 0)))
+        self.goal.set_value(rl_display(t.goal_db, pos))
+        self.lbl_goal.setText(tr("Goal RL (≥)") if pos else tr("Goal RL (≤)"))
+
+    def _on_target_selected(self):
+        rows = self.tbl_targets.selectionModel().selectedRows()
+        if rows and rows[0].row() != self._target_idx:
+            self._target_idx = rows[0].row()
+            self._loading = True
+            try:
+                self._refresh_targets()
+            finally:
+                self._loading = False
+
+    def _on_target_toggled(self, item):
+        if self._loading or item.column() != 0:
+            return
+        r, on = item.row(), item.checkState() == Qt.Checked
+        self.doc.edit_settings(lambda p: setattr(p.optimization.targets[r], "enabled", on))
+
+    def _add_target(self, duplicate):
+        cur = self._selected_target()
+        new = BandTarget.from_dict(cur.to_dict()) if duplicate and cur else \
+            BandTarget(goal_db=self.doc.project.optimization.rl_ref_db)
+        self._target_idx = len(self.doc.project.optimization.targets)
+        self.doc.edit_settings(lambda p: p.optimization.targets.append(new))
+
+    def _remove_target(self):
+        ts = self.doc.project.optimization.targets
+        if len(ts) <= 1 or self._selected_target() is None:
+            return
+        i = self._target_idx
+        self.doc.edit_settings(lambda p: p.optimization.targets.pop(i))
+
+    def _apply_preset(self, lo_ghz, hi_ghz):
+        i = self._target_idx
+        if self._selected_target() is None:
+            return
+
+        def mut(p):
+            t = p.optimization.targets[i]
+            t.f_min, t.f_max = lo_ghz * 1e9, hi_ghz * 1e9
+        self.doc.edit_settings(mut)
+
     def refresh(self):
         s = self.doc.project.optimization
         self._loading = True
         try:
-            self.f_min.set_value(s.f_min / 1e9)
-            self.f_max.set_value(s.f_max / 1e9)
-            self.n_f.setValue(s.n_f)
-            self.a_min.set_value(s.angle_min)
-            self.a_max.set_value(s.angle_max)
-            self.n_a.setValue(s.n_angle)
-            self.pol_te.setChecked("TE" in s.pols)
-            self.pol_tm.setChecked("TM" in s.pols)
+            self._refresh_targets()
             self.w_worst.set_value(s.w_worst)
             self.w_mean.set_value(s.w_mean)
             self.w_thick.set_value(s.w_thickness)
@@ -333,12 +478,17 @@ class OptimizationPanel(QWidget):
             return
         self.t_max.setEnabled(self.chk_tmax.isChecked())
         pols = [p for p, b in (("TE", self.pol_te), ("TM", self.pol_tm)) if b.isChecked()]
+        i = self._target_idx
+        pos = self.ctx.rl_positive
 
         def mut(p):
             s = p.optimization
-            s.f_min, s.f_max, s.n_f = self.f_min.value() * 1e9, self.f_max.value() * 1e9, self.n_f.value()
-            s.angle_min, s.angle_max, s.n_angle = self.a_min.value(), self.a_max.value(), self.n_a.value()
-            s.pols = pols
+            if 0 <= i < len(s.targets):
+                t = s.targets[i]
+                t.f_min, t.f_max, t.n_f = self.f_min.value() * 1e9, self.f_max.value() * 1e9, self.n_f.value()
+                t.angle_min, t.angle_max, t.n_angle = self.a_min.value(), self.a_max.value(), self.n_a.value()
+                t.pols = pols
+                t.goal_db = rl_display(self.goal.value(), pos)
             s.w_worst, s.w_mean = self.w_worst.value(), self.w_mean.value()
             s.w_thickness, s.w_mass = self.w_thick.value(), self.w_mass.value()
             s.rl_ref_db = rl_display(self.rl_ref.value(), self.ctx.rl_positive)
@@ -395,7 +545,7 @@ class OptimizationPanel(QWidget):
         except (OptimizationError, KeyError) as e:
             QMessageBox.warning(self, tr("Cannot start optimisation"), str(e))
             return False
-        f, _ = band_grid(p.optimization)
+        f = target_frequencies(p.optimization)  # enabled targets only
         names = set(p.structure.referenced_materials())
         for c in p.optimization.choices:
             names |= set(c.candidates)
@@ -512,7 +662,16 @@ class OptimizationPanel(QWidget):
 
     def _show_result(self, res):
         p = self.doc.project
-        rows = [(tr("Worst-case RL in band"), self._rl(res.terms.worst_db) + " dB"),
+        per = res.terms.per_target
+        target_rows = []
+        if len(per) > 1:
+            enabled = p.optimization.enabled_targets()
+            for n, (worst, margin) in enumerate(per, start=1):
+                summary = self.target_summary(enabled[n - 1]) if n - 1 < len(enabled) else ""
+                state = (tr("met (margin {m} dB)", m=f"{-margin:.2f}") if margin <= 0
+                         else tr("missed by {m} dB", m=f"{margin:.2f}"))
+                target_rows.append((tr("Target {n}: {s}", n=n, s=summary), f"{self._rl(worst)} dB · {state}"))
+        rows = [(tr("Worst-case RL in band"), self._rl(res.terms.worst_db) + " dB"), *target_rows,
                 (tr("Mean reflectance |Γ|²"), fmt_num(res.terms.mean_r, 4)),
                 (tr("Total thickness"), fmt_num(res.terms.thickness * 1e3, 5) + " mm"),
                 (tr("Areal mass"), fmt_num(res.terms.mass, 4) + " kg/m²"),
@@ -532,8 +691,11 @@ class OptimizationPanel(QWidget):
             rows.append((tr("Layer {i} material", i=idx), name))
         self.tbl_res.setRowCount(len(rows))
         for r, (a, b) in enumerate(rows):
-            self.tbl_res.setItem(r, 0, QTableWidgetItem(a))
+            it = QTableWidgetItem(a)
+            it.setToolTip(f"{a}: {b}")  # the item column is narrow; long target rows elide
+            self.tbl_res.setItem(r, 0, it)
             it = QTableWidgetItem(b)
+            it.setToolTip(f"{a}: {b}")
             it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.tbl_res.setItem(r, 1, it)
 

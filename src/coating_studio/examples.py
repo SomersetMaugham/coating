@@ -5,7 +5,7 @@ from __future__ import annotations
 from coating_studio.core.constants import C0
 from coating_studio.core.structure import Backing, SheetLayer, SlabLayer, Structure
 from coating_studio.project import (
-    ContinuousVariable, MaterialChoice, OptimizationSettings, Project, SweepSettings,
+    BandTarget, ContinuousVariable, MaterialChoice, OptimizationSettings, Project, SweepSettings,
 )
 
 
@@ -84,12 +84,26 @@ def carbon_mixture():
     return p
 
 
+def dual_band_jaumann():
+    """Two-sheet Jaumann against a spec mask: X band at normal incidence and Ku band up to 45°."""
+    p = jaumann2()
+    p.name = "Dual-band Jaumann (X + Ku, oblique)"
+    v = p.optimization.variables
+    p.optimization = OptimizationSettings(
+        targets=[BandTarget(8e9, 12e9, 41, goal_db=-20.0, name="X, normal"),
+                 BandTarget(12e9, 18e9, 31, 0.0, 45.0, 4, ["TE", "TM"], goal_db=-10.0, name="Ku, 0-45°")],
+        variables=v, maxiter=120)
+    p.notes = ("Spec mask with two targets. The optimiser minimises the worst margin (worst RL minus "
+               "goal) over both; the result table shows which target binds.")
+    return p
+
 EXAMPLES = {
     "salisbury": ("Salisbury screen", salisbury),
     "dallenbach": ("Dallenbach layer", dallenbach),
     "jaumann2": ("Two-layer Jaumann", jaumann2),
     "ferrite": ("Ferrite tile", ferrite_tile),
     "carbon": ("Carbon / epoxy mixture", carbon_mixture),
+    "dualband": ("Dual-band Jaumann (X + Ku, oblique)", dual_band_jaumann),
 }
 
 __all__ = ["EXAMPLES", "MaterialChoice"]
