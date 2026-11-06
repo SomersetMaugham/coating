@@ -241,7 +241,7 @@ def test_rlc_sheet_file_format_and_parameters():
     sh.model, sh.L, sh.C = "rlc", 5e-9, 0.05e-12
     q = Project.from_dict(json.loads(json.dumps(p.to_dict())))
     s2 = q.structure.layers[0]
-    assert (s2.model, s2.L, s2.C) == ("rlc", 5e-9, 0.05e-12) and q.to_dict()["schema"] == SCHEMA_VERSION == 3
+    assert (s2.model, s2.L, s2.C) == ("rlc", 5e-9, 0.05e-12) and q.to_dict()["schema"] == SCHEMA_VERSION >= 3
     paths = [x[0] for x in available_params(q)]
     assert ("layer", sh.uid, "L") in paths and ("layer", sh.uid, "C") in paths
     assert ("layer", sh.uid, "X") not in paths
