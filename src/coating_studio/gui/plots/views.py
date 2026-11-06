@@ -150,7 +150,9 @@ class FrequencyView(_SweepSpinMixin, _QuantityMixin, PlotView):
                                 "and absorption tabs."))
 
     def on_rl_sign_changed(self):
-        self.chk_target.setText(tr("10 dB line") if self.ctx.rl_positive else tr("−10 dB line"))
+        # short label: the plot bar must leave room for the navigation toolbar in English at 1440 px
+        self.chk_target.setText("10 dB" if self.ctx.rl_positive else "−10 dB")
+        self.chk_target.setToolTip(tr("10 dB line") if self.ctx.rl_positive else tr("−10 dB line"))
 
     def draw_plot(self, fig):
         res = self.ctx.results.get("freq")

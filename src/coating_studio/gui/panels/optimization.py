@@ -18,6 +18,7 @@ from coating_studio.gui.fmt import fmt_num, from_display, param_label, rl_displa
 from coating_studio.gui.icons import set_button_icon
 from coating_studio.gui.theme import mpl_rc
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
+from coating_studio.gui.widgets.properties import default_lc_bounds
 from coating_studio.gui.workers import OptimizationWorker, start_worker
 from coating_studio.i18n import issue_text, tr
 from coating_studio.materials.checks import check_material
@@ -520,6 +521,8 @@ class OptimizationPanel(QWidget):
             lo, hi = 0.0, min(1.0, max(val * 3, 0.3))
         elif path[-1] == "X":
             lo, hi = val - 500.0, val + 500.0
+        elif path[0] == "layer" and path[-1] in ("L", "C"):
+            lo, hi = default_lc_bounds(path[-1], val)  # ratio 100: searched on a log scale
         elif val > 0:
             lo, hi = val / 4, val * 4
         elif val == 0:

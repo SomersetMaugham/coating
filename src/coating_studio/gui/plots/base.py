@@ -15,8 +15,9 @@ from coating_studio.i18n import tr
 
 
 class _Toolbar(NavigationToolbar2QT):
-    # keep navigation tools; the app provides its own export actions
-    toolitems = [t for t in NavigationToolbar2QT.toolitems if t[0] in ("Home", "Back", "Forward", "Pan", "Zoom")]
+    # Home, pan and zoom only: the app provides its own export actions, and the view-history
+    # Back/Forward buttons are rarely used but cost the room the plot bars need.
+    toolitems = [t for t in NavigationToolbar2QT.toolitems if t[0] in ("Home", "Pan", "Zoom")]
 
     def set_message(self, s):  # coordinates go to the status bar instead
         pass

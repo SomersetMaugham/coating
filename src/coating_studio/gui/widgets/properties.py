@@ -8,11 +8,27 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
+import math
+
 from coating_studio.core.structure import SlabLayer
 from coating_studio.gui.fmt import fmt_num
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
 from coating_studio.i18n import tr
 from coating_studio.project import ContinuousVariable, MaterialChoice
+
+
+def default_lc_bounds(attr, value):
+    """Optimisation bounds for L / C: a decade either side (ratio 100, so the optimiser searches on a
+    log scale), or 0.1-50 nH for an inductance that is still zero."""
+    if value > 0:
+        return value / 10, value * 10
+    return (0.1e-9, 50e-9) if attr == "L" else (0.005e-12, 0.5e-12)
+
+
+def _drop_missing_vars(p, ly):
+    """Remove optimisation variables for parameters the sheet no longer has (model / capacitor change)."""
+    vs = p.optimization.variables
+    vs[:] = [v for v in vs if not (v.path[0] == "layer" and v.path[1] == ly.uid and not ly.has_param(v.path[2]))]
 
 
 class _OptToggle(QCheckBox):
@@ -69,10 +85,28 @@ class PropertiesPanel(QWidget):
 
         self.sp_thick, self.opt_thick, self.row_thick = self._num_row(0.0, 1e6, "mm", "thickness")
         form.addRow(tr("Thickness"), self.row_thick)
-        self.sp_R, self.opt_R, self.row_R = self._num_row(1e-6, 1e9, "Ω/sq", "R")
+        self.cb_model = QComboBox()
+        self.cb_model.addItem(tr("Constant (R + jX)"), "constant")
+        self.cb_model.addItem(tr("Series RLC"), "rlc")
+        self.cb_model.setToolTip(tr("Series RLC: Zs = R + jωL + 1/(jωC), the equivalent circuit of a patterned "
+                                    "(circuit-analog / FSS) layer. The circuit values are normal-incidence "
+                                    "lumped values used for every angle and polarisation - valid for "
+                                    "sub-wavelength unit cells."))
+        self.cb_model.activated.connect(self._on_model)
+        form.addRow(tr("Model"), self.cb_model)
+        self.row_model = self.cb_model
+        self.sp_R, self.opt_R, self.row_R = self._num_row(1e-3, 1e9, "Ω/sq", "R")
         form.addRow(tr("Resistance R"), self.row_R)
         self.sp_X, self.opt_X, self.row_X = self._num_row(-1e9, 1e9, "Ω/sq", "X")
         form.addRow(tr("Reactance X"), self.row_X)
+        self.sp_L, self.opt_L, self.row_L = self._num_row(0.0, 1e6, "nH", "L")
+        form.addRow(tr("Inductance L"), self.row_L)
+        self.chk_C = QCheckBox()  # no text: the row label says "Capacitance C" and the panel is narrow
+        self.chk_C.setToolTip(tr("Capacitor on/off. Without a capacitor the sheet is an inductive grid (R + jωL)."))
+        self.chk_C.toggled.connect(self._on_capacitor)
+        self.sp_C, self.opt_C, self.row_C = self._num_row(1e-9, 1e9, "pF", "C")
+        self.row_C.layout().insertWidget(0, self.chk_C)
+        form.addRow(tr("Capacitance C"), self.row_C)
         self.lbl_info = muted()
         form.addRow("", self.lbl_info)
         self._form = form
@@ -148,8 +182,10 @@ class PropertiesPanel(QWidget):
             if ly is not None:
                 self.ed_name.setText(ly.name)
                 slab = isinstance(ly, SlabLayer)
-                for w, vis in ((self.row_material, slab), (self.row_thick, slab),
-                               (self.row_R, not slab), (self.row_X, not slab)):
+                rlc = not slab and ly.model == "rlc"
+                for w, vis in ((self.row_material, slab), (self.row_thick, slab), (self.row_model, not slab),
+                               (self.row_R, not slab), (self.row_X, not slab and not rlc),
+                               (self.row_L, rlc), (self.row_C, rlc)):
                     w.setVisible(vis)
                     self._form.labelForField(w).setVisible(vis)
                 if slab:
@@ -184,11 +220,23 @@ class PropertiesPanel(QWidget):
                         it.setCheckState(Qt.Checked if n in chosen else Qt.Unchecked)
                         self.lst_cand.addItem(it)
                 else:
+                    self.cb_model.setCurrentIndex(1 if rlc else 0)
                     self.sp_R.set_value(ly.R)
                     self.sp_X.set_value(ly.X)
                     self.opt_R.setChecked(self._has_var("R"))
                     self.opt_X.setChecked(self._has_var("X"))
-                    self.lbl_info.setText(tr("Free-space impedance is 376.7 Ω/sq."))
+                    if rlc:
+                        self.sp_L.set_value(ly.L * 1e9)
+                        self.opt_L.setChecked(self._has_var("L"))
+                        has_c = ly.C is not None
+                        self.chk_C.setChecked(has_c)
+                        self.sp_C.setEnabled(has_c)
+                        self.opt_C.setEnabled(has_c)
+                        self.sp_C.set_value((ly.C if has_c else 0.05e-12) * 1e12)
+                        self.opt_C.setChecked(self._has_var("C"))
+                        self.lbl_info.setText(self._rlc_info(ly, p))
+                    else:
+                        self.lbl_info.setText(tr("Free-space impedance is 376.7 Ω/sq."))
             self.cb_incident.clear()
             self.cb_incident.addItems(names)
             self.cb_incident.setCurrentText(p.structure.incident)
@@ -231,15 +279,63 @@ class PropertiesPanel(QWidget):
         self.doc.edit(tr("Change layer material"),
                       lambda p: setattr(p.structure.layer_by_uid(uid), "material", name))
 
+    _DISPLAY = {"thickness": 1e-3, "L": 1e-9, "C": 1e-12}  # display unit -> SI
+
+    @staticmethod
+    def _rlc_info(ly, p):
+        """f0 · Q · Zs at the angle-sweep frequency, plus a hint when f0 lies outside the sweep."""
+        parts = []
+        f0 = ly.resonance()
+        if f0 is not None:
+            q = math.sqrt(ly.L / ly.C) / ly.R
+            parts.append(tr("f₀ = {f} GHz · Q = {q}", f=fmt_num(f0 / 1e9, 4), q=fmt_num(q, 3)))
+        elif ly.C is None:
+            parts.append(tr("Inductive grid (no resonance)"))
+        else:
+            parts.append(tr("Capacitive, no resonance"))
+        zs = complex(ly.impedance_at([p.sweep.f_at])[0])
+        parts.append(tr("Zs({f} GHz) = {z} Ω/sq", f=fmt_num(p.sweep.f_at / 1e9, 4),
+                        z=f"{zs.real:.4g} {'+' if zs.imag >= 0 else '−'} {abs(zs.imag):.4g}j"))
+        if f0 is not None and not (p.sweep.f_min <= f0 <= p.sweep.f_max):
+            parts.append(tr("f₀ is outside the frequency sweep."))
+        return "\n".join(parts)
+
+    def _on_model(self, _index):
+        if self._loading or self.uid is None:
+            return
+        uid, model = self.uid, self.cb_model.currentData()
+
+        def mut(p):
+            ly = p.structure.layer_by_uid(uid)
+            if ly.model == model:
+                return
+            ly.model = model
+            if model == "rlc" and ly.L == 0 and ly.C is None:
+                ly.L, ly.C = 5e-9, 0.05e-12  # f0 ~ 10 GHz; R is kept
+            _drop_missing_vars(p, ly)
+        self.doc.edit(tr("Change sheet model"), mut)
+
+    def _on_capacitor(self, on):
+        if self._loading or self.uid is None:
+            return
+        uid, c = self.uid, self.sp_C.value() * 1e-12
+
+        def mut(p):
+            ly = p.structure.layer_by_uid(uid)
+            ly.C = (c if c > 0 else 0.05e-12) if on else None
+            _drop_missing_vars(p, ly)
+        self.doc.edit(tr("Toggle sheet capacitor"), mut)
+
     def _on_value(self, attr, v):
         if self._loading or self.uid is None:
             return
         uid = self.uid
-        value = v * 1e-3 if attr == "thickness" else v
-        if attr == "R" and value <= 0:
+        value = v * self._DISPLAY.get(attr, 1.0)
+        if attr in ("R", "C") and value <= 0:
             return
         label = {"thickness": tr("Change thickness"), "R": tr("Change sheet resistance"),
-                 "X": tr("Change sheet reactance")}[attr]
+                 "X": tr("Change sheet reactance"), "L": tr("Change sheet inductance"),
+                 "C": tr("Change sheet capacitance")}[attr]
         self.doc.edit(label, lambda p: setattr(p.structure.layer_by_uid(uid), attr, value),
                       merge_key=("layer", uid, attr))
 
@@ -256,6 +352,8 @@ class PropertiesPanel(QWidget):
             if on:
                 if attr == "X":
                     lo, hi = val - 500.0, val + 500.0
+                elif attr in ("L", "C"):
+                    lo, hi = default_lc_bounds(attr, val)
                 else:
                     lo, hi = (val / 4, val * 4) if val > 0 else ((1e-4, 1e-2) if attr == "thickness" else (10, 3000))
                 vs.append(ContinuousVariable(path, lo, hi))

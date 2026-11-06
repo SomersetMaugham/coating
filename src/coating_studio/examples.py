@@ -97,6 +97,26 @@ def dual_band_jaumann():
                "goal) over both; the result table shows which target binds.")
     return p
 
+def circuit_analog():
+    """Circuit-analog absorber: one series-RLC sheet on a foam spacer over metal."""
+    p = Project(name="Circuit-analog absorber (RLC sheet)")
+    eps_foam = p.materials["PMI foam"].eps_re
+    sheet = SheetLayer(250.0, name="RLC sheet", model="rlc", L=4.0e-9, C=0.08e-12)
+    spacer = SlabLayer("PMI foam", C0 / 9e9 / 4 / eps_foam ** 0.5, name="Spacer")
+    p.structure = Structure(layers=[sheet, spacer], backing=Backing("pec"))
+    p.sweep = SweepSettings(f_min=2e9, f_max=20e9)
+    p.optimization = OptimizationSettings(
+        f_min=5e9, f_max=15e9, n_f=51, maxiter=120,
+        variables=[ContinuousVariable(("layer", sheet.uid, "R"), 50.0, 1000.0),
+                   ContinuousVariable(("layer", sheet.uid, "L"), 0.4e-9, 40e-9),
+                   ContinuousVariable(("layer", sheet.uid, "C"), 0.008e-12, 0.8e-12),
+                   ContinuousVariable(("layer", spacer.uid, "thickness"), 2e-3, 15e-3)])
+    p.notes = ("A patterned lossy layer modelled as a series RLC sheet (normal-incidence equivalent "
+               "circuit). Optimised for 5-15 GHz at about 7.2 mm it reaches a worst-case RL of about "
+               "-14.6 dB (-10 dB band about 4.5-15.9 GHz); a Salisbury screen of the same thickness "
+               "only reaches about -7.5 dB (6.4-13.7 GHz).")
+    return p
+
 EXAMPLES = {
     "salisbury": ("Salisbury screen", salisbury),
     "dallenbach": ("Dallenbach layer", dallenbach),
@@ -104,6 +124,7 @@ EXAMPLES = {
     "ferrite": ("Ferrite tile", ferrite_tile),
     "carbon": ("Carbon / epoxy mixture", carbon_mixture),
     "dualband": ("Dual-band Jaumann (X + Ku, oblique)", dual_band_jaumann),
+    "cara": ("Circuit-analog absorber (RLC sheet)", circuit_analog),
 }
 
 __all__ = ["EXAMPLES", "MaterialChoice"]
