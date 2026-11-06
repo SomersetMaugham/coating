@@ -528,13 +528,22 @@ class MainWindow(QMainWindow):
         lang, theme, rl = dlg.values()
         old_lang = self.settings.language
         self.settings.language, self.settings.theme, self.settings.rl_positive = lang, theme, rl
-        self.rl_positive = rl
         self.colors = resolve(theme)
         self.apply_theme()
-        self.p_opt.refresh()
-        self._update_summary()
+        self.set_rl_positive(rl)
         if lang != old_lang:
             QMessageBox.information(self, APP_NAME, tr("The new language will be used after a restart."))
+
+    def set_rl_positive(self, positive):
+        """Switch the RL display convention everywhere (values stay negative dB internally)."""
+        self.rl_positive = bool(positive)
+        for v in self.views:
+            if hasattr(v, "on_rl_sign_changed"):
+                v.on_rl_sign_changed()
+            v.mark_dirty()
+        self.p_opt.refresh()
+        self.p_tol.refresh()
+        self._update_summary()
 
     def run_optimisation(self):
         self.tabs.setCurrentWidget(self.p_opt)

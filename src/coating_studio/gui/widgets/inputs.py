@@ -49,6 +49,15 @@ class SciSpinBox(QDoubleSpinBox):
         finally:
             self._programmatic = False
 
+    def setRange(self, minimum, maximum):  # noqa: N802 - Qt override
+        # Narrowing the range can clamp the value; that must not look like a user edit.
+        prev = getattr(self, "_programmatic", False)
+        self._programmatic = True
+        try:
+            super().setRange(minimum, maximum)
+        finally:
+            self._programmatic = prev
+
     def textFromValue(self, v):
         return fmt_num(v, self._digits)
 

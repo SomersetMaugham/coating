@@ -148,3 +148,49 @@ def test_material_manager_and_tolerance(app):
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()
+
+
+def test_rl_sign_convention_everywhere(app):
+    """Batch 2 / A: the positive-dB preference reaches every RL input, label and export."""
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.optimize.optimizer import ObjectiveTerms, OptimizationResult
+    from coating_studio.tolerance import ToleranceResult
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["jaumann2"][1]())
+    p = w.project
+    p.optimization.rl_ref_db, p.tolerance.target_db = -20.0, -10.0
+    w.p_opt.result = OptimizationResult(values={}, choices={}, terms=ObjectiveTerms(-23.5, 0.01, 0.01, 1.0, 0.5))
+    w.set_rl_positive(False)
+    assert w.p_opt.rl_ref.value() == -20 and w.p_tol.target.value() == -10
+    assert w.p_opt.tbl_res.item(0, 1).text().startswith("-23.50")
+    w.set_rl_positive(True)
+    # switching the range must not write a clamped value back into the project
+    assert p.optimization.rl_ref_db == -20.0 and p.tolerance.target_db == -10.0
+    assert w.p_opt.rl_ref.value() == 20 and w.p_tol.target.value() == 10
+    assert "≥" in w.p_tol.lbl_target.text() and "positive" in w.p_opt.lbl_rl_hint.text()
+    assert w.p_opt.tbl_res.item(0, 1).text().startswith("23.50")
+    assert w.v_freq.chk_target.text() == "10 dB line"
+    # a user edit in the positive convention is stored as negative dB
+    w.p_opt.rl_ref.setValue(25.0)  # like typing: valueChanged -> valueEdited
+    w.p_tol.target.setValue(15.0)
+    assert p.optimization.rl_ref_db == -25.0 and p.tolerance.target_db == -15.0
+    # tolerance CSV keeps lower <= median <= upper in both conventions
+    import numpy as np
+    f = np.array([8e9, 9e9])
+    w.p_tol.plot.result = ToleranceResult(f=f, nominal_db=np.array([-20., -25.]), median_db=np.array([-19., -24.]),
+                                          lower_db=np.array([-30., -35.]), upper_db=np.array([-12., -15.]),
+                                          worst_db=np.array([]), yield_fraction=0.5, n_samples=10)
+    for pos in (False, True):
+        w.set_rl_positive(pos)
+        _, rows = w.p_tol.plot.data_table()
+        for row in rows:
+            lo, med, hi = float(row[3]), float(row[2]), float(row[4])
+            assert lo <= med <= hi
+        assert (float(rows[0][1]) > 0) == pos
+    w.set_rl_positive(False)
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()

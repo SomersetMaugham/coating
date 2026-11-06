@@ -64,10 +64,14 @@ class FrequencyView(_QuantityMixin, PlotView):
     def __init__(self, ctx, parent=None):
         super().__init__(ctx, parent)
         self._add_quantity_controls()
-        self.chk_target = QCheckBox(tr("−10 dB line"))
+        self.chk_target = QCheckBox()
         self.chk_target.setChecked(True)
         self.chk_target.toggled.connect(lambda _: self.mark_dirty())
         self.controls.insertWidget(self.controls.count() - 1, self.chk_target)
+        self.on_rl_sign_changed()
+
+    def on_rl_sign_changed(self):
+        self.chk_target.setText(tr("10 dB line") if self.ctx.rl_positive else tr("−10 dB line"))
 
     def draw_plot(self, fig):
         res = self.ctx.results.get("freq")
@@ -163,11 +167,16 @@ class MapView(PlotView):
         self.cb_pol.currentIndexChanged.connect(lambda _: self.mark_dirty())
         self.controls.addWidget(QLabel(tr("Polarisation")))
         self.controls.addWidget(self.cb_pol)
-        self.chk_contour = QCheckBox(tr("−10 / −20 dB contours"))
+        self.chk_contour = QCheckBox()
         self.chk_contour.setChecked(True)
         self.chk_contour.toggled.connect(lambda _: self.mark_dirty())
         self.controls.addWidget(self.chk_contour)
         self.controls.addStretch(1)
+        self.on_rl_sign_changed()
+
+    def on_rl_sign_changed(self):
+        self.chk_contour.setText(tr("10 / 20 dB contours") if self.ctx.rl_positive
+                                 else tr("−10 / −20 dB contours"))
 
     def draw_plot(self, fig):
         res = self.ctx.results.get("map")

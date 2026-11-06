@@ -119,6 +119,7 @@ KO.update({
     "Incidence angle [°]": "입사각 [°]", "f = {f} GHz": "f = {f} GHz",
     "θ = {a}°, value = {v}": "θ = {a}°, 값 = {v}", "Polarisation": "편파",
     "−10 / −20 dB contours": "−10 / −20 dB 등고선",
+    "10 / 20 dB contours": "10 / 20 dB 등고선", "10 dB line": "10 dB 기준선",
     "f = {f} GHz, θ = {a}°, RL = {v} dB": "f = {f} GHz, θ = {a}°, RL = {v} dB",
     "Γ locus over the frequency sweep; ● start, ■ stop": "주파수 스윕에 따른 Γ 궤적 (● 시작, ■ 끝)",
     "Γ = {g}, z = {z}": "Γ = {g}, z = {z}", "Transmitted": "투과", "Reflected": "반사",
@@ -135,6 +136,8 @@ KO.update({
     "Total thickness": "총 두께", "Areal mass": "면밀도", "Thickness limit": "두께 상한",
     "Each term is divided by its reference so weights are comparable; RL is in dB (negative = good).":
         "각 항목을 기준값으로 나눠 가중치를 서로 비교할 수 있게 합니다. RL은 dB 단위입니다(음수일수록 우수).",
+    "Each term is divided by its reference so weights are comparable; RL is in dB (positive = good).":
+        "각 항목을 기준값으로 나눠 가중치를 서로 비교할 수 있게 합니다. RL은 dB 단위입니다(양수일수록 우수).",
     "Variables": "변수", "Parameter": "파라미터", "Current": "현재값", "Lower": "하한", "Upper": "상한",
     "Add": "추가", "(missing) ": "(없음) ", "Remove variable": "변수 제거",
     "Layer {i}: {n} candidates": "{i}층: 후보 {n}개",
@@ -179,10 +182,11 @@ KO.update({
     "Per-layer tolerances (%)": "층별 공차 (%)", "Blank cells use the default tolerance.":
         "빈 칸은 기본 공차를 사용합니다.", "Evaluation": "평가", "Custom yield band": "수율 대역 직접 지정",
     "Target RL (≤)": "목표 RL (≤)", "Band from": "대역 시작",
-    "Yield = share of samples whose worst RL in the band meets the target (target in the negative-dB "
-    "convention). Without a custom band the optimisation target band is used.":
-        "수율 = 대역 내 최악 RL이 목표를 만족하는 표본의 비율입니다(목표는 음수 dB 기준). 대역을 직접 "
-        "지정하지 않으면 최적화 목표 대역을 사용합니다.",
+    "Yield = share of samples whose worst RL in the band meets the target. "
+    "Without a custom band the optimisation target band is used.":
+        "수율 = 대역 내 최악 RL이 목표를 만족하는 표본의 비율입니다. 대역을 직접 지정하지 않으면 "
+        "최적화 목표 대역을 사용합니다.",
+    "Target RL (≥)": "목표 RL (≥)",
     "Run analysis": "분석 실행", "Change layer tolerance": "층 공차 변경",
     "Tolerance analysis: yield {y:.1f}% of {n} samples": "공차 분석: 표본 {n}개 중 수율 {y:.1f}%",
     "Tolerance analysis failed": "공차 분석 실패",
