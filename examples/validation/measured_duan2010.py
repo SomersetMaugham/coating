@@ -22,15 +22,16 @@ from scipy.optimize import least_squares
 
 from coating_studio.core import C0, SlabLayer, Structure, solve
 from coating_studio.materials import ConstantMaterial, TabulatedMaterial
+from coating_studio.materials.csvio import load_csv
 
 HERE = Path(__file__).parent
 F = np.linspace(2e9, 18e9, 3201)
 
-raw = np.genfromtxt(HERE / "data" / "duan2010" / "duan_fig3_fig4_digitised.csv",
-                    delimiter=",", comments="#", skip_header=2)
-FG = raw[:, 0]
+_RAW = load_csv(HERE / "data" / "duan2010" / "duan_fig3_fig4_digitised.csv")
+FG = _RAW.f / 1e9
 # remove digitising ripple: cubic fit in log f per column
-SMOOTH = [np.polyval(np.polyfit(np.log(FG), raw[:, c], 3), np.log(FG)) for c in range(1, 5)]
+SMOOTH = [np.polyval(np.polyfit(np.log(FG), col, 3), np.log(FG))
+          for col in (_RAW.eps_re, _RAW.eps_loss, _RAW.mu_re, _RAW.mu_loss)]
 
 
 def rl_db(a, b, d):

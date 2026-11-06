@@ -1,4 +1,7 @@
-# Duan et al., Bull. Mater. Sci. 33 (2010) 633, Figs. 3-4, digitised (carbonyl iron, coaxial method)
+# Source: Y. Duan, G. Li, L. Liu, S. Liu, "Electromagnetic properties of carbonyl iron and their microwave
+# absorbing characterization as filler in silicone rubber", Bull. Mater. Sci. 33(5), 633-636 (2010),
+# doi:10.1007/s12034-010-0096-7, full text: https://www.ias.ac.in/article/fulltext/boms/033/05/0633-0636
+# Values digitised from Figs. 3-4 (carbonyl iron, coaxial method) for validation; credit to the authors.
 f [GHz], eps', eps'', mu', mu''
 2,37.35,17.1,2.179,1.122
 2.25,37.35,17,2.179,1.106

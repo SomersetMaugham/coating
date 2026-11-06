@@ -1,4 +1,6 @@
-# Kumar et al., AIP Adv. 11, 015311 (2021), Fig. 4, sample UMix, digitised by colour
+# Source: S. Kumar, N. N. Ghosh, R. Chatterjee, "Influence of varying particle sizes on microwave absorbing
+# properties of U-type hexaferrites and development of broadband microwave absorber", AIP Advances 11, 015311
+# (2021), doi:10.1063/9.0000056, licensed CC BY 4.0. Sample UMix, values digitised from Fig. 4 for validation.
 f [GHz], eps', eps'', mu', mu''
 2.00,8.4198,1.4897,1.3481,0.2784
 2.25,8.4198,1.4897,1.3481,0.2784

@@ -37,8 +37,11 @@ measurements. Run them from the repository root after `pip install -e ".[dev]"`.
 |---|---|---|
 | `data/laird/MF-*.csv` | ε′, ε″ (K′, K″), μ′, μ″ (M′, M″) at 1, 3, 8.6, 10, 18 GHz, transcribed | [Laird Eccosorb MF datasheet RFP-DS-MF 092115](https://www.laird.com/sites/default/files/2021-01/RFP-DS-MF%20092115.pdf), p. 3. Typical values, not a specification. |
 | `data/kumar2021/kumar_*.csv` | ε, μ digitised from Fig. 4 at 0.25 GHz steps | S. Kumar, N. N. Ghosh, R. Chatterjee, *AIP Advances* **11**, 015311 (2021), [doi:10.1063/9.0000056](https://doi.org/10.1063/9.0000056), CC BY 4.0 |
-| `data/duan2010/duan_fig3_fig4_digitised.csv` | ε, μ digitised from Figs. 3–4 | Y. Duan, G. Li, L. Liu, S. Liu, *Bull. Mater. Sci.* **33**, 633 (2010), [doi:10.1007/s12034-010-0096-7](https://doi.org/10.1007/s12034-010-0096-7) |
+| `data/duan2010/duan_fig3_fig4_digitised.csv` | ε, μ digitised from Figs. 3–4 | Y. Duan, G. Li, L. Liu, S. Liu, *Bull. Mater. Sci.* **33**, 633 (2010), [doi:10.1007/s12034-010-0096-7](https://doi.org/10.1007/s12034-010-0096-7); open full text at [ias.ac.in](https://www.ias.ac.in/article/fulltext/boms/033/05/0633-0636) |
 | `digitize/` | The scripts that produced the digitised CSVs | Need the figure images from the papers, which are not redistributed |
 
 Digitising accuracy is about one pixel: ±0.006 in ε′ and ±0.002 in μ″ for Kumar, and ±0.1 in ε and
 ±0.03 in μ for Duan. Where a legend or another curve hides a curve, the gap is linearly interpolated.
+
+The digitised and transcribed values are reproduced only to check the solver, with full credit to the
+original authors and to Laird. Please cite the original sources when you reuse them.
