@@ -43,7 +43,9 @@ def _draw(rng, dist, tol, n):
 
 def run_tolerance(project: Project, f, settings: ToleranceSettings | None = None,
                   band=None, progress=None) -> ToleranceResult:
-    """``band`` = (f_lo, f_hi) for the yield criterion (defaults to all of ``f``)."""
+    """``band`` = (f_lo, f_hi) or a list of such intervals for the yield criterion (default: all of
+    ``f``).  Several intervals are combined as a union, so the gap between disjoint target bands
+    does not count against the yield."""
     s = settings or project.tolerance
     f = np.asarray(f, dtype=float)
     rng = np.random.default_rng(s.seed)
@@ -80,7 +82,10 @@ def run_tolerance(project: Project, f, settings: ToleranceSettings | None = None
     if band is None:
         mask = np.ones(f.shape, dtype=bool)
     else:
-        mask = (f >= band[0]) & (f <= band[1])
+        intervals = band if np.ndim(band) == 2 else [band]
+        mask = np.zeros(f.shape, dtype=bool)
+        for lo, hi in intervals:
+            mask |= (f >= lo) & (f <= hi)
         if not mask.any():
             mask = np.ones(f.shape, dtype=bool)
     worst = arr[:, mask].max(axis=1)

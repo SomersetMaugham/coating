@@ -2,14 +2,17 @@
 
 Objective (all terms dimensionless, normalised by user reference values)::
 
-    J = w_worst * RL_worst / |RL_ref|          (RL in dB, negative is better)
-      + w_mean  * mean(|Gamma|^2) / 10^(RL_ref/10)
+    J = w_worst * (max_i margin_i + RL_ref) / |RL_ref|      (RL in dB, negative is better)
+      + w_mean  * (1/K) sum_i mean_i(|Gamma|^2) / 10^(goal_i/10)
       + w_thick * thickness / thickness_ref
       + w_mass  * areal_mass / mass_ref
       + penalty(thickness > thickness_max)
 
-RL_worst is the maximum of 20log10|Gamma| over the frequency x angle x
-polarisation grid.  Global search: SciPy differential evolution.  When the
+The spec is a list of K enabled targets (frequency band x angle range x polarisations, each with a
+required level goal_i).  margin_i = worst_i - goal_i, where worst_i is the maximum of 20log10|Gamma|
+over target i's grid; margin <= 0 means the target is met, and the optimiser minimises the worst
+margin.  With one target whose goal equals RL_ref this is exactly the schema-1 objective
+(w_worst * RL_worst / |RL_ref|, w_mean * mean|Gamma|^2 / 10^(RL_ref/10)).  Global search: SciPy differential evolution.  When the
 number of material combinations is small (<= MAX_ENUMERATED_COMBOS) every
 combination is optimised separately (no artificial ordering of materials);
 otherwise candidates are ordered by wave impedance at the band centre and
@@ -47,15 +50,18 @@ class _Stop(Exception):
 
 @dataclass
 class ObjectiveTerms:
-    worst_db: float
+    worst_db: float  # worst RL of the binding target (the one with the largest margin)
     mean_r: float
     thickness: float  # m
     mass: float  # kg/m^2
     objective: float
+    margin_db: float = math.nan  # largest worst-minus-goal over the targets (<= 0: all met)
+    per_target: tuple = ()  # ((worst_db, margin_db), ...) for the enabled targets, in order
 
     def as_dict(self):
         return {"worst_db": self.worst_db, "mean_r": self.mean_r, "thickness": self.thickness,
-                "mass": self.mass, "objective": self.objective}
+                "mass": self.mass, "objective": self.objective, "margin_db": self.margin_db,
+                "per_target": [list(t) for t in self.per_target]}
 
 
 @dataclass
@@ -71,12 +77,28 @@ class OptimizationResult:
 
 
 def band_grid(s: OptimizationSettings):
-    f = np.linspace(s.f_min, s.f_max, max(int(s.n_f), 1)) if s.f_max > s.f_min else np.array([s.f_min])
-    if s.n_angle > 1 and s.angle_max > s.angle_min:
-        th = np.linspace(s.angle_min, s.angle_max, int(s.n_angle))
-    else:
-        th = np.array([s.angle_min])
-    return f, th
+    """Grid of the first enabled target (kept for callers of the single-band API)."""
+    targets = s.enabled_targets() or s.targets
+    return targets[0].grid()
+
+
+def target_frequencies(s: OptimizationSettings):
+    """All frequencies the enabled targets evaluate (sorted, unique) - e.g. for material checks."""
+    fs = [t.grid()[0] for t in s.enabled_targets()]
+    return np.unique(np.concatenate(fs)) if fs else np.array([])
+
+
+class _Group:
+    """Enabled targets sharing one frequency grid are solved together (union of angles and pols)."""
+
+    def __init__(self, f):
+        self.f = f
+        self.members = []  # (target index, target, angles)
+
+    def finish(self):
+        self.th = np.unique(np.concatenate([m[2] for m in self.members]))
+        self.pols = tuple(p for p in ("TE", "TM") if any(p in m[1].pols for m in self.members))
+        self.slices = [(i, t, np.searchsorted(self.th, th)) for i, t, th in self.members]
 
 
 class Evaluator:
@@ -85,37 +107,72 @@ class Evaluator:
     def __init__(self, project: Project, settings: OptimizationSettings):
         self.p = project.copy()
         self.s = settings
-        self.f, self.th = band_grid(settings)
-        self.pols = tuple(settings.pols) or ("TE", "TM")
+        self.targets = settings.enabled_targets()
+        groups = {}
+        for i, t in enumerate(self.targets):
+            f, th = t.grid()
+            g = groups.setdefault((t.f_min, t.f_max, len(f)), _Group(f))
+            g.members.append((i, t, th))
+        self.groups = list(groups.values())
+        for g in self.groups:
+            g.finish()
+        # dB shift that turns each target's worst RL into "margin + RL_ref"; exactly 0 when the goal
+        # equals the RL reference (schema-1 projects), so their objective is bit-for-bit unchanged.
+        self.shift = [s_ if (s_ := settings.rl_ref_db - t.goal_db) != 0 else 0.0 for t in self.targets]
         self.n_evals = 0
+
+    def _per_target_db(self):
+        """[(dB array over the target's own grid, R array)] in target order."""
+        out = [None] * len(self.targets)
+        for g in self.groups:
+            res = solve(self.p.structure, self.p.materials, g.f, g.th, pols=g.pols)
+            for i, t, idx in g.slices:
+                r = np.stack([res.pol[k].R[:, idx] for k in t.pols])
+                out[i] = (10 * np.log10(np.maximum(r, 1e-30)), r)
+        return out
 
     def terms(self, smooth=False) -> ObjectiveTerms:
         s = self.s
         self.n_evals += 1
+        k = len(self.targets)
         try:
-            res = solve(self.p.structure, self.p.materials, self.f, self.th, pols=self.pols)
-            r = np.stack([res.pol[k].R for k in self.pols])
-            db = 10 * np.log10(np.maximum(r, 1e-30))
-            worst = float(SMOOTH_DB * logsumexp(db / SMOOTH_DB)) if smooth else float(db.max())
-            mean_r = float(r.mean())
+            data = self._per_target_db()
+            true_worst = [float(db.max()) for db, _ in data]
+            if smooth:
+                # Smooth max per target; with several targets remove the grid-size bias
+                # (SMOOTH*ln N) so a dense angle grid does not outweigh a single-angle target.
+                sm = [float(SMOOTH_DB * logsumexp(db / SMOOTH_DB)) - (SMOOTH_DB * math.log(db.size) if k > 1 else 0.0)
+                      for db, _ in data]
+            else:
+                sm = true_worst
+            vals = [w + sh for w, sh in zip(sm, self.shift)]
+            worst_term = vals[0] if k == 1 else (float(SMOOTH_DB * logsumexp(np.array(vals) / SMOOTH_DB))
+                                                 if smooth else max(vals))
+            means = [float(r.mean()) for _, r in data]
+            mean_r = float(np.mean(means))
+            mean_term = float(np.mean([m / 10 ** (t.goal_db / 10) for m, t in zip(means, self.targets)]))
             thick = self.p.structure.total_thickness()
             mass = self.p.areal_mass()
         except (SolverError, OutOfRangeError, MaterialCycleError, KeyError, FloatingPointError):
             return ObjectiveTerms(math.nan, math.nan, math.nan, math.nan, INVALID)
-        if not np.isfinite(worst):
-            return ObjectiveTerms(worst, mean_r, thick, mass, INVALID)
+        margins = [w - t.goal_db for w, t in zip(true_worst, self.targets)]
+        b = int(np.argmax(margins))
+        worst = true_worst[b]
+        per = tuple(zip(true_worst, margins))
+        if not np.isfinite(worst_term):
+            return ObjectiveTerms(worst, mean_r, thick, mass, INVALID, margins[b], per)
         j = 0.0
         if s.w_worst:
-            j += s.w_worst * worst / max(abs(s.rl_ref_db), 1e-9)
+            j += s.w_worst * worst_term / max(abs(s.rl_ref_db), 1e-9)
         if s.w_mean:
-            j += s.w_mean * mean_r / 10 ** (s.rl_ref_db / 10)
+            j += s.w_mean * mean_term
         if s.w_thickness:
             j += s.w_thickness * thick / max(s.thickness_ref, 1e-12)
         if s.w_mass:
             j += s.w_mass * mass / max(s.mass_ref, 1e-12)
         if s.thickness_max and thick > s.thickness_max:
             j += 10.0 + 100.0 * (thick / s.thickness_max - 1.0)
-        return ObjectiveTerms(worst, mean_r, thick, mass, float(j))
+        return ObjectiveTerms(worst, mean_r, thick, mass, float(j), margins[b], per)
 
 
 class _Space:
@@ -139,10 +196,22 @@ class _Space:
 def validate_settings(project: Project, s: OptimizationSettings):
     if not s.variables and not s.choices:
         raise OptimizationError("no optimisation variables selected")
-    if s.f_max < s.f_min or s.f_min <= 0:
-        raise OptimizationError("invalid frequency band")
-    if not s.pols:
-        raise OptimizationError("select at least one polarisation")
+    targets = s.enabled_targets()
+    if not targets:
+        raise OptimizationError("no enabled optimisation target")
+    for n, t in enumerate(s.targets, start=1):
+        if not t.enabled:
+            continue
+        if t.f_max < t.f_min or t.f_min <= 0:
+            raise OptimizationError(f"target {n}: invalid frequency band")
+        if not (0 <= t.angle_min <= t.angle_max < 90):
+            raise OptimizationError(f"target {n}: invalid angle range")
+        if int(t.n_f) < 1 or int(t.n_angle) < 1:
+            raise OptimizationError(f"target {n}: need at least one point")
+        if not t.pols or any(p not in ("TE", "TM") for p in t.pols):
+            raise OptimizationError(f"target {n}: select at least one polarisation")
+        if not math.isfinite(t.goal_db):
+            raise OptimizationError(f"target {n}: invalid goal")
     if s.w_worst == s.w_mean == s.w_thickness == s.w_mass == 0:
         raise OptimizationError("all objective weights are zero")
     for v in s.variables:
@@ -246,7 +315,8 @@ def optimize(project: Project, settings: OptimizationSettings | None = None, pro
                     x0=x_start, callback=de_callback, tol=1e-6, atol=1e-9, updating="immediate")
         else:
             # Ordered integer encoding of materials (by wave impedance at the band centre).
-            fc = math.sqrt(s.f_min * s.f_max)
+            iv = s.frequency_intervals()
+            fc = math.sqrt(min(a for a, _ in iv) * max(b for _, b in iv))  # centre of the spec envelope
             ordered = [sorted(c, key=lambda n: _impedance_at(project, n, fc)) for c in candidate_lists]
             state["n_combos"] = 1
             state["combo"] = 1
