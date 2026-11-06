@@ -373,8 +373,7 @@ class MainWindow(QMainWindow):
     # =====================================================================
     # computation
     def _f_grid(self, n):
-        s = self.project.sweep
-        return np.geomspace(s.f_min, s.f_max, n) if s.log_f else np.linspace(s.f_min, s.f_max, n)
+        return self.project.sweep.freq_grid(n)
 
     def recompute(self):
         p = self.project
@@ -386,10 +385,9 @@ class MainWindow(QMainWindow):
             if problems:
                 raise SolverError("; ".join(problems))
             self.results["freq"] = solve(p.structure, p.materials, self._f_grid(s.n_f), s.angle)
-            self.results["angle"] = solve(p.structure, p.materials, [s.f_at],
-                                          np.linspace(s.angle_min, s.angle_max, s.n_angle))
+            self.results["angle"] = solve(p.structure, p.materials, [s.f_at], s.angle_grid())
             self.results["map"] = solve(p.structure, p.materials, self._f_grid(s.map_n_f),
-                                        np.linspace(s.angle_min, s.angle_max, s.map_n_angle))
+                                        s.angle_grid(s.map_n_angle))
         except (SolverError, OutOfRangeError, MaterialCycleError, KeyError, ValueError) as e:
             self.results = {}
             self.result_error = tr("Cannot compute: {e}", e=e)
