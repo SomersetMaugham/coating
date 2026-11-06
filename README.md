@@ -46,7 +46,9 @@ can be added later without rewriting it.
   - Any numeric parameter can be a variable, including dispersion parameters and the volume fraction of a mixture.
   - Each layer's material can be **chosen from a list of candidates**. Small candidate sets are searched exhaustively.
 - **Tolerance analysis.**
-  - Monte-Carlo perturbation of thickness, ε, μ and sheet impedance, set globally or per layer.
+  - Monte-Carlo perturbation of thickness, ε′, ε″, μ′, μ″ and sheet impedance, set globally or per layer.
+    The loss parts vary independently of the real parts (so tan δ varies too), or follow them (tan δ fixed);
+    RLC sheets vary R, L and C independently.
   - Shows a percentile band and the manufacturing yield.
 - **Interface.**
   - Undo/redo for edits to the layer stack and materials.

@@ -18,7 +18,8 @@ from coating_studio.gui.widgets.inputs import SciSpinBox, muted
 from coating_studio.gui.workers import ToleranceWorker, start_worker
 from coating_studio.i18n import tr
 
-_KEYS = ("thickness", "eps", "mu", "sheet")
+_KEYS = ("thickness", "eps", "eps_loss", "mu", "mu_loss", "sheet")
+_LOSS_BASE = {"eps_loss": "eps", "mu_loss": "mu"}
 
 
 def yield_intervals(p):
@@ -134,22 +135,42 @@ class TolerancePanel(QWidget):
         f = QFormLayout(g)
         f.setLabelAlignment(Qt.AlignRight)
         self.d = {}
-        for key, lab in (("thickness", tr("Thickness")), ("eps", tr("Permittivity ε")),
-                         ("mu", tr("Permeability μ")), ("sheet", tr("Sheet impedance"))):
+        self.follow = {}
+        rows = (("thickness", tr("Thickness")), ("eps", tr("Permittivity ε′")), ("eps_loss", tr("Dielectric loss ε″")),
+                ("mu", tr("Permeability μ′")), ("mu_loss", tr("Magnetic loss μ″")), ("sheet", tr("Sheet impedance")))
+        for key, lab in rows:
             sp = SciSpinBox(minimum=0, maximum=100, suffix="%")
             self.d[key] = sp
-            f.addRow(lab, sp)
+            if key in _LOSS_BASE:
+                # checked = the loss follows the real part (one factor on the complex value, tan δ fixed)
+                chk = QCheckBox(tr("Follow ε′") if key == "eps_loss" else tr("Follow μ′"))
+                chk.setToolTip(tr("Scale the loss with the same factor as the real part (fixed tan δ) "
+                                  "instead of varying it independently."))
+                self.follow[key] = chk
+                row = QHBoxLayout()
+                row.setContentsMargins(0, 0, 0, 0)
+                row.addWidget(sp, 1)
+                row.addWidget(chk)
+                f.addRow(lab, row)
+            else:
+                f.addRow(lab, sp)
+        f.addRow(muted(tr("ε″ and μ″ vary independently of ε′ and μ′, so the loss tangent varies too. A "
+                          "relative tolerance has no effect where the nominal loss is zero.")))
         ll.addWidget(g)
 
         g = QGroupBox(tr("Per-layer tolerances (%)"))
         gl = QVBoxLayout(g)
-        self.tbl = QTableWidget(0, 5)
-        self.tbl.setHorizontalHeaderLabels([tr("Layer"), tr("Thickness"), "ε", "μ", tr("Sheet")])
+        self.tbl = QTableWidget(0, 1 + len(_KEYS))
+        self.tbl.setHorizontalHeaderLabels([tr("Layer"), tr("Thickness"), "ε′", "ε″", "μ′", "μ″", tr("Sheet")])
+        for c, tip in enumerate((tr("Thickness"), tr("Permittivity ε′"), tr("Dielectric loss ε″"),
+                                 tr("Permeability μ′"), tr("Magnetic loss μ″"), tr("Sheet impedance")), start=1):
+            self.tbl.horizontalHeaderItem(c).setToolTip(tip)
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.setSelectionMode(QAbstractItemView.NoSelection)
         th = self.tbl.horizontalHeader()
         th.setSectionResizeMode(0, QHeaderView.Stretch)
-        for c in range(1, 5):  # fit the header text ("Thickness" was clipped at a fixed 58 px)
+        th.setMinimumSectionSize(32)
+        for c in range(1, 1 + len(_KEYS)):  # fit the header text ("Thickness" was clipped at a fixed 58 px)
             th.setSectionResizeMode(c, QHeaderView.ResizeToContents)
         self.tbl.setMinimumHeight(120)
         gl.addWidget(self.tbl)
@@ -210,6 +231,8 @@ class TolerancePanel(QWidget):
         self.chk_band.toggled.connect(self._commit)
         for w in list(self.d.values()) + [self.target, self.angle, self.b_lo, self.b_hi]:
             w.valueEdited.connect(self._commit)
+        for chk in self.follow.values():
+            chk.toggled.connect(self._commit)
         self.tbl.itemChanged.connect(self._on_cell)
         self.refresh()
 
@@ -223,7 +246,14 @@ class TolerancePanel(QWidget):
             self.dist.setCurrentIndex(0 if s.distribution == "normal" else 1)
             self.seed.setValue(-1 if s.seed is None else s.seed)
             for k, sp in self.d.items():
-                sp.set_value(getattr(s, k) * 100)
+                val = getattr(s, k)
+                if k in _LOSS_BASE:
+                    follows = val is None
+                    self.follow[k].setChecked(follows)
+                    sp.setEnabled(not follows)
+                    if follows:
+                        val = getattr(s, _LOSS_BASE[k])  # shows the factor the loss follows
+                sp.set_value(val * 100)
             pos = self.ctx.rl_positive
             self.target.setRange(*((0, 200) if pos else (-200, 0)))
             self.target.set_value(rl_display(s.target_db, pos))
@@ -263,6 +293,8 @@ class TolerancePanel(QWidget):
         band = self.chk_band.isChecked()
         self.b_lo.setEnabled(band)
         self.b_hi.setEnabled(band)
+        for k, chk in self.follow.items():
+            self.d[k].setEnabled(not chk.isChecked())
 
         def mut(p):
             s = p.tolerance
@@ -270,7 +302,8 @@ class TolerancePanel(QWidget):
             s.distribution = self.dist.currentData()
             s.seed = None if self.seed.value() < 0 else self.seed.value()
             for k, sp in self.d.items():
-                setattr(s, k, sp.value() / 100)
+                follows = k in _LOSS_BASE and self.follow[k].isChecked()
+                setattr(s, k, None if follows else sp.value() / 100)
             s.target_db = rl_display(self.target.value(), self.ctx.rl_positive)
             s.angle = self.angle.value()
             s.pol = self.pol.currentData()

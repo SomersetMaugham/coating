@@ -84,7 +84,7 @@ def test_review_fixes(app):
     assert "(" not in w.d_msgs.windowTitle()  # info notes are not counted as problems
     hdr = w.p_tol.tbl.horizontalHeader()
     fm = hdr.fontMetrics()
-    for c in range(1, 5):
+    for c in range(1, w.p_tol.tbl.columnCount()):
         label = w.p_tol.tbl.horizontalHeaderItem(c).text()
         assert hdr.sectionSize(c) >= fm.horizontalAdvance(label), label
     dlg = MaterialManager(w.doc, w)
@@ -491,6 +491,40 @@ def test_rlc_sheet_editing(app):
     assert dup.model == "rlc" and dup.L == new.L and dup.C == new.C and dup.uid != new.uid
     w.recompute()
     assert w.results.get("freq") is not None, w.result_error
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()
+
+
+def test_loss_tolerance_panel(app):
+    """Independent ε″/μ″ tolerances: default rows with Follow checkboxes and a 7-column table."""
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.project import Project
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["dallenbach"][1]())
+    pt, s = w.p_tol, w.project.tolerance
+    assert s.eps_loss == 0.10 and not pt.follow["eps_loss"].isChecked() and pt.d["eps_loss"].value() == 10
+    pt.d["eps_loss"].setValue(20.0)  # user edit
+    assert s.eps_loss == pytest.approx(0.20)
+    pt.follow["eps_loss"].setChecked(True)  # follow eps': back to the correlated model
+    assert s.eps_loss is None and not pt.d["eps_loss"].isEnabled()
+    assert pt.d["eps_loss"].value() == pytest.approx(s.eps * 100)  # shows the factor it follows
+    pt.follow["eps_loss"].setChecked(False)
+    assert s.eps_loss == pytest.approx(s.eps) and pt.d["eps_loss"].isEnabled()
+    # a schema-3 project (no loss keys) opens in the correlated mode with both boxes checked
+    d = EXAMPLES["dallenbach"][1]().to_dict()
+    d["tolerance"].pop("eps_loss")
+    d["tolerance"].pop("mu_loss")
+    w.doc.set_project(Project.from_dict(d))
+    assert pt.follow["eps_loss"].isChecked() and pt.follow["mu_loss"].isChecked()
+    # 7-column per-layer table; a loss cell overrides one layer
+    assert pt.tbl.columnCount() == 7 and pt.tbl.horizontalHeaderItem(3).text() == "ε″"
+    pt.tbl.item(0, 3).setText("25")
+    uid = w.project.structure.layers[0].uid
+    assert w.project.tolerance.per_layer[uid]["eps_loss"] == pytest.approx(0.25)
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()

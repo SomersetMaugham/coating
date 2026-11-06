@@ -130,6 +130,15 @@ KO.update({
     "Show or hide the diagnostics panel": "진단 패널 보이기/숨기기",
     "No problems": "문제 없음", "1 problem": "문제 1개", "{n} problems": "문제 {n}개",
     "1 note": "참고 1개", "{n} notes": "참고 {n}개",
+    # independent loss tolerances
+    "Permittivity ε′": "유전율 ε′", "Dielectric loss ε″": "유전 손실 ε″", "Permeability μ′": "투자율 μ′",
+    "Magnetic loss μ″": "자성 손실 μ″", "Follow ε′": "ε′ 연동", "Follow μ′": "μ′ 연동",
+    "Scale the loss with the same factor as the real part (fixed tan δ) instead of varying it independently.":
+        "손실을 독립적으로 바꾸지 않고 실수부와 같은 비율로 바꿉니다(tan δ 고정).",
+    "ε″ and μ″ vary independently of ε′ and μ′, so the loss tangent varies too. A relative tolerance has no "
+    "effect where the nominal loss is zero.":
+        "ε″과 μ″은 ε′, μ′과 독립적으로 변하므로 손실 탄젠트(tan δ)도 함께 변합니다. 공칭 손실이 0이면 상대 "
+        "공차는 효과가 없습니다.",
     # RLC sheets
     "Model": "모델", "Constant (R + jX)": "상수 (R + jX)", "Series RLC": "직렬 RLC", "RLC sheet": "RLC 시트",
     "Inductance L": "인덕턴스 L", "Capacitance C": "커패시턴스 C", "none": "없음",
