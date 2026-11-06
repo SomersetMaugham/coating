@@ -73,12 +73,15 @@ class PlotView(QWidget):
         with matplotlib.rc_context(mpl_rc(c)):
             self.fig.clear()
             self.fig.set_facecolor(c.base)
+            level = "error"
             try:
                 msg = self.draw_plot(self.fig)
+                if isinstance(msg, tuple):  # (message, "warn"): the plot is drawn, something is off
+                    msg, level = msg
             except Exception as e:  # noqa: BLE001 - never let a plot crash the UI
                 self.fig.clear()
                 msg = tr("Cannot draw this plot: {err}", err=str(e))
-            self.set_banner(msg)
+            self.set_banner(msg, level)
         self.canvas.draw_idle()
 
     def set_banner(self, msg, level="error"):

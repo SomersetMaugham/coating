@@ -541,6 +541,7 @@ class OptimizationPanel(QWidget):
         if not self.result:
             return
         res = self.result
+        self._pin_before()
         try:
             self.doc.edit(tr("Apply optimisation result"), lambda p: apply_result(p, res))
         except (KeyError, AttributeError) as e:
@@ -559,7 +560,14 @@ class OptimizationPanel(QWidget):
             QMessageBox.warning(self, tr("Cannot apply result"), str(e))
             return
         q.name = tr("{name} (optimised)", name=q.name)
+        self._pin_before()
         self.openProjectRequested.emit(q)
+
+    def _pin_before(self):
+        # Keep the design being replaced one click away for comparison (Frequency/Angle/Smith tabs).
+        pin = getattr(self.ctx, "pin_before_optimisation", None)
+        if pin is not None:
+            pin()
 
     def _draw_history(self):
         c = self.ctx.colors
