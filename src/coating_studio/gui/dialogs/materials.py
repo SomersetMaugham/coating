@@ -8,7 +8,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QGroupBox,
+    QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox,
     QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu,
     QMessageBox, QPushButton, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QToolButton,
     QVBoxLayout, QWidget,
@@ -21,8 +21,8 @@ from coating_studio.gui.theme import mpl_rc
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
 from coating_studio.i18n import issue_text, tr
 from coating_studio.materials import (
-    ConstantMaterial, DispersiveMaterial, MixtureMaterial, TabulatedMaterial, eps_from_nk, make_term,
-    material_from_dict, nk_from_eps_mu,
+    ConstantMaterial, DispersiveMaterial, MixtureMaterial, TabulatedMaterial, eps_from_nk, loss_from_tangent,
+    loss_tangent, make_term, material_from_dict, nk_from_eps_mu,
 )
 from coating_studio.materials.checks import check_material
 from coating_studio.materials.csvio import CsvFormatError, load_csv
@@ -207,25 +207,56 @@ class MaterialManager(QDialog):
 
     # ---------------- editor pages ----------------------------------------
     def _build_constant(self):
+        # Two columns (real | loss) keep the editor short so the preview plot keeps its height.
         w = QGroupBox(tr("Constant complex ε and μ"))
-        f = QFormLayout(w)
-        f.setLabelAlignment(Qt.AlignRight)
+        g = QGridLayout(w)
         self.c_er = SciSpinBox(minimum=-1e6, maximum=1e9)
         self.c_el = SciSpinBox(minimum=-1e6, maximum=1e9)
         self.c_mr = SciSpinBox(minimum=-1e6, maximum=1e9)
         self.c_ml = SciSpinBox(minimum=-1e6, maximum=1e9)
-        for lab, sp in (("ε′", self.c_er), ("ε″", self.c_el), ("μ′", self.c_mr), ("μ″", self.c_ml)):
+        for sp in (self.c_er, self.c_el, self.c_mr, self.c_ml):
             sp.valueEdited.connect(self._commit)
-            f.addRow(lab, sp)
-        # Refractive index view of the same material: editing n or k rewrites ε, keeping μ.
+        # Two other views of the same numbers: loss tangents (keep the real part) and the
+        # refractive index (keeps μ).  Editing either rewrites ε″/μ″ or ε.
+        self.c_tde = SciSpinBox(minimum=0.0, maximum=1e6)
+        self.c_tdm = SciSpinBox(minimum=0.0, maximum=1e6)
+        self.c_tde.valueEdited.connect(lambda v: self._commit_tand("eps", v))
+        self.c_tdm.valueEdited.connect(lambda v: self._commit_tand("mu", v))
         self.c_n = SciSpinBox(minimum=0.0, maximum=1e6)
         self.c_k = SciSpinBox(minimum=0.0, maximum=1e6)
-        for lab, sp in (("n", self.c_n), ("k", self.c_k)):
+        for sp in (self.c_n, self.c_k):
             sp.valueEdited.connect(self._commit_nk)
-            f.addRow(lab, sp)
-        f.addRow(muted(tr("Refractive index N = n − jk = √(εμ). Editing n or k sets ε = N²/μ "
-                          "and keeps μ.")))
+        rows = ((("ε′", self.c_er), ("ε″", self.c_el)), (("μ′", self.c_mr), ("μ″", self.c_ml)),
+                (("tan δε", self.c_tde), ("tan δμ", self.c_tdm)), (("n", self.c_n), ("k", self.c_k)))
+        for r, pair in enumerate(rows):
+            for c, (lab, sp) in enumerate(pair):
+                lbl = QLabel(lab)
+                lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                g.addWidget(lbl, r, 2 * c)
+                g.addWidget(sp, r, 2 * c + 1)
+        g.addWidget(muted(tr("tan δ = ε″/ε′ (or μ″/μ′); editing it keeps the real part. Refractive index "
+                             "N = n − jk = √(εμ); editing n or k sets ε = N²/μ and keeps μ.")), len(rows), 0, 1, 4)
         return w
+
+    def _show_tand(self):
+        for re_sp, loss_sp, tan_sp in ((self.c_er, self.c_el, self.c_tde), (self.c_mr, self.c_ml, self.c_tdm)):
+            ok = re_sp.value() > 0
+            tan_sp.setEnabled(ok)
+            tan_sp.setToolTip("" if ok else tr("Loss tangent is only defined when the real part is positive."))
+            tan_sp.set_value(loss_tangent(re_sp.value(), loss_sp.value()) if ok else 0.0)
+
+    def _commit_tand(self, which, tan_delta):
+        if self._loading:
+            return
+        re_sp, loss_sp = (self.c_er, self.c_el) if which == "eps" else (self.c_mr, self.c_ml)
+        if re_sp.value() <= 0:
+            return
+        self._loading = True
+        try:
+            loss_sp.set_value(loss_from_tangent(re_sp.value(), tan_delta))
+        finally:
+            self._loading = False
+        self._commit()
 
     def _show_nk(self):
         n, k = nk_from_eps_mu(complex(self.c_er.value(), -self.c_el.value()),
@@ -392,6 +423,7 @@ class MaterialManager(QDialog):
                 self.c_mr.set_value(m.mu_re)
                 self.c_ml.set_value(m.mu_loss)
                 self._show_nk()
+                self._show_tand()
             elif isinstance(m, DispersiveMaterial):
                 self.stack.setCurrentIndex(1)
                 self.d_einf.set_value(m.eps_inf)
@@ -473,6 +505,7 @@ class MaterialManager(QDialog):
         else:
             if mat.kind == "constant":
                 self._show_nk()
+                self._show_tand()
             self._update_preview()
 
     def _update_preview(self):

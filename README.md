@@ -109,7 +109,8 @@ Measured CSV files contain `f, ε′, ε″[, μ′, μ″]`. The frequency unit
 defaults to GHz. Optical data can be given as a refractive index instead: name the value columns
 `n, k` (or just `n` for a lossless material, μ = 1). The first header cell may also be a wavelength
 (`nm`, `µm`, `mm`; a bare `wavelength`/`wl` heading means µm) or a wavenumber (`cm-1`).
-refractiveindex.info's two-block export (`wl,n` then `wl,k`) is read directly. Data is linearly interpolated, and evaluating outside the measured range is an
+refractiveindex.info's two-block export (`wl,n` then `wl,k`) is read directly. A loss column may be given as a loss tangent instead: name it `tan d` (also `tan δ`, `tand`,
+`loss tangent`, …) and it is converted with ε″ = ε′·tan δ (or μ″ = μ′·tan δ for the 5th column). Data is linearly interpolated, and evaluating outside the measured range is an
 error, so fit a dispersion model if you need to extrapolate. A synthetic example is in
 [`examples/synthetic_magnetic_composite.csv`](examples/synthetic_magnetic_composite.csv).
 

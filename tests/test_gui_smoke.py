@@ -137,6 +137,18 @@ def test_material_manager_and_tolerance(app):
     dlg.c_er.setValue(4.0)  # editing eps refreshes n, k
     dlg.c_el.setValue(0.0)
     assert (dlg.c_n.value(), dlg.c_k.value()) == pytest.approx((2.0, 0.0))
+    dlg.c_tde.setValue(0.05)  # tan d_eps keeps eps' and sets eps''; n, k follow
+    m = w.project.materials[dlg.current]
+    assert (m.eps_re, m.eps_loss) == pytest.approx((4.0, 0.2))
+    assert dlg.c_k.value() > 0
+    dlg.c_mr.setValue(2.0)
+    dlg.c_tdm.setValue(0.1)
+    m = w.project.materials[dlg.current]
+    assert m.mu_loss == pytest.approx(0.2)
+    dlg.c_k.setValue(0.0)  # n, k edit -> eps'' = 0 -> tan d_eps follows
+    assert dlg.c_tde.value() == pytest.approx(0.0, abs=1e-12)
+    dlg.c_er.setValue(-2.0)  # metal-like: tan d undefined, field disabled
+    assert not dlg.c_tde.isEnabled()
     dlg.close()
     w.p_tol.n.setValue(20)
     w.p_tol.run()

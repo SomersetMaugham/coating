@@ -209,8 +209,11 @@ KO.update({
     "ε = ε′ − jε″ (ε″ > 0 is lossy).":
         "변경 내용은 즉시 적용되며 기본 창에서 Ctrl+Z로 되돌릴 수 있습니다. 손실 규약은 ε = ε′ − jε″ "
         "(ε″ > 0 이면 손실)입니다.",
-    "Refractive index N = n − jk = √(εμ). Editing n or k sets ε = N²/μ and keeps μ.":
-        "굴절률 N = n − jk = √(εμ). n이나 k를 바꾸면 μ는 그대로 두고 ε = N²/μ로 설정합니다.",
+    "tan δ = ε″/ε′ (or μ″/μ′); editing it keeps the real part. Refractive index N = n − jk = √(εμ); "
+    "editing n or k sets ε = N²/μ and keeps μ.":
+        "tan δ = ε″/ε′ (또는 μ″/μ′)이며, 바꾸면 실수부는 그대로 둡니다. 굴절률 N = n − jk = √(εμ)이며, "
+        "n이나 k를 바꾸면 μ는 그대로 두고 ε = N²/μ로 설정합니다.",
+    "Loss tangent is only defined when the real part is positive.": "손실 탄젠트는 실수부가 양수일 때만 정의됩니다.",
     "Built-in demonstration values (representative, not a datasheet). Use measured data for a real design.":
         "기본 제공 시연용 값입니다(대표값이며 데이터시트 값이 아님). 실제 설계에는 측정 데이터를 쓰세요.",
     "Constant complex ε and μ": "상수 복소 ε, μ", "Permittivity ε(f)": "유전율 ε(f)",

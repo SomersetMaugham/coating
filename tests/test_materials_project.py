@@ -198,3 +198,30 @@ def test_builtin_demo_materials_are_flagged_until_edited():
     assert not is_builtin_demo(foam) and check_material(foam, f, mats.get) == []
     renamed = mats["PTFE"].clone("PTFE (measured)")
     assert not is_builtin_demo(renamed)
+
+
+def test_loss_tangent_helpers_and_csv():
+    from coating_studio.materials import loss_from_tangent, loss_tangent
+
+    assert loss_tangent(4.4, 0.088) == pytest.approx(0.02)
+    assert loss_from_tangent(4.4, 0.02) == pytest.approx(0.088)
+    with pytest.raises(ValueError):
+        loss_tangent(-1.0, 0.1)
+    plain = parse_csv_text("f [GHz], eps', eps'', mu', mu''\n1, 4, 0.08, 2, 0.4\n2, 4, 0.12, 1.5, 0.3\n")
+    for hdr in ("f [GHz], eps', tan d, mu', tan d_mu", "f (GHz); ε'; tan δε; μ'; tan δμ",
+                "f [GHz], eps', loss tangent, mu', mu''"):
+        last = "0.4" if hdr.endswith("mu''") else "0.2"
+        last2 = "0.3" if hdr.endswith("mu''") else "0.2"
+        sep = ";" if ";" in hdr else ","
+        txt = f"{hdr}\n1{sep}4{sep}0.02{sep}2{sep}{last}\n2{sep}4{sep}0.03{sep}1.5{sep}{last2}\n"
+        got = parse_csv_text(txt)
+        for a, b in zip(got, plain):
+            assert np.allclose(a, b), hdr
+    f, er, el, *_ = parse_csv_text("f [GHz], eps', tan d\n1, 4, 0.02\n2, 4, 0.03\n")
+    assert np.allclose(el, [0.08, 0.12])
+    with pytest.raises(CsvFormatError):  # negative tan d
+        parse_csv_text("f [GHz], eps', tan d\n1, 4, -0.02\n2, 4, 0.03\n")
+    with pytest.raises(CsvFormatError):  # tan d needs a positive real part
+        parse_csv_text("f [GHz], eps', tan d\n1, -4, 0.02\n2, 4, 0.03\n")
+    with pytest.raises(CsvFormatError):  # tan d in a real-part column
+        parse_csv_text("f [GHz], tan d, eps''\n1, 0.02, 0.1\n2, 0.03, 0.1\n")
