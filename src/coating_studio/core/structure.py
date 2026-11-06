@@ -5,6 +5,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
+import numpy as np
+
 
 def new_uid() -> str:
     return uuid.uuid4().hex[:10]
@@ -25,22 +27,67 @@ class SlabLayer:
                 "material": self.material, "thickness": self.thickness}
 
 
+SHEET_MODELS = ("constant", "rlc")
+
+
 @dataclass
 class SheetLayer:
-    """Zero-thickness resistive sheet with complex sheet impedance R + jX [Ohm/sq]."""
+    """Zero-thickness lossy sheet (a shunt admittance 1/Zs).
+
+    model "constant": Zs = R + jX [Ohm/sq], frequency independent (resistive films).
+    model "rlc": series RLC equivalent circuit Zs(f) = R + j(wL - 1/(wC)) with e^{+jwt}
+    (inductive reactance > 0); ``C = None`` means no capacitor (inductive grid).  The circuit values
+    are normal-incidence lumped values: the same Zs is used for every angle and polarisation, which is
+    an approximation for real periodic patterns (valid for sub-wavelength unit cells).
+    """
 
     R: float
     X: float = 0.0
     name: str = ""
     uid: str = field(default_factory=new_uid)
     kind: str = "sheet"
+    model: str = "constant"
+    L: float = 0.0  # H, rlc only
+    C: float | None = None  # F, rlc only; None = no capacitor
 
     @property
     def impedance(self) -> complex:
+        """Constant-model impedance (kept for callers that predate the RLC model)."""
         return complex(self.R, self.X)
 
+    def impedance_at(self, f, scale_r=1.0, scale_l=1.0, scale_c=1.0):
+        """Sheet impedance at frequencies ``f`` [Hz] (array of the same shape, complex)."""
+        f = np.asarray(f, dtype=float)
+        if self.model != "rlc":
+            return np.full(f.shape, complex(self.R, self.X))
+        w = 2.0 * np.pi * f
+        x = w * (self.L * scale_l)
+        if self.C is not None:
+            x = x - 1.0 / (w * self.C * scale_c)
+        return self.R * scale_r + 1j * x
+
+    def resonance(self):
+        """Series resonance f0 [Hz], or None (no capacitor or no inductance)."""
+        if self.model != "rlc" or self.C is None or self.L <= 0:
+            return None
+        return 1.0 / (2.0 * np.pi * np.sqrt(self.L * self.C))
+
+    def has_param(self, attr) -> bool:
+        if attr == "R":
+            return True
+        if attr == "X":
+            return self.model != "rlc"
+        if attr == "L":
+            return self.model == "rlc"
+        if attr == "C":
+            return self.model == "rlc" and self.C is not None
+        return False
+
     def to_dict(self):
-        return {"kind": "sheet", "uid": self.uid, "name": self.name, "R": self.R, "X": self.X}
+        d = {"kind": "sheet", "uid": self.uid, "name": self.name, "R": self.R, "X": self.X}
+        if self.model != "constant":
+            d.update(model=self.model, L=self.L, C=self.C)
+        return d
 
 
 def layer_from_dict(d):
@@ -48,8 +95,13 @@ def layer_from_dict(d):
         return SlabLayer(material=d["material"], thickness=float(d["thickness"]),
                          name=d.get("name", ""), uid=d.get("uid") or new_uid())
     if d["kind"] == "sheet":
+        model = d.get("model", "constant")
+        if model not in SHEET_MODELS:
+            raise ValueError(f"unknown sheet model: {model!r}")
+        c = d.get("C")
         return SheetLayer(R=float(d["R"]), X=float(d.get("X", 0.0)),
-                          name=d.get("name", ""), uid=d.get("uid") or new_uid())
+                          name=d.get("name", ""), uid=d.get("uid") or new_uid(), model=model,
+                          L=float(d.get("L", 0.0)), C=None if c is None else float(c))
     raise ValueError(f"unknown layer kind: {d['kind']!r}")
 
 

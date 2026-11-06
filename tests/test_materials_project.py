@@ -225,3 +225,34 @@ def test_loss_tangent_helpers_and_csv():
         parse_csv_text("f [GHz], eps', tan d\n1, -4, 0.02\n2, 4, 0.03\n")
     with pytest.raises(CsvFormatError):  # tan d in a real-part column
         parse_csv_text("f [GHz], tan d, eps''\n1, 0.02, 0.1\n2, 0.03, 0.1\n")
+
+
+def test_rlc_sheet_file_format_and_parameters():
+    from coating_studio.core import SheetLayer
+    from coating_studio.project import SCHEMA_VERSION, available_params, get_param, set_param
+
+    p = EXAMPLES["salisbury"][1]()
+    d = p.to_dict()
+    assert "model" not in d["structure"]["layers"][0]  # constant sheets serialise as before
+    old = json.loads(json.dumps(d))
+    old["schema"] = 2  # a schema-2 file loads unchanged (constant sheet)
+    assert Project.from_dict(old).structure.layers[0].model == "constant"
+    sh = p.structure.layers[0]
+    sh.model, sh.L, sh.C = "rlc", 5e-9, 0.05e-12
+    q = Project.from_dict(json.loads(json.dumps(p.to_dict())))
+    s2 = q.structure.layers[0]
+    assert (s2.model, s2.L, s2.C) == ("rlc", 5e-9, 0.05e-12) and q.to_dict()["schema"] == SCHEMA_VERSION == 3
+    paths = [x[0] for x in available_params(q)]
+    assert ("layer", sh.uid, "L") in paths and ("layer", sh.uid, "C") in paths
+    assert ("layer", sh.uid, "X") not in paths
+    assert get_param(q, ("layer", sh.uid, "L")) == 5e-9
+    with pytest.raises(KeyError):
+        get_param(q, ("layer", sh.uid, "X"))
+    s2.C = None  # inductive grid: no C parameter (and no TypeError from float(None))
+    with pytest.raises(KeyError):
+        get_param(q, ("layer", sh.uid, "C"))
+    with pytest.raises(KeyError):
+        set_param(q, ("layer", sh.uid, "C"), 1e-13)
+    with pytest.raises(ValueError):
+        Project.from_dict({**q.to_dict(), "structure": {"layers": [{"kind": "sheet", "R": 1, "model": "x"}]}})
+    assert SheetLayer(100.0).impedance_at(np.array([1e9, 2e9])).tolist() == [100 + 0j, 100 + 0j]

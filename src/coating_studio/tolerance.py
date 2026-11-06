@@ -64,8 +64,14 @@ def run_tolerance(project: Project, f, settings: ToleranceSettings | None = None
             factors[ly.uid] = {k: np.maximum(_draw(rng, s.distribution, s.tolerance_for(ly.uid, k), n), 1e-6)
                                for k in ("thickness", "eps", "mu")}
         elif isinstance(ly, SheetLayer):
-            factors[ly.uid] = {"sheet": np.maximum(_draw(rng, s.distribution,
-                                                         s.tolerance_for(ly.uid, "sheet"), n), 1e-6)}
+            tol = s.tolerance_for(ly.uid, "sheet")
+            if ly.model == "rlc":
+                # R, L and C vary independently, so the resonance moves as it does for a real pattern
+                # (scaling Zs as a whole would leave f0 = 1/(2*pi*sqrt(LC)) unchanged).
+                factors[ly.uid] = {k: np.maximum(_draw(rng, s.distribution, tol, n), 1e-6)
+                                   for k in ("sheet_R", "sheet_L", "sheet_C")}
+            else:
+                factors[ly.uid] = {"sheet": np.maximum(_draw(rng, s.distribution, tol, n), 1e-6)}
     samples = []
     stopped = False
     try:

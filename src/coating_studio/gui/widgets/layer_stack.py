@@ -114,11 +114,30 @@ class LayerStackWidget(QWidget):
             layers = self.doc.project.structure.layers
             self.table.setRowCount(len(layers))
             for r, ly in enumerate(layers):
+                tip = None
                 if isinstance(ly, SlabLayer):
                     kind = ly.name or tr("Slab")
                     what = ly.material
                     val = f"{fmt_num(ly.thickness * 1e3, 4)} mm"
                     missing = ly.material not in self.doc.project.materials
+                elif ly.model == "rlc":
+                    kind = ly.name or tr("RLC sheet")
+                    # compact for the narrow dock: the resonance next to the type, R as the value;
+                    # R, L and C in full are in the tooltip
+                    f0 = ly.resonance()
+                    if f0 is not None:
+                        what = f"RLC · f₀ {fmt_num(f0 / 1e9, 3)} GHz"
+                    elif ly.C is None:
+                        what = f"RL · {fmt_num(ly.L * 1e9, 3)} nH"
+                    else:
+                        what = f"RC · {fmt_num(ly.C * 1e12, 3)} pF"
+                    val = f"{fmt_num(ly.R, 4)} Ω/sq"
+                    tip = tr("Series RLC sheet: R {r} Ω/sq, L {l} nH, C {c}", r=fmt_num(ly.R, 5),
+                             l=fmt_num(ly.L * 1e9, 5),
+                             c=f"{fmt_num(ly.C * 1e12, 5)} pF" if ly.C is not None else tr("none"))
+                    if f0 is not None:
+                        tip += "\n" + tr("f₀ = {f} GHz", f=fmt_num(f0 / 1e9, 4))
+                    missing = False
                 else:
                     kind = ly.name or tr("Resistive sheet")
                     what = tr("Resistive sheet")
@@ -133,6 +152,8 @@ class LayerStackWidget(QWidget):
                         it.setIcon(icon("sheet" if isinstance(ly, SheetLayer) else "slab"))
                     if c == 3:
                         it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    if tip:
+                        it.setToolTip(tip)
                     if missing and c == 2 and self.colors:
                         it.setForeground(QColor(self.colors.error))
                     self.table.setItem(r, c, it)
@@ -175,7 +196,7 @@ class LayerStackWidget(QWidget):
         if isinstance(src, SlabLayer):
             ly = SlabLayer(src.material, src.thickness, name=src.name)
         else:
-            ly = SheetLayer(src.R, src.X, name=src.name)
+            ly = SheetLayer(src.R, src.X, name=src.name, model=src.model, L=src.L, C=src.C)
         idx = self.doc.project.structure.index_of(uid) + 1
         self.doc.edit(tr("Duplicate layer"), lambda pr: pr.structure.layers.insert(idx, ly))
         self.refresh()

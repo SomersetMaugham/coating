@@ -47,14 +47,18 @@ KO.update({
     "changed in Preferences.<br><b>Γ</b> is the reflection coefficient of the tangential electric field.<br>"
     "<b>Layer order</b>: the top row of the layer stack faces the incident wave.<br><b>TE</b>: E perpendicular "
     "to the plane of incidence; <b>TM</b>: H perpendicular. Average = unpolarised power average.<br>"
-    "<b>Resistive sheet</b>: shunt impedance Zs = R + jX in Ω/sq (free space ≈ 376.7 Ω/sq).<br>"
+    "<b>Resistive sheet</b>: shunt impedance Zs = R + jX in Ω/sq (free space ≈ 376.7 Ω/sq), or a series RLC "
+    "circuit Zs = R + jωL + 1/(jωC) (inductive X &gt; 0). The RLC values are normal-incidence lumped values used "
+    "for every angle and polarisation - valid for sub-wavelength unit cells below the grating-lobe onset.<br>"
     "<b>Units</b>: GHz, mm, degrees, S/m, g/cm³; the engine works in SI.":
         "<b>시간 규약</b>: e<sup>+jωt</sup>; ε = ε′ − jε″, μ = μ′ − jμ″ (ε″, μ″ &gt; 0 이면 손실).<br>"
         "<b>반사손실</b>: RL = 20·log₁₀|Γ| (음수 dB, −10 dB ≈ 90% 흡수). 표시 부호는 환경 설정에서 바꿀 수 "
         "있습니다.<br><b>Γ</b>는 접선 방향 전기장의 반사계수입니다.<br><b>층 순서</b>: 층 스택의 맨 위 행이 "
         "입사파를 마주합니다.<br><b>TE</b>: 전기장이 입사면에 수직, <b>TM</b>: 자기장이 입사면에 수직. "
-        "평균 = 비편광 전력 평균.<br><b>저항 시트</b>: 병렬 임피던스 Zs = R + jX [Ω/sq] (자유공간 ≈ 376.7 Ω/sq)."
-        "<br><b>단위</b>: GHz, mm, 도, S/m, g/cm³ (엔진 내부는 SI 단위).",
+        "평균 = 비편광 전력 평균.<br><b>저항 시트</b>: 병렬 임피던스 Zs = R + jX [Ω/sq] (자유공간 ≈ 376.7 Ω/sq) "
+        "또는 직렬 RLC 회로 Zs = R + jωL + 1/(jωC) (유도성 X &gt; 0). RLC 값은 수직 입사 기준의 집중 소자 "
+        "값으로 모든 입사각과 편광에 그대로 쓰이며, 단위 셀이 파장보다 충분히 작고 회절 로브가 생기기 전까지 "
+        "유효합니다.<br><b>단위</b>: GHz, mm, 도, S/m, g/cm³ (엔진 내부는 SI 단위).",
 
     # ---- main window -----------------------------------------------------------
     "Untitled": "제목 없음", "Layer stack": "층 스택", "Properties": "속성", "Analysis settings": "해석 설정",
@@ -126,6 +130,24 @@ KO.update({
     "Show or hide the diagnostics panel": "진단 패널 보이기/숨기기",
     "No problems": "문제 없음", "1 problem": "문제 1개", "{n} problems": "문제 {n}개",
     "1 note": "참고 1개", "{n} notes": "참고 {n}개",
+    # RLC sheets
+    "Model": "모델", "Constant (R + jX)": "상수 (R + jX)", "Series RLC": "직렬 RLC", "RLC sheet": "RLC 시트",
+    "Inductance L": "인덕턴스 L", "Capacitance C": "커패시턴스 C", "none": "없음",
+    "Change sheet model": "시트 모델 변경", "Change sheet inductance": "시트 인덕턴스 변경",
+    "Change sheet capacitance": "시트 커패시턴스 변경", "Toggle sheet capacitor": "시트 커패시터 켜기/끄기",
+    "Inductive grid (no resonance)": "유도성 격자 (공진 없음)", "Capacitive, no resonance": "용량성 (공진 없음)",
+    "f₀ = {f} GHz · Q = {q}": "f₀ = {f} GHz · Q = {q}", "f₀ = {f} GHz": "f₀ = {f} GHz",
+    "Zs({f} GHz) = {z} Ω/sq": "Zs({f} GHz) = {z} Ω/sq",
+    "f₀ is outside the frequency sweep.": "f₀가 주파수 스윕 범위 밖에 있습니다.",
+    "Series RLC sheet: R {r} Ω/sq, L {l} nH, C {c}": "직렬 RLC 시트: R {r} Ω/sq, L {l} nH, C {c}",
+    "Capacitor on/off. Without a capacitor the sheet is an inductive grid (R + jωL).":
+        "커패시터 켜기/끄기. 커패시터가 없으면 유도성 격자(R + jωL)가 됩니다.",
+    "Series RLC: Zs = R + jωL + 1/(jωC), the equivalent circuit of a patterned (circuit-analog / FSS) layer. "
+    "The circuit values are normal-incidence lumped values used for every angle and polarisation - valid for "
+    "sub-wavelength unit cells.":
+        "직렬 RLC: Zs = R + jωL + 1/(jωC), 패턴 층(회로 등가형 / FSS)의 등가회로입니다. 회로 값은 수직 입사 "
+        "기준의 집중 소자 값으로 모든 입사각과 편광에 그대로 쓰이며, 단위 셀이 파장보다 충분히 작을 때 유효합니다.",
+    "Circuit-analog absorber (RLC sheet)": "회로 등가 흡수체 (RLC 시트)",
     # optimisation targets (spec mask)
     "Targets": "목표", "Band preset": "대역 프리셋", "pts": "점",
     "Goal RL (≤)": "목표 RL (≤)", "Goal RL (≥)": "목표 RL (≥)",

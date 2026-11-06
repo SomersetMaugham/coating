@@ -17,7 +17,9 @@ can be added later without rewriting it.
   - Per-layer absorption from the Poynting flux, with R + T + ΣA = 1 checked in the tests.
 - **Layers.**
   - Slabs of any material.
-  - Zero-thickness **resistive sheets** with Zs = R + jX in Ω/sq.
+  - Zero-thickness **resistive sheets** with Zs = R + jX in Ω/sq, or a **series RLC** equivalent circuit
+    Zs(f) = R + jωL + 1/(jωC) for circuit-analog / FSS layers (L in nH, C in pF, optional capacitor;
+    normal-incidence lumped values used for every angle and polarisation).
   - A **metal (PEC)** or **semi-infinite** backing.
 - **Materials.**
   - Constant complex ε and μ.

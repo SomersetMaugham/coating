@@ -184,7 +184,7 @@ def test_rl_sign_convention_everywhere(app):
     assert w.p_opt.rl_ref.value() == 20 and w.p_tol.target.value() == 10
     assert "≥" in w.p_tol.lbl_target.text() and "positive" in w.p_opt.lbl_rl_hint.text()
     assert w.p_opt.tbl_res.item(0, 1).text().startswith("23.50")
-    assert w.v_freq.chk_target.text() == "10 dB line"
+    assert w.v_freq.chk_target.text() == "10 dB" and w.v_freq.chk_target.toolTip() == "10 dB line"
     # a user edit in the positive convention is stored as negative dB
     w.p_opt.rl_ref.setValue(25.0)  # like typing: valueChanged -> valueEdited
     w.p_tol.target.setValue(15.0)
@@ -431,6 +431,66 @@ def test_optimisation_targets_editor(app):
     while len(s.targets) > 1:
         po.btn_t_del.click()
     assert not po.btn_t_del.isEnabled()
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()
+
+
+def test_rlc_sheet_editing(app):
+    """Series-RLC sheets in the Properties panel, layer stack and optimiser."""
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["cara"][1]())
+    sheet = w.project.structure.layers[0]
+    w.w_layers.select_uid(sheet.uid)
+    w.w_props.set_layer(sheet.uid)
+    pp = w.w_props
+    assert pp.cb_model.currentData() == "rlc" and not pp.row_X.isVisibleTo(pp) and pp.row_L.isVisibleTo(pp)
+    assert pp.sp_L.value() == pytest.approx(4.0) and pp.sp_C.value() == pytest.approx(0.08)
+    assert "f₀ =" in pp.lbl_info.text() and "Q =" in pp.lbl_info.text()
+    assert w.w_layers.table.item(0, 2).text().startswith("RLC · f₀") and "L 4 nH" in w.w_layers.table.item(0, 3).toolTip()
+    pp.sp_L.setValue(5.0)  # user edit in nH
+    assert sheet.L == pytest.approx(5e-9)
+    # the info line follows the angle-sweep frequency (a settings change)
+    w.w_sweep.f_at.setValue(12.0)
+    assert "Zs(12 GHz)" in pp.lbl_info.text()
+    # removing the capacitor drops its optimisation variable in the same undoable edit
+    paths = lambda: [tuple(v.path) for v in w.project.optimization.variables]  # noqa: E731
+    assert ("layer", sheet.uid, "C") in paths()
+    pp.chk_C.setChecked(False)
+    assert sheet.C is None and ("layer", sheet.uid, "C") not in paths() and "Inductive grid" in pp.lbl_info.text()
+    w.doc.undo_stack.undo()
+    sheet = w.project.structure.layers[0]
+    assert sheet.C == pytest.approx(0.08e-12) and ("layer", sheet.uid, "C") in paths()
+    # model switch to constant drops L and C variables; back to RLC keeps the values
+    pp.set_layer(sheet.uid)
+    pp.cb_model.setCurrentIndex(0)
+    pp.cb_model.activated.emit(0)
+    sheet = w.project.structure.layers[0]
+    assert sheet.model == "constant" and not any(p[2] in ("L", "C") for p in paths() if p[1] == sheet.uid)
+    assert pp.row_X.isVisibleTo(pp)
+    # a new sheet switched to RLC starts at ~10 GHz; Opt. bounds span a decade each way (log search)
+    w.w_layers.add_sheet()
+    new = [ly for ly in w.project.structure.layers if ly.uid not in (sheet.uid,) and hasattr(ly, "model")][-1]
+    pp.set_layer(new.uid)
+    pp.cb_model.setCurrentIndex(1)
+    pp.cb_model.activated.emit(1)
+    new = w.project.structure.layer_by_uid(new.uid)
+    assert (new.L, new.C) == (5e-9, 0.05e-12) and abs(new.resonance() / 1e9 - 10.07) < 0.01
+    pp.set_layer(new.uid)
+    pp.opt_L.setChecked(True)
+    v = [v for v in w.project.optimization.variables if tuple(v.path) == ("layer", new.uid, "L")][0]
+    assert v.upper / v.lower == pytest.approx(100)
+    # duplicating keeps the model
+    w.w_layers.select_uid(new.uid)
+    w.w_layers.act_dup.trigger()
+    dup = w.project.structure.layers[w.project.structure.index_of(new.uid) + 1]
+    assert dup.model == "rlc" and dup.L == new.L and dup.C == new.C and dup.uid != new.uid
+    w.recompute()
+    assert w.results.get("freq") is not None, w.result_error
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()

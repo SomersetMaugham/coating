@@ -380,6 +380,7 @@ class MainWindow(QMainWindow):
             self.v_mat.sync_materials()
         else:
             self.p_tol.refresh()  # its default yield band follows the optimisation targets
+            self.w_props.refresh()  # RLC info shows Zs at the angle-sweep frequency
             self.p_tol.plot.mark_dirty()
             self._sync_sweep_editors()
             self.v_freq.mark_dirty()  # target mask
@@ -754,7 +755,10 @@ class MainWindow(QMainWindow):
             "<b>Layer order</b>: the top row of the layer stack faces the incident wave.<br>"
             "<b>TE</b>: E perpendicular to the plane of incidence; <b>TM</b>: H perpendicular. "
             "Average = unpolarised power average.<br>"
-            "<b>Resistive sheet</b>: shunt impedance Zs = R + jX in Ω/sq (free space ≈ 376.7 Ω/sq).<br>"
+            "<b>Resistive sheet</b>: shunt impedance Zs = R + jX in Ω/sq (free space ≈ 376.7 Ω/sq), or a "
+            "series RLC circuit Zs = R + jωL + 1/(jωC) (inductive X &gt; 0). The RLC values are "
+            "normal-incidence lumped values used for every angle and polarisation - valid for "
+            "sub-wavelength unit cells below the grating-lobe onset.<br>"
             "<b>Units</b>: GHz, mm, degrees, S/m, g/cm³; the engine works in SI."))
 
     # =====================================================================
