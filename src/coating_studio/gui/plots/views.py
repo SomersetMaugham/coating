@@ -65,7 +65,7 @@ class _SweepSpinMixin:
         self._sweep_attr, self._sweep_scale = attr, scale
         lab = QLabel(label)
         self.sp_sweep = SciSpinBox(minimum=minimum, maximum=maximum, suffix=suffix)
-        self.sp_sweep.setFixedWidth(110)  # SciSpinBox expands by default
+        self.sp_sweep.setFixedWidth(92)  # SciSpinBox expands by default
         self.sp_sweep.setToolTip(tip)
         lab.setToolTip(tip)
         self.sp_sweep.valueEdited.connect(self._commit_sweep)
@@ -102,7 +102,7 @@ class FrequencyView(_SweepSpinMixin, _QuantityMixin, PlotView):
         self.chk_target.toggled.connect(lambda _: self.mark_dirty())
         self.controls.insertWidget(self.controls.count() - 1, self.chk_target)
         self.on_rl_sign_changed()
-        self._add_sweep_spin(tr("Incidence angle"), "angle", 1.0, 0.0, 89.9, "°",
+        self._add_sweep_spin(tr("Incidence"), "angle", 1.0, 0.0, 89.9, "°",
                              tr("Incidence angle of the frequency sweep. Also used by the Smith chart "
                                 "and absorption tabs."))
 

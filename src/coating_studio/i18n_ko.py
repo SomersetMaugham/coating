@@ -122,7 +122,7 @@ KO.update({
     "10 / 20 dB contours": "10 / 20 dB 등고선", "10 dB line": "10 dB 기준선",
     "Incidence angle of the frequency sweep. Also used by the Smith chart and absorption tabs.":
         "주파수 스윕의 입사각입니다. Smith 차트와 흡수 분해 탭에도 쓰입니다.",
-    "Frequency of the angle sweep.": "입사각 스윕의 주파수입니다.",
+    "Frequency of the angle sweep.": "입사각 스윕의 주파수입니다.", "Incidence": "입사각",
     "Show or hide the diagnostics panel": "진단 패널 보이기/숨기기",
     "No problems": "문제 없음", "1 problem": "문제 1개", "{n} problems": "문제 {n}개",
     "1 note": "참고 1개", "{n} notes": "참고 {n}개",
