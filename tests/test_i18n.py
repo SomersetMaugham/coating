@@ -10,7 +10,7 @@ from coating_studio.i18n_ko import KO
 SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "coating_studio"
 INDIRECT = ["Constant", "Dispersive model", "Measured data", "Mixture (EMA)", "Salisbury screen",
             "Dallenbach layer", "Two-layer Jaumann", "Ferrite tile", "Carbon / epoxy mixture",
-            "Before optimisation"]
+            "Before optimisation", "Dual-band Jaumann (X + Ku, oblique)"]
 
 
 def _strings():

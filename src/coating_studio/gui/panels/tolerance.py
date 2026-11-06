@@ -21,12 +21,20 @@ from coating_studio.i18n import tr
 _KEYS = ("thickness", "eps", "mu", "sheet")
 
 
-def yield_band(p):
-    """Custom tolerance band if set, otherwise the optimisation target band."""
+def yield_intervals(p):
+    """Frequency intervals of the yield criterion: the custom band if set, otherwise the bands of the
+    enabled optimisation targets (their union - not the envelope, which would include the gap
+    between disjoint bands)."""
     s = p.tolerance
     if s.band_min and s.band_max and s.band_max > s.band_min:
-        return s.band_min, s.band_max
-    return p.optimization.f_min, p.optimization.f_max
+        return [(s.band_min, s.band_max)]
+    return p.optimization.frequency_intervals() or [(p.sweep.f_min, p.sweep.f_max)]
+
+
+def yield_band(p):
+    """Envelope of ``yield_intervals`` (for display in the band fields)."""
+    iv = yield_intervals(p)
+    return min(a for a, _ in iv), max(b for _, b in iv)
 
 
 class TolerancePlot(PlotView):
@@ -57,8 +65,8 @@ class TolerancePlot(PlotView):
         ax.plot(x, sgn * r.median_db, color=c.series[0], label=tr("Median"))
         ax.plot(x, sgn * r.nominal_db, color=c.series[1], ls="--", label=tr("Nominal design"))
         ax.axhline(sgn * s.target_db, color=c.muted, lw=1, ls=":", label=tr("Target"))
-        lo, hi = yield_band(self.ctx.project)
-        ax.axvspan(lo / 1e9, hi / 1e9, color=c.series[2], alpha=0.07)
+        for lo, hi in yield_intervals(self.ctx.project):
+            ax.axvspan(lo / 1e9, hi / 1e9, color=c.series[2], alpha=0.07)
         if self.ctx.project.sweep.log_f:
             ax.set_xscale("log")
         ax.set_xlim(x[0], x[-1])
@@ -167,7 +175,7 @@ class TolerancePanel(QWidget):
         f.addRow(tr("Band from"), self.b_lo)
         f.addRow(tr("to"), self.b_hi)
         f.addRow(muted(tr("Yield = share of samples whose worst RL in the band meets the target. "
-                          "Without a custom band the optimisation target band is used.")))
+                          "Without a custom band, the bands of the enabled optimisation targets are used.")))
         ll.addWidget(g)
         ll.addStretch(1)
         split.addWidget(scroll)
@@ -310,7 +318,7 @@ class TolerancePanel(QWidget):
         f = np.geomspace(sw.f_min, sw.f_max, min(sw.n_f, 301)) if sw.log_f else \
             np.linspace(sw.f_min, sw.f_max, min(sw.n_f, 301))
         s = p.tolerance
-        band = yield_band(p)
+        band = yield_intervals(p)
         self.worker = ToleranceWorker(p, f, band)
         self.worker.progress.connect(self._on_progress)
         self.worker.finished.connect(self._on_finished)

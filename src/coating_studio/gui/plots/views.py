@@ -8,6 +8,7 @@ import numpy as np
 from PySide6.QtWidgets import QCheckBox, QComboBox, QLabel
 
 from coating_studio.core.structure import SheetLayer
+from coating_studio.gui.fmt import rl_display
 from coating_studio.gui.plots.base import PlotView
 from coating_studio.gui.widgets.inputs import SciSpinBox
 from coating_studio.i18n import tr
@@ -137,6 +138,12 @@ class FrequencyView(_SweepSpinMixin, _QuantityMixin, PlotView):
         self.chk_target.setChecked(True)
         self.chk_target.toggled.connect(lambda _: self.mark_dirty())
         self.controls.insertWidget(self.controls.count() - 1, self.chk_target)
+        self.chk_mask = QCheckBox(tr("Targets"))
+        self.chk_mask.setChecked(True)
+        self.chk_mask.setToolTip(tr("Show the optimisation targets whose angle range includes the "
+                                    "current incidence angle (goal level over their band)"))
+        self.chk_mask.toggled.connect(lambda _: self.mark_dirty())
+        self.controls.insertWidget(self.controls.count() - 1, self.chk_mask)
         self.on_rl_sign_changed()
         self._add_sweep_spin(tr("Incidence"), "angle", 1.0, 0.0, 89.9, "°",
                              tr("Incidence angle of the frequency sweep. Also used by the Smith chart "
@@ -156,6 +163,8 @@ class FrequencyView(_SweepSpinMixin, _QuantityMixin, PlotView):
         for pol in self._pols():
             ax.plot(x, quantity_values(res, q, pol, pos)[:, 0], label=pol_label(pol), **_style_for(pol, self.ctx.colors))
         problems = self._draw_references(ax, q, pos)
+        if q == "RL" and self.chk_mask.isChecked():
+            self._draw_target_mask(ax, pos)
         if q == "RL" and self.chk_target.isChecked():
             ax.axhline(10 if pos else -10, color=self.ctx.colors.muted, lw=1, ls=":")
         sw = self.ctx.project.sweep
@@ -170,6 +179,23 @@ class FrequencyView(_SweepSpinMixin, _QuantityMixin, PlotView):
         _legend_if_any(ax, loc="best")
         self._ax = ax
         return (_ref_warning(problems), "warn") if problems else None
+
+    def _draw_target_mask(self, ax, pos):
+        """Spec mask: each enabled target that applies at the current angle, as its goal level over
+        its band (a marker for a single-frequency target)."""
+        sw = self.ctx.project.sweep
+        c = self.ctx.colors.error
+        first = True
+        for t in self.ctx.project.optimization.enabled_targets():
+            if not (t.angle_min - 1e-9 <= sw.angle <= t.angle_max + 1e-9):
+                continue
+            y = rl_display(t.goal_db, pos)
+            label = tr("Targets") if first else None
+            if t.f_max > t.f_min:
+                ax.hlines(y, t.f_min / 1e9, t.f_max / 1e9, colors=c, lw=2.2, alpha=0.75, label=label)
+            else:
+                ax.plot([t.f_min / 1e9], [y], marker="_", ms=14, mew=2.2, color=c, alpha=0.75, ls="", label=label)
+            first = False
 
     def _reference_series(self, q, pos):
         """[(ref, pol or None, label, x [GHz], y)] for the visible references; plus problems."""

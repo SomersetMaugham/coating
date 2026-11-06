@@ -126,6 +126,20 @@ KO.update({
     "Show or hide the diagnostics panel": "진단 패널 보이기/숨기기",
     "No problems": "문제 없음", "1 problem": "문제 1개", "{n} problems": "문제 {n}개",
     "1 note": "참고 1개", "{n} notes": "참고 {n}개",
+    # optimisation targets (spec mask)
+    "Targets": "목표", "Band preset": "대역 프리셋", "pts": "점",
+    "Goal RL (≤)": "목표 RL (≤)", "Goal RL (≥)": "목표 RL (≥)",
+    "Include this target in the optimisation": "이 목표를 최적화에 포함합니다",
+    "Each row is one requirement; the optimiser minimises the worst margin (worst RL minus goal) over "
+    "the enabled rows.":
+        "각 행이 요구 조건 하나입니다. 최적화기는 켜진 행들 가운데 가장 나쁜 마진(최악 RL − 목표)을 "
+        "최소화합니다.",
+    "Show the optimisation targets whose angle range includes the current incidence angle (goal level "
+    "over their band)":
+        "현재 입사각을 포함하는 최적화 목표를 표시합니다(대역에 걸친 목표 수준)",
+    "Target {n}: {s}": "목표 {n}: {s}", "met (margin {m} dB)": "만족 (마진 {m} dB)",
+    "missed by {m} dB": "{m} dB 부족",
+    "Dual-band Jaumann (X + Ku, oblique)": "이중 대역 Jaumann (X + Ku, 경사 입사)",
     # reference traces
     "&Pin reference": "비교 곡선 고정(&P)", "References": "비교 곡선", "References ({n})": "비교 곡선 ({n})",
     "Reference {n}": "비교 곡선 {n}", "Before optimisation": "최적화 전", "(measured)": "(측정)",
@@ -210,9 +224,9 @@ KO.update({
         "빈 칸은 기본 공차를 사용합니다.", "Evaluation": "평가", "Custom yield band": "수율 대역 직접 지정",
     "Target RL (≤)": "목표 RL (≤)", "Band from": "대역 시작",
     "Yield = share of samples whose worst RL in the band meets the target. "
-    "Without a custom band the optimisation target band is used.":
+    "Without a custom band, the bands of the enabled optimisation targets are used.":
         "수율 = 대역 내 최악 RL이 목표를 만족하는 표본의 비율입니다. 대역을 직접 지정하지 않으면 "
-        "최적화 목표 대역을 사용합니다.",
+        "켜진 최적화 목표들의 대역을 사용합니다.",
     "Target RL (≥)": "목표 RL (≥)",
     "Run analysis": "분석 실행", "Change layer tolerance": "층 공차 변경",
     "Tolerance analysis: yield {y:.1f}% of {n} samples": "공차 분석: 표본 {n}개 중 수율 {y:.1f}%",
