@@ -98,6 +98,14 @@ def test_material_manager_and_tolerance(app):
         dlg.lst.setCurrentRow(i)
     dlg._new("dispersive")
     assert any(n.startswith("New dispersive") for n in w.project.materials)
+    dlg._new("constant")
+    dlg.c_n.setValue(1.38)  # user edit -> valueEdited -> eps = n^2
+    dlg.c_k.setValue(0.01)
+    m = w.project.materials[dlg.current]
+    assert (m.eps_re, m.eps_loss) == pytest.approx((1.38 ** 2 - 0.01 ** 2, 2 * 1.38 * 0.01))
+    dlg.c_er.setValue(4.0)  # editing eps refreshes n, k
+    dlg.c_el.setValue(0.0)
+    assert (dlg.c_n.value(), dlg.c_k.value()) == pytest.approx((2.0, 0.0))
     dlg.close()
     w.p_tol.n.setValue(20)
     w.p_tol.run()

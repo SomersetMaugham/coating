@@ -66,6 +66,43 @@ def test_csv_parse_units_and_errors():
         parse_csv_text("1,2\n3,4\n")
 
 
+def test_csv_refractive_index_layouts():
+    from coating_studio.core import C0
+
+    # wavelength in nm with n, k -> eps = (n - jk)^2, frequency C0/lambda
+    f, er, el, mr, ml = parse_csv_text("Wavelength (nm), n, k\n500, 1.5, 0.01\n600, 1.49, 0.02\n")
+    assert f[0] == pytest.approx(C0 / 500e-9)
+    assert (er[1], el[1]) == pytest.approx((1.49 ** 2 - 0.02 ** 2, 2 * 1.49 * 0.02))
+    assert np.all(mr == 1) and np.all(ml == 0)
+    # bare 'wl' heading means micrometres; n only means lossless
+    f, er, el, *_ = parse_csv_text("wl\tn\n0.4\t1.47\n0.8\t1.45\n")
+    assert f[1] == pytest.approx(C0 / 0.8e-6) and er[0] == pytest.approx(1.47 ** 2) and np.all(el == 0)
+    # wavenumber (FTIR) axis
+    f, *_ = parse_csv_text("Wavenumber (cm-1); eps'; eps''\n1000; 2; 0.5\n1200; 2; 0.4\n")
+    assert f[0] == pytest.approx(C0 * 1e5)
+    # micrometre wavelength with eps columns
+    f, *_ = parse_csv_text("lambda [µm], eps', eps''\n8, 2, 0.1\n13, 2.2, 0.3\n")
+    assert f[0] == pytest.approx(C0 / 8e-6)
+
+
+def test_csv_refractiveindex_info_two_blocks():
+    from coating_studio.core import C0
+
+    txt = "wl,n\n0.4,1.50\n0.5,1.48\n0.6,1.47\n0.9,1.45\nwl,k\n0.45,0.0\n0.65,0.02\n"
+    f, er, el, *_ = parse_csv_text(txt)
+    # n points outside the k data (0.4, 0.9 um) are dropped, k is interpolated
+    assert f == pytest.approx(C0 / np.array([0.5e-6, 0.6e-6]))
+    k = np.array([0.005, 0.015])
+    n = np.array([1.48, 1.47])
+    assert er == pytest.approx(n ** 2 - k ** 2) and el == pytest.approx(2 * n * k)
+    f, er, el, *_ = parse_csv_text("wl,n\n0.4,1.5\n0.5,1.48\n")  # n block only
+    assert np.all(el == 0)
+    with pytest.raises(CsvFormatError):
+        parse_csv_text("wl,n\n0.4,1.5\n0.5,1.48\nwl,k\n2,0.1\n3,0.1\n")  # no overlap
+    with pytest.raises(CsvFormatError):
+        parse_csv_text("wl,n,k\n0.4,1.5,-0.1\n0.5,1.48,0\n")  # gain is not accepted
+
+
 def test_fit_recovers_debye_parameters():
     true = DispersiveMaterial("T", eps_inf=4.0, eps_terms=[make_term("debye", 6.0, 3e9)],
                               mu_terms=[make_term("lorentz", 2.0, 5e9, 3e9)])
@@ -129,3 +166,17 @@ def test_mixture_cycle_detected():
     from coating_studio.materials import MaterialCycleError
     with pytest.raises(MaterialCycleError):
         p.materials["M1"].eps_mu(np.array([1e9]), p.resolver)
+
+
+def test_refractive_index_conversion_round_trip():
+    from coating_studio.materials import eps_from_nk, nk_from_eps_mu
+
+    # MgF2 (lossless), a lossy dielectric, a metal (eps' < 0) and a magnetic medium
+    for n, k, mu in [(1.38, 0.0, 1), (2.0, 0.3, 1), (0.13, 3.2, 1), (3.0, 0.5, 2.0 - 0.4j)]:
+        eps = eps_from_nk(n, k, mu)
+        assert np.sqrt(eps * mu) ** 2 == pytest.approx((n - 1j * k) ** 2)
+        assert nk_from_eps_mu(eps, mu) == pytest.approx((n, k))
+    eps = eps_from_nk(2.0, 0.3)
+    assert eps.real == pytest.approx(4.0 - 0.09) and -eps.imag == pytest.approx(2 * 2.0 * 0.3)
+    n, k = nk_from_eps_mu(-20 - 1j)  # Drude-like metal: large k, small positive n
+    assert k > 4 and 0 < n < 1
