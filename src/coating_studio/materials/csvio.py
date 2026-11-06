@@ -3,6 +3,7 @@
 Accepted layouts (comma, semicolon, tab or whitespace separated)::
 
     x, eps', eps'', [mu', mu'']      permittivity / permeability (default)
+    x, eps', tan d, [mu', tan d]     loss tangent instead of a loss column (header needed)
     x, n, k                          refractive index N = n - jk  (mu = 1)
     x, n                             lossless refractive index (k = 0)
 
@@ -57,6 +58,34 @@ def _abscissa(header_cell: str):
         s = _LEN_UNITS[m.group(1)] if m else 1e-6
         return lambda v, s=s: C0 / (v * s)
     return lambda v: v * 1e9
+
+
+def _is_loss_tangent(cell: str) -> bool:
+    """Header names a loss tangent: tan d, tand, tan δ, tanδε, tan_delta_mu, tan(δ), loss tangent ..."""
+    c = re.sub(r"[\s_\-]", "", cell.lower())
+    if "losstangent" in c:
+        return True
+    return c.startswith("tan") and c[3:].lstrip("([").startswith(("δ", "d", "delta"))
+
+
+def _apply_loss_tangents(header, arr):
+    """Replace tan δ columns (3rd for ε, 5th for μ) by ε″ = ε′·tan δ / μ″ = μ′·tan δ."""
+    if not header:
+        return arr
+    tan_cols = [i for i, c in enumerate(header) if i > 0 and _is_loss_tangent(c)]
+    if not tan_cols:
+        return arr
+    if any(i not in (2, 4) for i in tan_cols):
+        raise CsvFormatError("a loss tangent column must follow its real part (columns 3 and 5)")
+    arr = arr.copy()
+    for i in tan_cols:
+        real, tan = arr[:, i - 1], arr[:, i]
+        if np.any(tan < 0):
+            raise CsvFormatError("loss tangent must be non-negative")
+        if np.any(real <= 0):
+            raise CsvFormatError("loss tangent needs a positive real part in the column before it")
+        arr[:, i] = real * tan
+    return arr
 
 
 def _column_kind(cell: str) -> str:
@@ -177,6 +206,7 @@ def parse_csv_text(text: str):
     if arr.shape[1] not in (3, 5):
         raise CsvFormatError(f"expected 3 or 5 columns, found {arr.shape[1]}")
     _check_f(f)
+    arr = _apply_loss_tangents(header, arr)
     if arr.shape[1] == 5:
         return f, arr[:, 1], arr[:, 2], arr[:, 3], arr[:, 4]
     return f, arr[:, 1], arr[:, 2], np.ones(len(f)), np.zeros(len(f))

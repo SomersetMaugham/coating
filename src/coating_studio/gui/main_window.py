@@ -9,7 +9,7 @@ from PySide6.QtCore import QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QDockWidget, QFileDialog, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-    QTabWidget, QToolBar,
+    QTabWidget, QToolBar, QToolButton,
 )
 
 from coating_studio import APP_NAME, __version__
@@ -72,6 +72,9 @@ class MainWindow(QMainWindow):
         self._restore_window_state()
         self.apply_theme()
         self._on_reset()
+        # Connected only now so that restoreState() and the first automatic show/hide above are not
+        # mistaken for the user choosing to keep the dock open or closed.
+        self.d_msgs.toggleViewAction().toggled.connect(self._on_msgs_dock_toggled)
 
     # =====================================================================
     # construction
@@ -249,8 +252,41 @@ class MainWindow(QMainWindow):
         sb = self.statusBar()
         self.lbl_cursor = QLabel()
         self.lbl_summary = QLabel()
+        # Diagnostics summary; the dock opens by itself when there is a problem and hides when
+        # there is none, unless the user has opened or closed it by hand (then it stays put).
+        self.btn_diag = QToolButton()
+        self.btn_diag.setAutoRaise(True)
+        self.btn_diag.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.btn_diag.setToolTip(tr("Show or hide the diagnostics panel"))
+        self.btn_diag.clicked.connect(self._toggle_msgs_dock)
+        self._diag_counts = (0, 0)
+        self._msgs_user_pinned = False
+        self._auto_msgs = False
         sb.addWidget(self.lbl_cursor, 1)
+        sb.addPermanentWidget(self.btn_diag)  # permanent: showMessage() must not hide it
         sb.addPermanentWidget(self.lbl_summary)
+
+    def _toggle_msgs_dock(self):
+        self._msgs_user_pinned = True
+        self.d_msgs.setVisible(not self.d_msgs.isVisible())
+
+    def _on_msgs_dock_toggled(self, _checked):
+        if not self._auto_msgs:  # View menu or the dock's close button
+            self._msgs_user_pinned = True
+
+    def _update_diag_button(self):
+        n_issues, n_notes = self._diag_counts
+        c = self.colors
+        if n_issues:
+            text = tr("1 problem") if n_issues == 1 else tr("{n} problems", n=n_issues)
+            ic = icon("warning", c.warn)
+        elif n_notes:
+            text = tr("1 note") if n_notes == 1 else tr("{n} notes", n=n_notes)
+            ic = icon("info", c.muted)
+        else:
+            text, ic = tr("No problems"), icon("apply", c.ok)
+        self.btn_diag.setText(text)
+        self.btn_diag.setIcon(ic)
 
     # =====================================================================
     # theme & title
@@ -264,6 +300,8 @@ class MainWindow(QMainWindow):
         for v in self.views:
             v.mark_dirty()
         self.p_opt.retheme()
+        if hasattr(self, "btn_diag"):
+            self._update_diag_button()
 
     def _reicon(self):
         pairs = ((self.a_new, "new"), (self.a_open, "open"), (self.a_save, "save"), (self.a_undo, "undo"),
@@ -294,7 +332,7 @@ class MainWindow(QMainWindow):
         if layers:
             self.w_layers.select_uid(layers[0].uid)
         self.w_props.set_layer(self.w_layers.selected_uid())
-        self.w_sweep.refresh()
+        self._sync_sweep_editors()
         self.p_opt.refresh()
         self.p_tol.refresh()
         self.p_tol.invalidate()
@@ -312,7 +350,15 @@ class MainWindow(QMainWindow):
             self.v_mat.sync_materials()
         else:
             self.p_tol.plot.mark_dirty()
+            self._sync_sweep_editors()
         self._timer.start()
+
+    def _sync_sweep_editors(self):
+        """The dock and the plot bars edit the same sweep settings; keep them in step."""
+        self.w_sweep.refresh()
+        for v in self.views:
+            if hasattr(v, "sync_controls"):
+                v.sync_controls()
 
     def _on_layer_selected(self, uid):
         self.w_props.set_layer(uid)
@@ -394,6 +440,15 @@ class MainWindow(QMainWindow):
         for text in notes:  # informational only (e.g. built-in demo values); not counted as problems
             self.w_msgs.addItem(QListWidgetItem(icon("info"), text))
         self.d_msgs.setWindowTitle(tr("Diagnostics") + (f" ({n_issues})" if n_issues else ""))
+        self._diag_counts = (n_issues, len(notes))
+        self._update_diag_button()
+        want = n_issues > 0
+        if not self._msgs_user_pinned and self.d_msgs.isVisibleTo(self) != want:
+            self._auto_msgs = True
+            try:
+                self.d_msgs.setVisible(want)
+            finally:
+                self._auto_msgs = False
 
     # =====================================================================
     # file handling
@@ -528,13 +583,22 @@ class MainWindow(QMainWindow):
         lang, theme, rl = dlg.values()
         old_lang = self.settings.language
         self.settings.language, self.settings.theme, self.settings.rl_positive = lang, theme, rl
-        self.rl_positive = rl
         self.colors = resolve(theme)
         self.apply_theme()
-        self.p_opt.refresh()
-        self._update_summary()
+        self.set_rl_positive(rl)
         if lang != old_lang:
             QMessageBox.information(self, APP_NAME, tr("The new language will be used after a restart."))
+
+    def set_rl_positive(self, positive):
+        """Switch the RL display convention everywhere (values stay negative dB internally)."""
+        self.rl_positive = bool(positive)
+        for v in self.views:
+            if hasattr(v, "on_rl_sign_changed"):
+                v.on_rl_sign_changed()
+            v.mark_dirty()
+        self.p_opt.refresh()
+        self.p_tol.refresh()
+        self._update_summary()
 
     def run_optimisation(self):
         self.tabs.setCurrentWidget(self.p_opt)

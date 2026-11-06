@@ -130,6 +130,20 @@ class ConstantMaterial(Material):
         return d
 
 
+def loss_tangent(real, loss):
+    """tan δ = loss / real part (ε″/ε′ or μ″/μ′).  Only defined for a positive real part."""
+    if real <= 0:
+        raise ValueError("loss tangent needs a positive real part")
+    return loss / real
+
+
+def loss_from_tangent(real, tan_delta):
+    """Imaginary part (loss, > 0) from the real part and tan δ."""
+    if real <= 0:
+        raise ValueError("loss tangent needs a positive real part")
+    return real * tan_delta
+
+
 def eps_from_nk(n, k, mu=1.0 + 0j):
     """Permittivity of a medium with complex refractive index N = n - jk and permeability mu.
 

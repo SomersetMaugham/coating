@@ -8,6 +8,13 @@ _SCALE = {"mm": 1e-3, "GHz": 1e9, "ohm": 1.0, "S/m": 1.0, "frac": 1.0, "": 1.0, 
 _LABEL = {"mm": "mm", "GHz": "GHz", "ohm": "Ω/sq", "S/m": "S/m", "frac": "", "": "", "g/cm3": "g/cm³"}
 
 
+def rl_display(db, positive):
+    """RL in the user's display convention (internal RL is always 20·log10|Γ|, negative = good).
+
+    The map is its own inverse, so it also converts a displayed value back to internal dB."""
+    return -db if positive else db
+
+
 def to_display(value, unit):
     return value / _SCALE.get(unit, 1.0)
 

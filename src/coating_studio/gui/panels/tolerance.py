@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from coating_studio.core.structure import SheetLayer, SlabLayer
+from coating_studio.gui.fmt import rl_display
 from coating_studio.gui.icons import set_button_icon
 from coating_studio.gui.plots.base import PlotView
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
@@ -73,9 +74,13 @@ class TolerancePlot(PlotView):
         r = self.result
         if r is None:
             return None
+        pos = self.ctx.rl_positive
+        nom, med = rl_display(r.nominal_db, pos), rl_display(r.median_db, pos)
+        # A sign flip reverses the order of the percentile band; keep lower <= median <= upper.
+        lo, hi = (rl_display(r.upper_db, pos), rl_display(r.lower_db, pos)) if pos else (r.lower_db, r.upper_db)
         return (["f [GHz]", "nominal [dB]", "median [dB]", "lower [dB]", "upper [dB]"],
                 [[f"{a / 1e9:.9g}", f"{b:.6g}", f"{c:.6g}", f"{d:.6g}", f"{e:.6g}"]
-                 for a, b, c, d, e in zip(r.f, r.nominal_db, r.median_db, r.lower_db, r.upper_db)])
+                 for a, b, c, d, e in zip(r.f, nom, med, lo, hi)])
 
 
 class TolerancePanel(QWidget):
@@ -154,15 +159,15 @@ class TolerancePanel(QWidget):
         self.chk_band = QCheckBox(tr("Custom yield band"))
         self.b_lo = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="GHz")
         self.b_hi = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="GHz")
-        f.addRow(tr("Target RL (≤)"), self.target)
+        self.lbl_target = QLabel(tr("Target RL (≤)"))
+        f.addRow(self.lbl_target, self.target)
         f.addRow(tr("Incidence angle"), self.angle)
         f.addRow(tr("Polarisation"), self.pol)
         f.addRow("", self.chk_band)
         f.addRow(tr("Band from"), self.b_lo)
         f.addRow(tr("to"), self.b_hi)
-        f.addRow(muted(tr("Yield = share of samples whose worst RL in the band meets the target "
-                          "(target in the negative-dB convention). Without a custom band the "
-                          "optimisation target band is used.")))
+        f.addRow(muted(tr("Yield = share of samples whose worst RL in the band meets the target. "
+                          "Without a custom band the optimisation target band is used.")))
         ll.addWidget(g)
         ll.addStretch(1)
         split.addWidget(scroll)
@@ -211,7 +216,10 @@ class TolerancePanel(QWidget):
             self.seed.setValue(-1 if s.seed is None else s.seed)
             for k, sp in self.d.items():
                 sp.set_value(getattr(s, k) * 100)
-            self.target.set_value(s.target_db)
+            pos = self.ctx.rl_positive
+            self.target.setRange(*((0, 200) if pos else (-200, 0)))
+            self.target.set_value(rl_display(s.target_db, pos))
+            self.lbl_target.setText(tr("Target RL (≥)") if pos else tr("Target RL (≤)"))
             self.angle.set_value(s.angle)
             self.pol.setCurrentIndex({"avg": 0, "TE": 1, "TM": 2}.get(s.pol, 0))
             has_band = s.band_min is not None and s.band_max is not None
@@ -255,7 +263,7 @@ class TolerancePanel(QWidget):
             s.seed = None if self.seed.value() < 0 else self.seed.value()
             for k, sp in self.d.items():
                 setattr(s, k, sp.value() / 100)
-            s.target_db = self.target.value()
+            s.target_db = rl_display(self.target.value(), self.ctx.rl_positive)
             s.angle = self.angle.value()
             s.pol = self.pol.currentData()
             if band and self.b_hi.value() > self.b_lo.value():

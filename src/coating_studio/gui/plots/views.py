@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from PySide6.QtWidgets import QCheckBox, QComboBox, QLabel
 
 from coating_studio.core.structure import SheetLayer
 from coating_studio.gui.plots.base import PlotView
+from coating_studio.gui.widgets.inputs import SciSpinBox
 from coating_studio.i18n import tr
 
 QUANTITIES = ("RL", "R", "A", "T")
@@ -52,22 +55,59 @@ class _QuantityMixin:
         return [p for p, b in self.pol_boxes.items() if b.isChecked()]
 
 
+class _SweepSpinMixin:
+    """One sweep setting (e.g. the incidence angle of the frequency sweep) editable on the plot bar.
+
+    It edits the same ``SweepSettings`` field as the Analysis settings dock; MainWindow calls
+    ``sync_controls()`` after every settings change so both editors always agree."""
+
+    def _add_sweep_spin(self, label, attr, scale, minimum, maximum, suffix, tip):
+        self._sweep_attr, self._sweep_scale = attr, scale
+        lab = QLabel(label)
+        self.sp_sweep = SciSpinBox(minimum=minimum, maximum=maximum, suffix=suffix)
+        self.sp_sweep.setFixedWidth(92)  # SciSpinBox expands by default
+        self.sp_sweep.setToolTip(tip)
+        lab.setToolTip(tip)
+        self.sp_sweep.valueEdited.connect(self._commit_sweep)
+        at = self.controls.count() - 1  # before the trailing stretch
+        self.controls.insertWidget(at, lab)
+        self.controls.insertWidget(at + 1, self.sp_sweep)
+        self.sync_controls()
+
+    def _commit_sweep(self, v):
+        value = v * self._sweep_scale
+        self.ctx.doc.edit_settings(lambda p: setattr(p.sweep, self._sweep_attr, value))
+
+    def sync_controls(self):
+        target = getattr(self.ctx.project.sweep, self._sweep_attr) / self._sweep_scale
+        # Skip no-op updates: this runs re-entrantly while the user is editing this very box.
+        if not math.isclose(self.sp_sweep.value(), target, rel_tol=1e-12, abs_tol=1e-12):
+            self.sp_sweep.set_value(target)
+
+
 def _style_for(pol, colors):
     return {"TE": dict(color=colors.series[0]), "TM": dict(color=colors.series[1], ls="--"),
             "avg": dict(color=colors.series[2], lw=2.4)}[pol]
 
 
 # ---------------------------------------------------------------------------
-class FrequencyView(_QuantityMixin, PlotView):
+class FrequencyView(_SweepSpinMixin, _QuantityMixin, PlotView):
     title = "reflection_vs_frequency"
 
     def __init__(self, ctx, parent=None):
         super().__init__(ctx, parent)
         self._add_quantity_controls()
-        self.chk_target = QCheckBox(tr("−10 dB line"))
+        self.chk_target = QCheckBox()
         self.chk_target.setChecked(True)
         self.chk_target.toggled.connect(lambda _: self.mark_dirty())
         self.controls.insertWidget(self.controls.count() - 1, self.chk_target)
+        self.on_rl_sign_changed()
+        self._add_sweep_spin(tr("Incidence"), "angle", 1.0, 0.0, 89.9, "°",
+                             tr("Incidence angle of the frequency sweep. Also used by the Smith chart "
+                                "and absorption tabs."))
+
+    def on_rl_sign_changed(self):
+        self.chk_target.setText(tr("10 dB line") if self.ctx.rl_positive else tr("−10 dB line"))
 
     def draw_plot(self, fig):
         res = self.ctx.results.get("freq")
@@ -110,12 +150,14 @@ class FrequencyView(_QuantityMixin, PlotView):
 
 
 # ---------------------------------------------------------------------------
-class AngleView(_QuantityMixin, PlotView):
+class AngleView(_SweepSpinMixin, _QuantityMixin, PlotView):
     title = "reflection_vs_angle"
 
     def __init__(self, ctx, parent=None):
         super().__init__(ctx, parent)
         self._add_quantity_controls()
+        self._add_sweep_spin(tr("Frequency"), "f_at", 1e9, 1e-6, 1e6, "GHz",
+                             tr("Frequency of the angle sweep."))
 
     def draw_plot(self, fig):
         res = self.ctx.results.get("angle")
@@ -163,11 +205,16 @@ class MapView(PlotView):
         self.cb_pol.currentIndexChanged.connect(lambda _: self.mark_dirty())
         self.controls.addWidget(QLabel(tr("Polarisation")))
         self.controls.addWidget(self.cb_pol)
-        self.chk_contour = QCheckBox(tr("−10 / −20 dB contours"))
+        self.chk_contour = QCheckBox()
         self.chk_contour.setChecked(True)
         self.chk_contour.toggled.connect(lambda _: self.mark_dirty())
         self.controls.addWidget(self.chk_contour)
         self.controls.addStretch(1)
+        self.on_rl_sign_changed()
+
+    def on_rl_sign_changed(self):
+        self.chk_contour.setText(tr("10 / 20 dB contours") if self.ctx.rl_positive
+                                 else tr("−10 / −20 dB contours"))
 
     def draw_plot(self, fig):
         res = self.ctx.results.get("map")
@@ -274,6 +321,7 @@ class SmithView(PlotView):
             ax.plot(g.real[-1], g.imag[-1], "s", color=col)
         ax.set_xlim(-1.12, 1.12)
         ax.set_ylim(-1.12, 1.12)
+        ax.set_title(tr("Incidence {a}°", a=f"{self.ctx.project.sweep.angle:g}"), fontsize=10, loc="left")
         if any(b.isChecked() for b in self.pol_boxes.values()):
             ax.legend(loc="upper left")
         return None
@@ -345,6 +393,7 @@ class AbsorptionView(PlotView):
         ax.set_ylim(0, 1)
         ax.set_xlabel(tr("Frequency [GHz]"))
         ax.set_ylabel(tr("Fraction of incident power"))
+        ax.set_title(tr("Incidence {a}°", a=f"{self.ctx.project.sweep.angle:g}"), fontsize=10, loc="left")
         ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), fontsize=8)
         return None
 

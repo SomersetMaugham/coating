@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from coating_studio.gui.fmt import fmt_num, from_display, param_label, to_display, unit_label
+from coating_studio.gui.fmt import fmt_num, from_display, param_label, rl_display, to_display, unit_label
 from coating_studio.gui.icons import set_button_icon
 from coating_studio.gui.theme import mpl_rc
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
@@ -106,8 +106,8 @@ class OptimizationPanel(QWidget):
         self.t_max = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="mm")
         grid.addWidget(self.chk_tmax, 5, 0)
         grid.addWidget(self.t_max, 5, 1, 1, 2)
-        grid.addWidget(muted(tr("Each term is divided by its reference so weights are comparable; "
-                                "RL is in dB (negative = good).")), 6, 0, 1, 3)
+        self.lbl_rl_hint = muted("")
+        grid.addWidget(self.lbl_rl_hint, 6, 0, 1, 3)
         ll.addWidget(g)
 
         g = QGroupBox(tr("Variables"))
@@ -243,7 +243,14 @@ class OptimizationPanel(QWidget):
             self.w_mean.set_value(s.w_mean)
             self.w_thick.set_value(s.w_thickness)
             self.w_mass.set_value(s.w_mass)
-            self.rl_ref.set_value(s.rl_ref_db)
+            pos = self.ctx.rl_positive
+            self.rl_ref.setRange(*((0.01, 200) if pos else (-200, -0.01)))
+            self.rl_ref.set_value(rl_display(s.rl_ref_db, pos))
+            self.lbl_rl_hint.setText(
+                tr("Each term is divided by its reference so weights are comparable; "
+                   "RL is in dB (positive = good).") if pos else
+                tr("Each term is divided by its reference so weights are comparable; "
+                   "RL is in dB (negative = good)."))
             self.t_ref.set_value(s.thickness_ref * 1e3)
             self.m_ref.set_value(s.mass_ref)
             self.chk_tmax.setChecked(s.thickness_max is not None)
@@ -256,6 +263,8 @@ class OptimizationPanel(QWidget):
             self._refresh_variables()
         finally:
             self._loading = False
+        if self.result is not None and self.result.terms is not None:
+            self._show_result(self.result)  # e.g. the RL sign preference changed
 
     def _refresh_variables(self):
         p = self.doc.project
@@ -332,7 +341,7 @@ class OptimizationPanel(QWidget):
             s.pols = pols
             s.w_worst, s.w_mean = self.w_worst.value(), self.w_mean.value()
             s.w_thickness, s.w_mass = self.w_thick.value(), self.w_mass.value()
-            s.rl_ref_db = self.rl_ref.value()
+            s.rl_ref_db = rl_display(self.rl_ref.value(), self.ctx.rl_positive)
             s.thickness_ref = self.t_ref.value() * 1e-3
             s.mass_ref = self.m_ref.value()
             s.thickness_max = self.t_max.value() * 1e-3 if self.chk_tmax.isChecked() else None
@@ -499,7 +508,7 @@ class OptimizationPanel(QWidget):
 
     # -- results -------------------------------------------------------------------
     def _rl(self, db):
-        return f"{(-db if self.ctx.rl_positive else db):.2f}"
+        return f"{rl_display(db, self.ctx.rl_positive):.2f}"
 
     def _show_result(self, res):
         p = self.doc.project
