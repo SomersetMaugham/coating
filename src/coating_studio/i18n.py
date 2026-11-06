@@ -51,6 +51,8 @@ _ISSUES_EN = {
              "this permeability is probably not manufacturable.",
     "term_negative": "A dispersion term has a negative strength, frequency or damping.",
     "eps_huge": "eps' up to {value:.3g} is unusually large.",
+    "demo_values": "Built-in demonstration values (representative, not a datasheet). "
+                   "Use measured data for a real design.",
 }
 
 

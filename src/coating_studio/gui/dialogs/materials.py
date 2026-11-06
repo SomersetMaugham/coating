@@ -124,11 +124,10 @@ class MaterialManager(QDialog):
         self.lst.currentItemChanged.connect(self._on_select)
         ll.addWidget(self.lst, 1)
         row = QHBoxLayout()
-        self.btn_new = QToolButton()
-        self.btn_new.setText(tr("New"))
+        # QPushButton reserves room for the menu arrow; an InstantPopup QToolButton painted the
+        # arrow over the last glyph of longer (e.g. Korean) labels.
+        self.btn_new = QPushButton(tr("New"))
         set_button_icon(self.btn_new, "add")
-        self.btn_new.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.btn_new.setPopupMode(QToolButton.InstantPopup)
         menu = QMenu(self)
         for kind in ("constant", "dispersive", "mixture"):
             menu.addAction(tr(KIND_LABEL[kind]), lambda k=kind: self._new(k))
@@ -143,9 +142,7 @@ class MaterialManager(QDialog):
         set_button_icon(self.btn_del, "delete")
         self.btn_del.setToolTip(tr("Delete"))
         self.btn_del.clicked.connect(self._delete)
-        self.btn_lib = QToolButton()
-        self.btn_lib.setText(tr("Library"))
-        self.btn_lib.setPopupMode(QToolButton.InstantPopup)
+        self.btn_lib = QPushButton(tr("Library"))
         lm = QMenu(self)
         lm.addAction(tr("Import materials from library file…"), self._import_library)
         lm.addAction(tr("Export all materials to library file…"), self._export_library)
@@ -486,8 +483,8 @@ class MaterialManager(QDialog):
         f = np.geomspace(sw.f_min, sw.f_max, 300) if sw.log_f else np.linspace(sw.f_min, sw.f_max, 300)
         issues = check_material(m, f, p.resolver) if m else []
         if issues:
-            lvl = "error" if any(i.level == "error" for i in issues) else "warning"
-            col = c.error if lvl == "error" else c.warn
+            levels = {i.level for i in issues}
+            col = c.error if "error" in levels else c.warn if "warning" in levels else c.muted
             self.lbl_issues.setStyleSheet(f"color: {col}; border: 1px solid {col};")
             self.lbl_issues.setText("\n".join("• " + issue_text(i) for i in issues))
             self.lbl_issues.show()

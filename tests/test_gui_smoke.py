@@ -64,6 +64,37 @@ def test_main_window_all_tabs(app, lang):
     set_language("en")
 
 
+def test_review_fixes(app):
+    """UI defects found in the practical-use review (ux-quick-fixes)."""
+    from PySide6.QtWidgets import QPushButton
+
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.dialogs.materials import MaterialManager
+    from coating_studio.gui.main_window import MainWindow
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["dallenbach"][1]())
+    w.v_mat.cb_mat.setCurrentText("PTFE")  # user looks at an unused material ...
+    w.doc.set_project(EXAMPLES["jaumann2"][1]())
+    assert w.v_mat.cb_mat.currentText() == "PMI foam"  # ... a new project shows one it uses
+    w.recompute()
+    texts = [w.w_msgs.item(i).text() for i in range(w.w_msgs.count())]
+    assert any(t.startswith("PMI foam:") and "demonstration" in t for t in texts)
+    assert "(" not in w.d_msgs.windowTitle()  # info notes are not counted as problems
+    hdr = w.p_tol.tbl.horizontalHeader()
+    fm = hdr.fontMetrics()
+    for c in range(1, 5):
+        label = w.p_tol.tbl.horizontalHeaderItem(c).text()
+        assert hdr.sectionSize(c) >= fm.horizontalAdvance(label), label
+    dlg = MaterialManager(w.doc, w)
+    assert isinstance(dlg.btn_lib, QPushButton) and dlg.btn_lib.menu() is not None
+    dlg.close()
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()
+
+
 def test_optimisation_runs_in_background(app):
     from coating_studio.examples import EXAMPLES
     from coating_studio.gui.main_window import MainWindow

@@ -23,7 +23,7 @@ def builtin_materials():
         ConstantMaterial("PTFE", 2.1, 0.0004, density=2200.0, note="representative"),
         ConstantMaterial("FR-4", 4.4, 0.088, density=1850.0, note="representative, tan d = 0.02"),
         ConstantMaterial("Epoxy", 3.6, 0.07, density=1200.0, note="representative resin"),
-        ConstantMaterial("PMI foam", 1.07, 0.002, density=52.0, note="low-density spacer foam"),
+        ConstantMaterial("PMI foam", 1.07, 0.002, density=52.0, note="low-density spacer foam (representative)"),
         ConstantMaterial("Honeycomb (aramid)", 1.1, 0.004, density=48.0, note="representative"),
         DispersiveMaterial("Carbon black", eps_inf=12.0, sigma=200.0, density=1800.0,
                            note="conductive filler for mixtures (representative)"),

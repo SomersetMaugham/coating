@@ -180,3 +180,21 @@ def test_refractive_index_conversion_round_trip():
     assert eps.real == pytest.approx(4.0 - 0.09) and -eps.imag == pytest.approx(2 * 2.0 * 0.3)
     n, k = nk_from_eps_mu(-20 - 1j)  # Drude-like metal: large k, small positive n
     assert k > 4 and 0 < n < 1
+
+
+def test_builtin_demo_materials_are_flagged_until_edited():
+    from coating_studio.materials.checks import is_builtin_demo
+    from coating_studio.materials.library import builtin_materials
+
+    mats = {m.name: m for m in builtin_materials()}
+    f = np.array([1e9, 10e9])
+    assert not is_builtin_demo(mats["Air"])  # vacuum is exact
+    foam = mats["PMI foam"]
+    assert is_builtin_demo(foam)
+    assert [i.level for i in check_material(foam, f, mats.get)] == ["info"]
+    foam.note = "my own note"  # a note change alone keeps the demo numbers
+    assert is_builtin_demo(foam)
+    foam.eps_re = 1.10  # edited numbers are the user's data
+    assert not is_builtin_demo(foam) and check_material(foam, f, mats.get) == []
+    renamed = mats["PTFE"].clone("PTFE (measured)")
+    assert not is_builtin_demo(renamed)
