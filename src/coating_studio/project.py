@@ -16,7 +16,7 @@ from coating_studio.core.structure import Backing, SheetLayer, SlabLayer, Struct
 from coating_studio.materials.library import builtin_materials
 from coating_studio.materials.models import ConstantMaterial, Material, material_from_dict
 
-SCHEMA_VERSION = 2  # 2: optimisation targets list (1: one band)
+SCHEMA_VERSION = 3  # 3: RLC sheet model; 2: optimisation targets list; 1: one band
 FILE_EXTENSION = ".coat"
 
 
@@ -434,10 +434,18 @@ class Project:
 # ---------------------------------------------------------------------------
 # Parameter addressing (shared by the optimiser, tolerance analysis and the GUI)
 
+def _layer_attr(project, path):
+    ly = project.structure.layer_by_uid(path[1])
+    # A sheet only has the parameters of its model (X: constant; L, C: RLC; C only with a capacitor).
+    if isinstance(ly, SheetLayer) and not ly.has_param(path[2]):
+        raise KeyError(path)
+    return ly
+
+
 def get_param(project: Project, path):
     path = tuple(path)
     if path[0] == "layer":
-        return float(getattr(project.structure.layer_by_uid(path[1]), path[2]))
+        return float(getattr(_layer_attr(project, path), path[2]))
     if path[0] == "material":
         return float(project.materials[path[1]].get(tuple(path[2:])))
     raise KeyError(path)
@@ -446,7 +454,7 @@ def get_param(project: Project, path):
 def set_param(project: Project, path, value):
     path = tuple(path)
     if path[0] == "layer":
-        setattr(project.structure.layer_by_uid(path[1]), path[2], float(value))
+        setattr(_layer_attr(project, path), path[2], float(value))
     elif path[0] == "material":
         project.materials[path[1]].set(tuple(path[2:]), value)
     else:
@@ -454,10 +462,10 @@ def set_param(project: Project, path, value):
 
 
 def param_unit(project: Project, path) -> str:
-    """Display-unit id of a parameter: 'mm', 'ohm', 'GHz', 'S/m', 'frac' or ''."""
+    """Display-unit id of a parameter: 'mm', 'ohm', 'nH', 'pF', 'GHz', 'S/m', 'frac' or ''."""
     path = tuple(path)
     if path[0] == "layer":
-        return {"thickness": "mm", "R": "ohm", "X": "ohm"}[path[2]]
+        return {"thickness": "mm", "R": "ohm", "X": "ohm", "L": "nH", "C": "pF"}[path[2]]
     mat = project.materials[path[1]]
     for p in mat.params():
         if p.key == tuple(path[2:]):
@@ -473,8 +481,9 @@ def available_params(project: Project):
         if isinstance(ly, SlabLayer):
             out.append((("layer", ly.uid, "thickness"), f"{tag}: thickness", "mm"))
         elif isinstance(ly, SheetLayer):
-            out.append((("layer", ly.uid, "R"), f"{tag}: R", "ohm"))
-            out.append((("layer", ly.uid, "X"), f"{tag}: X", "ohm"))
+            for attr, unit in (("R", "ohm"), ("X", "ohm"), ("L", "nH"), ("C", "pF")):
+                if ly.has_param(attr):
+                    out.append((("layer", ly.uid, attr), f"{tag}: {attr}", unit))
     used = project.structure.referenced_materials()
     for c in project.optimization.choices:
         used |= set(c.candidates)

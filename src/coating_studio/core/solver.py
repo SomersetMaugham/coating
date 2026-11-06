@@ -91,7 +91,8 @@ def solve(structure: Structure, materials, f, theta_deg=0.0, pols=("TE", "TM"),
     """Solve the stack at frequencies ``f`` [Hz] and incidence angles ``theta_deg``.
 
     ``materials`` maps names to Material objects.  ``perturb`` optionally maps
-    layer uid -> {"thickness","eps","mu","sheet": multiplicative factors}
+    layer uid -> {"thickness","eps","mu","sheet": multiplicative factors}; RLC sheets also accept
+    "sheet_R", "sheet_L", "sheet_C" (default "sheet_R" = "sheet").
     (used by tolerance analysis).
     """
     f = np.atleast_1d(np.asarray(f, dtype=float))
@@ -170,8 +171,15 @@ def solve(structure: Structure, materials, f, theta_deg=0.0, pols=("TE", "TM"),
                 zref = zc
                 store[idx] = ("slab", zc, kz, d, gb)
             elif isinstance(ly, SheetLayer):
-                zs = ly.impedance * p.get("sheet", 1.0)
-                if abs(zs) < 1e-9:
+                if ly.model == "rlc":
+                    if not ly.R > 0 or ly.L < 0 or (ly.C is not None and not ly.C > 0):
+                        raise SolverError("RLC sheet needs R > 0, L >= 0 and C > 0")
+                    # independent R / L / C factors so a tolerance can shift the resonance
+                    zs = ly.impedance_at(f, p.get("sheet_R", p.get("sheet", 1.0)), p.get("sheet_L", 1.0),
+                                         p.get("sheet_C", 1.0))[:, None]
+                else:
+                    zs = ly.impedance * p.get("sheet", 1.0)
+                if np.any(np.abs(zs) < 1e-9):
                     raise SolverError("sheet impedance must be non-zero")
                 g = _shunt(g, zref, zs)
                 store[idx] = ("sheet", zs)

@@ -121,7 +121,7 @@ def test_legacy_settings_migrate_to_one_target():
     s = OptimizationSettings.from_dict({"f_min": 2e9, "f_max": 4e9, "n_f": 11, "pols": ["TE"], "rl_ref_db": -12})
     assert len(s.targets) == 1 and s.targets[0].goal_db == -12 and s.targets[0].pols == ["TE"]
     d = Project(optimization=s).to_dict()
-    assert d["schema"] == SCHEMA_VERSION == 2 and "f_min" not in d["optimization"]
+    assert d["schema"] == SCHEMA_VERSION >= 2 and "f_min" not in d["optimization"]
     assert Project.from_dict(d).optimization == s
     p = EXAMPLES["salisbury"][1]()
     p.optimization = OptimizationSettings.from_dict({"targets": [], "variables": []})

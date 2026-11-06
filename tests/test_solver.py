@@ -138,3 +138,97 @@ def test_frequency_angle_broadcast_shape():
     res = solve(s, mats(), np.linspace(1e9, 2e9, 7), np.linspace(0, 80, 5))
     assert res.pol["TE"].R.shape == (7, 5)
     assert res.pol["TM"].A_layers.shape == (1, 7, 5)
+
+
+# ---------------------------------------------------------------- RLC (series equivalent-circuit) sheets
+def _rlc(R=300.0, L=4e-9, C=0.06e-12):
+    return SheetLayer(R, model="rlc", L=L, C=C)
+
+
+def test_rlc_without_l_and_c_equals_constant_sheet():
+    f = np.linspace(1e9, 20e9, 57)
+    d = 5e-3
+    a = solve(Structure([SheetLayer(250.0), SlabLayer("Air", d)]), mats(), f, [0, 50])
+    b = solve(Structure([SheetLayer(250.0, model="rlc", L=0.0, C=None), SlabLayer("Air", d)]), mats(), f, [0, 50])
+    for pol in ("TE", "TM"):
+        assert np.array_equal(a.pol[pol].gamma, b.pol[pol].gamma)
+
+
+@pytest.mark.parametrize("L, C", [(4e-9, 0.06e-12), (4e-9, None), (0.0, 0.06e-12)])
+def test_single_rlc_sheet_in_free_space(L, C):
+    """A lone shunt sheet between two air half-spaces: Gamma = -eta0 / (2 Zs + eta0)."""
+    f = np.linspace(1e9, 30e9, 91)
+    sh = SheetLayer(180.0, model="rlc", L=L, C=C)
+    res = solve(Structure([sh], backing=Backing("halfspace", "Air")), mats(), f, 0.0)
+    w = 2 * np.pi * f
+    zs = 180.0 + 1j * (w * L - (1 / (w * C) if C else 0.0))
+    want = -ETA0 / (2 * zs + ETA0)
+    for pol in ("TE", "TM"):
+        assert np.allclose(res.pol[pol].gamma[:, 0], want, rtol=0, atol=1e-13)
+
+
+def test_rlc_salisbury_absorbs_perfectly_at_resonance():
+    L, C = 5e-9, 0.05e-12
+    f0 = 1 / (2 * np.pi * np.sqrt(L * C))
+    d = C0 / f0 / 4
+    s = Structure([SheetLayer(ETA0, model="rlc", L=L, C=C), SlabLayer("Air", d)], backing=Backing("pec"))
+    assert s.layers[0].resonance() == pytest.approx(f0)
+    res = solve(s, mats(), [f0], 0.0)
+    assert abs(res.pol["TE"].gamma[0, 0]) < 1e-12
+
+
+@pytest.mark.parametrize("pol", ["TE", "TM"])
+def test_rlc_sheet_on_dielectric_spacer_oblique(pol):
+    """Zin = Zs || j Zc tan(kz d) on PEC, with the TE / TM wave impedances of the spacer."""
+    er, d, th = 2.5, 4e-3, 40.0
+    spacer = ConstantMaterial("S", er, 0.0)
+    f = np.linspace(2e9, 18e9, 81)
+    sh = _rlc()
+    res = solve(Structure([sh, SlabLayer("S", d)], backing=Backing("pec")), mats(spacer), f, th)
+    k0 = 2 * np.pi * f / C0
+    s2 = np.sin(np.radians(th)) ** 2
+    kz = k0 * np.sqrt(er - s2)
+    kz0 = k0 * np.sqrt(1 - s2)
+    zc = ETA0 * k0 / kz if pol == "TE" else ETA0 * kz / (k0 * er)
+    z0 = ETA0 * k0 / kz0 if pol == "TE" else ETA0 * kz0 / k0
+    zb = 1j * zc * np.tan(kz * d)
+    zs = sh.impedance_at(f)
+    zin = zs * zb / (zs + zb)
+    want = (zin - z0) / (zin + z0)
+    assert np.allclose(res.pol[pol].gamma[:, 0], want, rtol=0, atol=1e-12)
+
+
+def test_rlc_energy_balance_and_sheet_absorption():
+    lossy = ConstantMaterial("Lossy", 4.0, 0.8, 1.5, 0.3)
+    s = Structure([_rlc(), SlabLayer("Lossy", 2e-3), SheetLayer(400.0, model="rlc", L=2e-9, C=None),
+                   SlabLayer("Air", 3e-3)], backing=Backing("halfspace", "Lossy"))
+    res = solve(s, mats(lossy), np.linspace(1e9, 25e9, 60), [0, 30, 70])
+    for pol in ("TE", "TM"):
+        r = res.pol[pol]
+        assert np.allclose(r.R + r.T + r.A_layers.sum(axis=0), 1.0, atol=1e-12)
+        assert np.all(r.A_layers[0] > 0) and np.all(r.A_layers[2] > 0)  # passive sheets absorb
+
+
+@pytest.mark.parametrize("kw", [dict(R=0.0), dict(R=-5.0), dict(C=0.0), dict(C=-1e-12), dict(L=-1e-9)])
+def test_rlc_rejects_non_physical_values(kw):
+    from coating_studio.core.solver import SolverError
+    sh = _rlc(**{**dict(R=300.0, L=4e-9, C=0.06e-12), **kw})
+    with pytest.raises(SolverError):
+        solve(Structure([sh, SlabLayer("Air", 3e-3)]), mats(), [10e9], 0.0)
+
+
+def test_rlc_perturbation_moves_the_resonance():
+    L, C = 5e-9, 0.05e-12
+    sh = SheetLayer(ETA0, model="rlc", L=L, C=C)
+    s = Structure([sh, SlabLayer("Air", 7.5e-3)], backing=Backing("pec"))
+    f = np.linspace(6e9, 14e9, 801)
+
+    def f_min(perturb=None):
+        g = solve(s, mats(), f, 0.0, pols=("TE",), perturb=perturb).pol["TE"].gamma[:, 0]
+        return f[np.argmin(np.abs(g))]
+
+    assert f_min({sh.uid: {"sheet_L": 1.2}}) < f_min() < f_min({sh.uid: {"sheet_C": 0.8}})
+    # the legacy "sheet" factor still scales R for RLC sheets
+    r = solve(s, mats(), [10e9], 0.0, perturb={sh.uid: {"sheet": 2.0}}).pol["TE"].gamma
+    r2 = solve(s, mats(), [10e9], 0.0, perturb={sh.uid: {"sheet_R": 2.0}}).pol["TE"].gamma
+    assert np.array_equal(r, r2)

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from coating_studio.i18n import tr
 
-_SCALE = {"mm": 1e-3, "GHz": 1e9, "ohm": 1.0, "S/m": 1.0, "frac": 1.0, "": 1.0, "g/cm3": 1000.0}
-_LABEL = {"mm": "mm", "GHz": "GHz", "ohm": "Ω/sq", "S/m": "S/m", "frac": "", "": "", "g/cm3": "g/cm³"}
+_SCALE = {"mm": 1e-3, "GHz": 1e9, "ohm": 1.0, "S/m": 1.0, "frac": 1.0, "": 1.0, "g/cm3": 1000.0,
+          "nH": 1e-9, "pF": 1e-12}
+_LABEL = {"mm": "mm", "GHz": "GHz", "ohm": "Ω/sq", "S/m": "S/m", "frac": "", "": "", "g/cm3": "g/cm³",
+          "nH": "nH", "pF": "pF"}
 
 
 def rl_display(db, positive):
