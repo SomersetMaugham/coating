@@ -106,7 +106,10 @@ print(10 * np.log10(res.pol["TE"].R))   # reflection loss [dB], shape (5, 2)
 | Lorentz term | Δ·f₀² / (f₀² − f² + j f γ) |
 
 Measured CSV files contain `f, ε′, ε″[, μ′, μ″]`. The frequency unit is read from the header and
-defaults to GHz. Data is linearly interpolated, and evaluating outside the measured range is an
+defaults to GHz. Optical data can be given as a refractive index instead: name the value columns
+`n, k` (or just `n` for a lossless material, μ = 1). The first header cell may also be a wavelength
+(`nm`, `µm`, `mm`; a bare `wavelength`/`wl` heading means µm) or a wavenumber (`cm-1`).
+refractiveindex.info's two-block export (`wl,n` then `wl,k`) is read directly. Data is linearly interpolated, and evaluating outside the measured range is an
 error, so fit a dispersion model if you need to extrapolate. A synthetic example is in
 [`examples/synthetic_magnetic_composite.csv`](examples/synthetic_magnetic_composite.csv).
 

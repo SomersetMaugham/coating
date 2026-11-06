@@ -1,12 +1,23 @@
-"""Reading measured eps/mu data from CSV files.
+"""Reading measured eps/mu or refractive-index data from CSV files.
 
-Accepted layout (comma, semicolon, tab or whitespace separated)::
+Accepted layouts (comma, semicolon, tab or whitespace separated)::
 
-    f, eps', eps'', [mu', mu'']
+    x, eps', eps'', [mu', mu'']      permittivity / permeability (default)
+    x, n, k                          refractive index N = n - jk  (mu = 1)
+    x, n                             lossless refractive index (k = 0)
 
-The frequency unit is taken from the header (Hz / kHz / MHz / GHz / THz) and
-defaults to GHz.  Loss columns use the engineering convention (eps'' > 0 means
-loss).  Lines starting with '#' are comments.
+A header row is needed to select the n/k layout (value columns named ``n`` and
+``k``).  The first header cell sets the abscissa ``x``:
+
+* frequency: Hz / kHz / MHz / GHz / THz (default GHz, also when there is no header)
+* wavelength: nm / um (µm) / mm / cm / m, or a bare ``wavelength`` / ``wl`` /
+  ``lambda`` / ``λ`` heading, which means micrometres
+* wavenumber: cm-1 (cm^-1, cm⁻¹, 1/cm)
+
+refractiveindex.info's two-block export (a ``wl,n`` block followed by a ``wl,k``
+block) is also read: k is interpolated onto the n grid (on the file's own axis),
+and points outside the k data are dropped.  Loss columns use the engineering convention (eps'' > 0 and
+k > 0 mean loss).  Lines starting with '#' are comments.
 """
 
 from __future__ import annotations
@@ -17,72 +28,155 @@ import re
 
 import numpy as np
 
-from coating_studio.materials.models import TabulatedMaterial
+from coating_studio.core.constants import C0
+from coating_studio.materials.models import TabulatedMaterial, eps_from_nk
 
-_UNITS = {"thz": 1e12, "ghz": 1e9, "mhz": 1e6, "khz": 1e3, "hz": 1.0}
+_FREQ_UNITS = {"thz": 1e12, "ghz": 1e9, "mhz": 1e6, "khz": 1e3}
+_LEN_UNITS = {"nm": 1e-9, "um": 1e-6, "µm": 1e-6, "μm": 1e-6, "mm": 1e-3, "cm": 1e-2, "m": 1.0}
+_WAVENUMBER = re.compile(r"cm\s*(\^?\s*-\s*1|⁻¹)|1\s*/\s*cm")
+_LENGTH = re.compile(r"(?<![a-zµμ])(nm|um|µm|μm|mm|cm|m)(?![a-z])")
+_WL_WORDS = re.compile(r"wavelength|\bwl\b|lambda|λ")
 
 
 class CsvFormatError(ValueError):
     pass
 
 
-def _detect_unit(header_cell: str) -> float:
+def _abscissa(header_cell: str):
+    """Return a function mapping the first column to frequency [Hz]."""
     h = header_cell.lower()
-    for key in ("thz", "ghz", "mhz", "khz"):
+    if _WAVENUMBER.search(h):
+        return lambda v: C0 * 100.0 * v
+    for key, s in _FREQ_UNITS.items():
         if key in h:
-            return _UNITS[key]
+            return lambda v, s=s: v * s
     if re.search(r"\bhz\b|\(hz\)|\[hz\]", h):
-        return 1.0
-    return 1e9
+        return lambda v: v
+    m = _LENGTH.search(h)
+    if m or _WL_WORDS.search(h):
+        s = _LEN_UNITS[m.group(1)] if m else 1e-6
+        return lambda v, s=s: C0 / (v * s)
+    return lambda v: v * 1e9
 
 
-def parse_csv_text(text: str):
-    """Return (f_Hz, eps_re, eps_loss, mu_re, mu_loss) arrays."""
+def _column_kind(cell: str) -> str:
+    c = re.sub(r"[\s_]", "", cell.lower())
+    if c in ("n", "re(n)", "nreal"):
+        return "n"
+    if c in ("k", "κ", "im(n)", "kappa"):
+        return "k"
+    return "other"
+
+
+def _is_number(s):
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
+
+
+def _split_rows(text):
     lines = [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
     if not lines:
         raise CsvFormatError("file is empty")
-    sample = "\n".join(lines[:5])
     try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t ")
-        delim = dialect.delimiter
+        delim = csv.Sniffer().sniff("\n".join(lines[:5]), delimiters=",;\t ").delimiter
     except csv.Error:
         delim = None
     rows = []
     for ln in lines:
         cells = [c.strip() for c in (ln.split(delim) if delim and delim != " " else ln.split())]
         rows.append([c for c in cells if c != ""])
+    return rows
 
-    scale = 1e9
-    def is_number(s):
-        try:
-            float(s)
-            return True
-        except ValueError:
-            return False
 
-    if rows and not all(is_number(c) for c in rows[0]):
-        scale = _detect_unit(rows[0][0])
-        rows = rows[1:]
-    data = []
+def _blocks(rows):
+    """Split into (header or None, numeric array) blocks at every header row."""
+    blocks, header, data = [], None, []
+
+    def flush():
+        if header is not None or data:
+            blocks.append((header, data))
+
     for n, r in enumerate(rows, start=1):
-        try:
-            vals = [float(c) for c in r]
-        except ValueError:
-            raise CsvFormatError(f"row {n}: non-numeric value") from None
-        if len(vals) not in (3, 5):
-            raise CsvFormatError(f"row {n}: expected 3 or 5 columns, found {len(vals)}")
-        data.append(vals)
-    if len(data) < 2:
-        raise CsvFormatError("need at least two data rows")
-    ncol = {len(r) for r in data}
-    if len(ncol) != 1:
-        raise CsvFormatError("rows have inconsistent column counts")
-    arr = np.array(data)
-    f = arr[:, 0] * scale
-    if np.any(f <= 0):
+        if not all(_is_number(c) for c in r):
+            if data or header is not None:
+                flush()
+            header, data = r, []
+            continue
+        data.append((n, [float(c) for c in r]))
+    flush()
+    out = []
+    for header, data in blocks:
+        if len(data) < 2:
+            raise CsvFormatError("need at least two data rows")
+        if len({len(v) for _, v in data}) != 1:
+            raise CsvFormatError("rows have inconsistent column counts")
+        out.append((header, np.array([v for _, v in data])))
+    return out
+
+
+def _check_f(f):
+    if np.any(~np.isfinite(f)) or np.any(f <= 0):
         raise CsvFormatError("frequencies must be positive")
     if len(np.unique(f)) != len(f):
         raise CsvFormatError("duplicate frequencies")
+
+
+def _nk_result(f, n, k):
+    if np.any(n < 0) or np.any(k < 0):
+        raise CsvFormatError("n and k must be non-negative")
+    eps = eps_from_nk(n, k)
+    return f, eps.real, -eps.imag, np.ones(len(f)), np.zeros(len(f))
+
+
+def _merge_nk_blocks(blocks):
+    """refractiveindex.info style: separate (x, n) and (x, k) blocks."""
+    cols = {}
+    for header, arr in blocks:
+        kind = _column_kind(header[1]) if header and len(header) == 2 else "other"
+        if arr.shape[1] != 2 or kind not in ("n", "k") or kind in cols:
+            raise CsvFormatError("multiple blocks are only supported as one 'x, n' and one 'x, k' block")
+        cols[kind] = (_abscissa(header[0])(arr[:, 0]), arr[:, 1], arr[:, 0], header[0])
+    if "n" not in cols:
+        raise CsvFormatError("no n block found")
+    f, n, xn, hn = cols["n"]
+    _check_f(f)
+    if "k" not in cols:
+        return _nk_result(f, n, np.zeros(len(f)))
+    fk, k, xk, hk = cols["k"]
+    _check_f(fk)
+    # Interpolate on the file's own axis (e.g. wavelength) when both blocks share it.
+    if hn.strip().lower() != hk.strip().lower():
+        xn, xk = f, fk
+    order = np.argsort(xk)
+    xk, k = xk[order], k[order]
+    span = 1e-12 * abs(xk[-1])
+    keep = (xn >= xk[0] - span) & (xn <= xk[-1] + span)
+    if keep.sum() < 2:
+        raise CsvFormatError("the n and k blocks do not overlap")
+    return _nk_result(f[keep], n[keep], np.interp(xn[keep], xk, k))
+
+
+def parse_csv_text(text: str):
+    """Return (f_Hz, eps_re, eps_loss, mu_re, mu_loss) arrays."""
+    blocks = _blocks(_split_rows(text))
+    if len(blocks) > 1:
+        return _merge_nk_blocks(blocks)
+    header, arr = blocks[0]
+    to_f = _abscissa(header[0]) if header else (lambda v: v * 1e9)
+    f = to_f(arr[:, 0])
+    kinds = [_column_kind(c) for c in header[1:]] if header else []
+    if kinds[:2] in (["n", "k"], ["n"]):
+        if arr.shape[1] != len(kinds) + 1 or arr.shape[1] not in (2, 3):
+            raise CsvFormatError(f"n/k data: expected 2 or 3 columns, found {arr.shape[1]}")
+        _check_f(f)
+        k = arr[:, 2] if arr.shape[1] == 3 else np.zeros(len(f))
+        return _nk_result(f, arr[:, 1], k)
+    if arr.shape[1] not in (3, 5):
+        raise CsvFormatError(f"expected 3 or 5 columns, found {arr.shape[1]}")
+    _check_f(f)
     if arr.shape[1] == 5:
         return f, arr[:, 1], arr[:, 2], arr[:, 3], arr[:, 4]
     return f, arr[:, 1], arr[:, 2], np.ones(len(f)), np.zeros(len(f))
