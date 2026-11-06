@@ -27,7 +27,7 @@ class SweepPanel(QWidget):
         self.log_f = QCheckBox(tr("Logarithmic frequency axis"))
         self.angle = SciSpinBox(minimum=0.0, maximum=89.9, suffix="°")
         f1.addRow(tr("Start"), self.f_min)
-        f1.addRow(tr("Stop"), self.f_max)
+        f1.addRow(tr("End"), self.f_max)
         f1.addRow(tr("Points"), self.n_f)
         f1.addRow("", self.log_f)
         f1.addRow(tr("Incidence angle"), self.angle)

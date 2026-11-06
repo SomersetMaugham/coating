@@ -379,18 +379,19 @@ class MaterialView(PlotView):
         self.controls.addStretch(1)
         self._data = None
 
-    def sync_materials(self):
+    def sync_materials(self, reset=False):
+        """Refill the material list.  ``reset`` (new or opened project) jumps to a material the
+        design uses; otherwise the user's current choice is kept."""
         cur = self.cb_mat.currentText()
         names = list(self.ctx.project.materials)
+        used = [ly.material for ly in self.ctx.project.structure.layers if hasattr(ly, "material")]
         self.cb_mat.blockSignals(True)
         self.cb_mat.clear()
         self.cb_mat.addItems(names)
-        if cur in names:
+        if cur in names and not (reset and used):
             self.cb_mat.setCurrentText(cur)
-        else:
-            used = [ly.material for ly in self.ctx.project.structure.layers if hasattr(ly, "material")]
-            if used:
-                self.cb_mat.setCurrentText(used[0])
+        elif used:
+            self.cb_mat.setCurrentText(used[0])
         self.cb_mat.blockSignals(False)
         self.mark_dirty()
 

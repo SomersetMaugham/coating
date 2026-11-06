@@ -105,7 +105,7 @@ KO.update({
     "ε″ (constant)": "ε″ (상수)", "μ″ (constant)": "μ″ (상수)",
 
     # ---- sweep panel -----------------------------------------------------------
-    "Frequency sweep": "주파수 스윕", "Start": "시작", "Stop": "중지", "Points": "점 개수",
+    "Frequency sweep": "주파수 스윕", "Start": "시작", "Stop": "중지", "End": "끝", "Points": "점 개수",
     "Logarithmic frequency axis": "로그 주파수 축", "Incidence angle": "입사각", "Angle sweep": "입사각 스윕",
     "From": "시작", "To": "끝", "Frequency × angle map": "주파수 × 입사각 맵",
     "Frequency points": "주파수 점 개수", "Angle points": "각도 점 개수",
@@ -201,6 +201,8 @@ KO.update({
         "(ε″ > 0 이면 손실)입니다.",
     "Refractive index N = n − jk = √(εμ). Editing n or k sets ε = N²/μ and keeps μ.":
         "굴절률 N = n − jk = √(εμ). n이나 k를 바꾸면 μ는 그대로 두고 ε = N²/μ로 설정합니다.",
+    "Built-in demonstration values (representative, not a datasheet). Use measured data for a real design.":
+        "기본 제공 시연용 값입니다(대표값이며 데이터시트 값이 아님). 실제 설계에는 측정 데이터를 쓰세요.",
     "Constant complex ε and μ": "상수 복소 ε, μ", "Permittivity ε(f)": "유전율 ε(f)",
     "Permeability μ(f)": "투자율 μ(f)",
     "Debye: Δ/(1 + jf/f₀). Lorentz: Δ·f₀²/(f₀² − f² + jfγ). A Debye μ-term models Snoek-type ferrite "

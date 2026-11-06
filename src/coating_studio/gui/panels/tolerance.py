@@ -136,9 +136,8 @@ class TolerancePanel(QWidget):
         self.tbl.setSelectionMode(QAbstractItemView.NoSelection)
         th = self.tbl.horizontalHeader()
         th.setSectionResizeMode(0, QHeaderView.Stretch)
-        for c in range(1, 5):
-            th.setSectionResizeMode(c, QHeaderView.Fixed)
-            self.tbl.setColumnWidth(c, 58)
+        for c in range(1, 5):  # fit the header text ("Thickness" was clipped at a fixed 58 px)
+            th.setSectionResizeMode(c, QHeaderView.ResizeToContents)
         self.tbl.setMinimumHeight(120)
         gl.addWidget(self.tbl)
         gl.addWidget(muted(tr("Blank cells use the default tolerance.")))

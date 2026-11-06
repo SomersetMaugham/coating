@@ -119,9 +119,11 @@ class OptimizationPanel(QWidget):
         hh = self.tbl.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.Stretch)
         hh.setMinimumSectionSize(28)
-        for c, wdt in ((1, 70), (2, 84), (3, 84)):
+        hh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        for c in (2, 3):
             hh.setSectionResizeMode(c, QHeaderView.Fixed)
-            self.tbl.setColumnWidth(c, wdt)
+            self.tbl.setColumnWidth(c, 74)
+        self.tbl.setTextElideMode(Qt.ElideMiddle)  # long names keep their "[unit]" suffix
         hh.setSectionResizeMode(4, QHeaderView.Fixed)
         self.tbl.setColumnWidth(4, 30)
         self.tbl.setWordWrap(False)
@@ -394,6 +396,8 @@ class OptimizationPanel(QWidget):
                 errors.append(tr("Unknown material: {n}", n=n))
                 continue
             for iss in check_material(p.materials[n], f, p.resolver):
+                if iss.level == "info":
+                    continue
                 (errors if iss.level == "error" else warnings).append(f"{n}: {issue_text(iss)}")
         if errors:
             QMessageBox.critical(self, tr("Pre-flight check failed"), "\n".join(errors))
@@ -453,6 +457,14 @@ class OptimizationPanel(QWidget):
             self.progress.setRange(0, n)
             self.progress.setValue(info["combo"] - 1)
             self.progress.setFormat(f"{info['combo']}/{n}")
+        elif info["stage"] == "global":
+            total = max(1, int(self.doc.project.optimization.maxiter))
+            self.progress.setRange(0, total)
+            self.progress.setValue(min(int(info["iteration"]), total))
+            self.progress.setFormat("%v/%m")
+        else:  # local refinement has no fixed length
+            self.progress.setRange(0, 0)
+            self.progress.setFormat("")
         self._draw_history()
 
     def _on_finished(self, res):

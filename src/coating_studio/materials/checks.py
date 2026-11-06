@@ -13,9 +13,37 @@ from coating_studio.materials.models import DispersiveMaterial, Material, OutOfR
 SNOEK_LIMIT_HZ = (2.0 / 3.0) * 2.8e6 * 21_500.0
 
 
+def _demo_signatures():
+    from coating_studio.materials.library import builtin_materials
+
+    sig = {}
+    for m in builtin_materials():
+        if m.name != "Air":  # vacuum is exact, not a demo value
+            d = m.to_dict()
+            d.pop("note", None)
+            sig[m.name] = d
+    return sig
+
+
+_DEMO = None
+
+
+def is_builtin_demo(mat: Material) -> bool:
+    """True if ``mat`` still has the built-in demonstration values (name and numbers unchanged)."""
+    global _DEMO
+    if _DEMO is None:
+        _DEMO = _demo_signatures()
+    ref = _DEMO.get(mat.name)
+    if ref is None:
+        return False
+    d = mat.to_dict()
+    d.pop("note", None)
+    return d == ref
+
+
 @dataclass
 class Issue:
-    level: str  # "warning" | "error"
+    level: str  # "info" | "warning" | "error"
     code: str  # stable identifier; the GUI maps it to translated text
     material: str
     args: dict = field(default_factory=dict)
@@ -60,4 +88,6 @@ def check_material(mat: Material, f, resolver) -> list[Issue]:
                 break
     if np.any(eps.real > 1e4):
         issues.append(Issue("warning", "eps_huge", mat.name, {"value": float(eps.real.max())}))
+    if is_builtin_demo(mat):
+        issues.append(Issue("info", "demo_values", mat.name, {}))
     return issues

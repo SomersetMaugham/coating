@@ -298,7 +298,7 @@ class MainWindow(QMainWindow):
         self.p_opt.refresh()
         self.p_tol.refresh()
         self.p_tol.invalidate()
-        self.v_mat.sync_materials()
+        self.v_mat.sync_materials(reset=True)
         self._update_title()
         self.recompute()
 
@@ -380,13 +380,19 @@ class MainWindow(QMainWindow):
             self.w_msgs.addItem(it)
             n_issues += 1
         names = sorted(n for n in p.structure.referenced_materials() if n in p.materials)
+        notes = []
         for n in names:
             for iss in check_material(p.materials[n], f, p.resolver):
-                it = QListWidgetItem(icon("error" if iss.level == "error" else "warning"), f"{n}: {issue_text(iss)}")
-                self.w_msgs.addItem(it)
+                text = f"{n}: {issue_text(iss)}"
+                if iss.level == "info":
+                    notes.append(text)
+                    continue
+                self.w_msgs.addItem(QListWidgetItem(icon("error" if iss.level == "error" else "warning"), text))
                 n_issues += 1
         if not n_issues:
             self.w_msgs.addItem(QListWidgetItem(icon("info"), tr("No problems found in the materials used.")))
+        for text in notes:  # informational only (e.g. built-in demo values); not counted as problems
+            self.w_msgs.addItem(QListWidgetItem(icon("info"), text))
         self.d_msgs.setWindowTitle(tr("Diagnostics") + (f" ({n_issues})" if n_issues else ""))
 
     # =====================================================================
