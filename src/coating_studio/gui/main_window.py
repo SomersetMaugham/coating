@@ -294,7 +294,7 @@ class MainWindow(QMainWindow):
         if layers:
             self.w_layers.select_uid(layers[0].uid)
         self.w_props.set_layer(self.w_layers.selected_uid())
-        self.w_sweep.refresh()
+        self._sync_sweep_editors()
         self.p_opt.refresh()
         self.p_tol.refresh()
         self.p_tol.invalidate()
@@ -312,7 +312,15 @@ class MainWindow(QMainWindow):
             self.v_mat.sync_materials()
         else:
             self.p_tol.plot.mark_dirty()
+            self._sync_sweep_editors()
         self._timer.start()
+
+    def _sync_sweep_editors(self):
+        """The dock and the plot bars edit the same sweep settings; keep them in step."""
+        self.w_sweep.refresh()
+        for v in self.views:
+            if hasattr(v, "sync_controls"):
+                v.sync_controls()
 
     def _on_layer_selected(self, uid):
         self.w_props.set_layer(uid)

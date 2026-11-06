@@ -194,3 +194,31 @@ def test_rl_sign_convention_everywhere(app):
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()
+
+
+def test_inline_sweep_controls(app):
+    """Batch 2 / B: angle/frequency on the plot bars and the Analysis dock stay in step."""
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["jaumann2"][1]())
+    assert w.v_freq.sp_sweep.value() == w.project.sweep.angle
+    assert w.v_angle.sp_sweep.value() == w.project.sweep.f_at / 1e9
+    w.v_freq.sp_sweep.setValue(30.0)  # user edit on the plot bar
+    assert w.project.sweep.angle == 30.0 and w.w_sweep.angle.value() == 30.0
+    assert not w.doc.undo_stack.canUndo()  # sweep settings are not undoable, like in the dock
+    w.w_sweep.f_at.setValue(12.5)  # user edit in the dock
+    assert w.project.sweep.f_at == 12.5e9 and w.v_angle.sp_sweep.value() == 12.5
+    w.v_angle.sp_sweep.setValue(7.3)
+    assert abs(w.project.sweep.f_at - 7.3e9) < 1 and w.v_angle.sp_sweep.value() == 7.3
+    assert w.v_freq.sp_sweep.maximumWidth() <= 120  # does not stretch across the plot bar
+    w.recompute()
+    for v in (w.v_freq, w.v_smith, w.v_abs):
+        w.tabs.setCurrentWidget(v)
+        _pump(app, 30)
+        assert any("30°" in ax.get_title(loc="left") for ax in v.fig.axes), type(v).__name__
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()

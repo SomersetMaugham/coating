@@ -120,6 +120,9 @@ KO.update({
     "θ = {a}°, value = {v}": "θ = {a}°, 값 = {v}", "Polarisation": "편파",
     "−10 / −20 dB contours": "−10 / −20 dB 등고선",
     "10 / 20 dB contours": "10 / 20 dB 등고선", "10 dB line": "10 dB 기준선",
+    "Incidence angle of the frequency sweep. Also used by the Smith chart and absorption tabs.":
+        "주파수 스윕의 입사각입니다. Smith 차트와 흡수 분해 탭에도 쓰입니다.",
+    "Frequency of the angle sweep.": "입사각 스윕의 주파수입니다.",
     "f = {f} GHz, θ = {a}°, RL = {v} dB": "f = {f} GHz, θ = {a}°, RL = {v} dB",
     "Γ locus over the frequency sweep; ● start, ■ stop": "주파수 스윕에 따른 Γ 궤적 (● 시작, ■ 끝)",
     "Γ = {g}, z = {z}": "Γ = {g}, z = {z}", "Transmitted": "투과", "Reflected": "반사",
