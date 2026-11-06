@@ -16,7 +16,7 @@ from coating_studio.core.structure import Backing, SheetLayer, SlabLayer, Struct
 from coating_studio.materials.library import builtin_materials
 from coating_studio.materials.models import ConstantMaterial, Material, material_from_dict
 
-SCHEMA_VERSION = 3  # 3: RLC sheet model; 2: optimisation targets list; 1: one band
+SCHEMA_VERSION = 4  # 4: independent loss tolerances; 3: RLC sheets; 2: optimisation targets; 1: one band
 FILE_EXTENSION = ".coat"
 
 
@@ -215,10 +215,15 @@ class ToleranceSettings:
     n_samples: int = 200
     distribution: str = "normal"  # "normal": value is 1 sigma; "uniform": value is +/- half-width
     thickness: float = 0.05  # relative
-    eps: float = 0.05
-    mu: float = 0.05
+    eps: float = 0.05  # eps' (or the whole complex eps while eps_loss is None)
+    mu: float = 0.05  # mu' (or the whole complex mu while mu_loss is None)
     sheet: float = 0.05
-    per_layer: dict = field(default_factory=dict)  # uid -> {"thickness","eps","mu","sheet"}
+    # Relative tolerance of the loss parts eps'' / mu'', drawn independently of the real parts, so the
+    # loss tangent varies too.  None = the loss follows the real part (one factor on the complex value,
+    # tan delta fixed) - the behaviour of schema <= 3 files, which load with None.
+    eps_loss: float | None = 0.10
+    mu_loss: float | None = 0.10
+    per_layer: dict = field(default_factory=dict)  # uid -> {"thickness","eps","eps_loss","mu","mu_loss","sheet"}
     target_db: float = -10.0
     band_min: float | None = None  # Hz; yield band (None -> whole sweep)
     band_max: float | None = None
@@ -236,7 +241,14 @@ class ToleranceSettings:
 
     @classmethod
     def from_dict(cls, d):
-        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+        kw = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
+        # Files written before independent loss tolerances existed keep their old (correlated) model.
+        kw.setdefault("eps_loss", None)
+        kw.setdefault("mu_loss", None)
+        # A stored None would stop tolerance_for() from falling back to the default.
+        kw["per_layer"] = {uid: {k: v for k, v in vals.items() if v is not None}
+                           for uid, vals in kw.get("per_layer", {}).items()}
+        return cls(**kw)
 
 
 class Project:

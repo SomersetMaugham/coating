@@ -91,7 +91,8 @@ def solve(structure: Structure, materials, f, theta_deg=0.0, pols=("TE", "TM"),
     """Solve the stack at frequencies ``f`` [Hz] and incidence angles ``theta_deg``.
 
     ``materials`` maps names to Material objects.  ``perturb`` optionally maps
-    layer uid -> {"thickness","eps","mu","sheet": multiplicative factors}; RLC sheets also accept
+    layer uid -> {"thickness","eps","mu","sheet": multiplicative factors}; slabs also accept
+    "eps_re"/"eps_loss" and "mu_re"/"mu_loss" (real and loss parts separately); RLC sheets also accept
     "sheet_R", "sheet_L", "sheet_C" (default "sheet_R" = "sheet").
     (used by tolerance analysis).
     """
@@ -160,8 +161,18 @@ def solve(structure: Structure, materials, f, theta_deg=0.0, pols=("TE", "TM"),
             p = perturb.get(ly.uid, {})
             if isinstance(ly, SlabLayer):
                 eps, mu = eps_mu(ly.material)
-                eps = eps * p.get("eps", 1.0)
-                mu = mu * p.get("mu", 1.0)
+                # Real and loss parts can be perturbed separately ("eps_re"/"eps_loss"); without
+                # those keys the whole complex value is scaled exactly as before.
+                if "eps_re" in p or "eps_loss" in p:
+                    base = p.get("eps", 1.0)
+                    eps = eps.real * p.get("eps_re", base) + 1j * (eps.imag * p.get("eps_loss", base))
+                else:
+                    eps = eps * p.get("eps", 1.0)
+                if "mu_re" in p or "mu_loss" in p:
+                    base = p.get("mu", 1.0)
+                    mu = mu.real * p.get("mu_re", base) + 1j * (mu.imag * p.get("mu_loss", base))
+                else:
+                    mu = mu * p.get("mu", 1.0)
                 kz, zc = medium(eps, mu)
                 d = ly.thickness * p.get("thickness", 1.0)
                 if d < 0:

@@ -75,6 +75,7 @@ def test_validation_errors():
 def test_tolerance_zero_spread_matches_nominal():
     p = EXAMPLES["salisbury"][1]()
     p.tolerance.thickness = p.tolerance.eps = p.tolerance.mu = p.tolerance.sheet = 0.0
+    p.tolerance.eps_loss = p.tolerance.mu_loss = 0.0
     p.tolerance.n_samples = 5
     f = np.linspace(8e9, 12e9, 21)
     r = run_tolerance(p, f, band=(9e9, 11e9))
@@ -178,3 +179,104 @@ def test_single_frequency_target_and_union_yield_band():
     assert res.yield_fraction == 1.0
     envelope = run_tolerance(p, f, band=(9e9, 18e9))
     assert envelope.yield_fraction == 0.0
+
+
+# ---------------------------------------------------------------- independent loss tolerances
+def _legacy_run(project, f, s, band):
+    """The pre-loss-tolerance algorithm, frozen here to prove bit-identical legacy results."""
+    from coating_studio.core.structure import SheetLayer as _Sh, SlabLayer as _Sl
+    from coating_studio.tolerance import _draw
+    rng = np.random.default_rng(s.seed)
+    n = int(s.n_samples)
+    pols = ("TE", "TM") if s.pol == "avg" else (s.pol,)
+
+    def rl_db(perturb=None):
+        res = solve(project.structure, project.materials, f, s.angle, pols=pols, perturb=perturb)
+        return 10 * np.log10(np.maximum(res.quantity("R", "avg" if s.pol == "avg" else s.pol)[:, 0], 1e-30))
+
+    factors = {}
+    for ly in project.structure.layers:
+        if isinstance(ly, _Sl):
+            factors[ly.uid] = {k: np.maximum(_draw(rng, s.distribution, s.tolerance_for(ly.uid, k), n), 1e-6)
+                               for k in ("thickness", "eps", "mu")}
+        elif isinstance(ly, _Sh):
+            factors[ly.uid] = {"sheet": np.maximum(_draw(rng, s.distribution, s.tolerance_for(ly.uid, "sheet"), n), 1e-6)}
+    arr = np.array([rl_db({u: {k: a[i] for k, a in d.items()} for u, d in factors.items()}) for i in range(n)])
+    mask = (f >= band[0]) & (f <= band[1])
+    return arr, float(np.mean(arr[:, mask].max(axis=1) <= s.target_db))
+
+
+def test_legacy_loss_mode_is_bit_identical():
+    from coating_studio.project import ToleranceSettings
+    p = EXAMPLES["dallenbach"][1]()
+    p.tolerance = ToleranceSettings.from_dict({k: v for k, v in p.tolerance.to_dict().items()
+                                               if k not in ("eps_loss", "mu_loss")})  # a schema-3 file
+    assert p.tolerance.eps_loss is None and p.tolerance.mu_loss is None
+    p.tolerance.n_samples = 40
+    f = np.linspace(6e9, 14e9, 41)
+    res = run_tolerance(p, f, band=(8e9, 12e9))
+    arr, yld = _legacy_run(p, f, p.tolerance, (8e9, 12e9))
+    assert np.array_equal(res.median_db, np.median(arr, axis=0)) and res.yield_fraction == yld
+
+
+def test_solver_perturbs_real_and_loss_parts_separately():
+    from coating_studio.core import Backing, SlabLayer as Sl, Structure as St
+    from coating_studio.materials import ConstantMaterial
+    m = {"Air": ConstantMaterial("Air"), "L": ConstantMaterial("L", 4.0, 0.8, 1.5, 0.3)}
+    ly = Sl("L", 2e-3)
+    st = St([ly], backing=Backing("pec"))
+    f = np.linspace(2e9, 18e9, 33)
+
+    def g(perturb=None, mat=None):
+        return solve(st, mat or m, f, 0.0, pols=("TE",), perturb=perturb).pol["TE"].gamma
+
+    def as_mat(er, el, mr, ml):
+        return {"Air": m["Air"], "L": ConstantMaterial("L", er, el, mr, ml)}
+
+    assert np.array_equal(g({ly.uid: {}}), g())  # no keys: unchanged
+    assert np.allclose(g({ly.uid: {"eps_re": 1.1}}), g(mat=as_mat(4.4, 0.8, 1.5, 0.3)), atol=1e-14)
+    assert np.allclose(g({ly.uid: {"eps_loss": 1.5}}), g(mat=as_mat(4.0, 1.2, 1.5, 0.3)), atol=1e-14)
+    assert np.allclose(g({ly.uid: {"mu_re": 0.9, "mu_loss": 2.0}}), g(mat=as_mat(4.0, 0.8, 1.35, 0.6)), atol=1e-14)
+    assert np.allclose(g({ly.uid: {"eps": 1.2}}), g(mat=as_mat(4.8, 0.96, 1.5, 0.3)), atol=1e-14)  # legacy key
+
+
+def test_loss_tolerance_draws_and_overrides():
+    from unittest import mock
+
+    from coating_studio import tolerance as T
+    p = EXAMPLES["dallenbach"][1]()
+    uid = p.structure.layers[0].uid
+    s = p.tolerance
+    s.n_samples, s.thickness, s.eps, s.mu, s.eps_loss, s.mu_loss = 30, 0.0, 0.0, 0.0, 0.2, None
+    seen = []
+    real_solve = T.solve
+
+    def spy(*a, perturb=None, **kw):
+        if perturb:
+            seen.append(dict(perturb[uid]))
+        return real_solve(*a, perturb=perturb, **kw)
+
+    with mock.patch.object(T, "solve", spy):
+        T.run_tolerance(p, np.linspace(8e9, 12e9, 5))
+    assert all(d["eps_re"] == 1.0 and d["mu"] == 1.0 and "mu_re" not in d for d in seen)  # mixed modes
+    assert np.std([d["eps_loss"] for d in seen]) > 0.05  # only the loss part varies: tan d varies
+    # per-layer override in both directions
+    s.eps_loss, s.mu_loss = None, None
+    s.per_layer = {uid: {"mu_loss": 0.3}}
+    seen.clear()
+    with mock.patch.object(T, "solve", spy):
+        T.run_tolerance(p, np.linspace(8e9, 12e9, 5))
+    assert all("eps" in d and "mu_loss" in d for d in seen)
+    from coating_studio.project import ToleranceSettings
+    t = ToleranceSettings.from_dict({**s.to_dict(), "per_layer": {uid: {"eps_loss": None, "eps": 0.02}}})
+    assert t.per_layer == {uid: {"eps": 0.02}} and t.tolerance_for(uid, "eps_loss") is None
+
+
+def test_loss_tolerance_defaults_and_copy():
+    from coating_studio.project import ToleranceSettings
+    assert Project().tolerance.eps_loss == 0.10 and Project().tolerance.mu_loss == 0.10  # new projects
+    for val in (None, 0.1):
+        p = Project()
+        p.tolerance.eps_loss = val
+        assert p.copy().tolerance.eps_loss == val  # workers run on copies
+    assert ToleranceSettings.from_dict({}).eps_loss is None  # old files keep the correlated model

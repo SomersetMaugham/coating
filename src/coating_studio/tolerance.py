@@ -3,6 +3,9 @@
 Each sample perturbs, per layer and independently, the thickness, eps and mu
 (slabs) or the sheet impedance (sheets) by a relative error drawn from a
 normal distribution (tolerance = 1 sigma) or a uniform one (+/- tolerance).
+With a loss tolerance set (eps_loss / mu_loss), the real part and the loss part
+of eps (mu) get independent errors, so the loss tangent varies as well; with
+None the whole complex value is scaled by one factor (tan delta fixed).
 """
 
 from __future__ import annotations
@@ -61,8 +64,16 @@ def run_tolerance(project: Project, f, settings: ToleranceSettings | None = None
     factors = {}
     for ly in project.structure.layers:
         if isinstance(ly, SlabLayer):
-            factors[ly.uid] = {k: np.maximum(_draw(rng, s.distribution, s.tolerance_for(ly.uid, k), n), 1e-6)
-                               for k in ("thickness", "eps", "mu")}
+            # Same draws, in the same order, as before loss tolerances existed (bit-identical results
+            # for files with eps_loss = mu_loss = None); independent loss draws come afterwards.
+            fac = {k: np.maximum(_draw(rng, s.distribution, s.tolerance_for(ly.uid, k), n), 1e-6)
+                   for k in ("thickness", "eps", "mu")}
+            for part in ("eps", "mu"):
+                tol_loss = s.tolerance_for(ly.uid, f"{part}_loss")
+                if tol_loss is not None:
+                    fac[f"{part}_re"] = fac.pop(part)
+                    fac[f"{part}_loss"] = np.maximum(_draw(rng, s.distribution, tol_loss, n), 1e-6)
+            factors[ly.uid] = fac
         elif isinstance(ly, SheetLayer):
             tol = s.tolerance_for(ly.uid, "sheet")
             if ly.model == "rlc":
