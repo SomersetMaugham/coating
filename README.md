@@ -46,6 +46,10 @@ can be added later without rewriting it.
   - Undo/redo for edits to the layer stack and materials.
   - `.coat` project files (JSON).
   - Export figures as PNG/SVG/PDF and data as CSV.
+  - **Reference curves**: pin the current design (Ctrl+Shift+P) or import a measured RL curve (CSV) and
+    compare it on the Frequency, Angle and Smith chart tabs. Pinned designs are re-solved under the
+    current sweep, so changing the angle or band keeps the comparison fair. The optimiser pins
+    "Before optimisation" automatically when a result is applied. Up to 6, kept for the session.
   - Light and dark themes, English/Korean UI, and a choice of reflection-loss sign convention.
 
 ![Frequency × angle map](docs/images/map_en.png)

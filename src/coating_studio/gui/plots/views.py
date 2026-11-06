@@ -85,6 +85,42 @@ class _SweepSpinMixin:
             self.sp_sweep.set_value(target)
 
 
+# -- pinned reference traces -----------------------------------------------------------------
+def _ref_style(ref, colors):
+    return dict(color=colors.ref_series[ref.slot % len(colors.ref_series)], ls="-.", lw=1.6, alpha=0.9)
+
+
+def _ref_pols(checked, normal, allowed=("TE", "TM", "avg")):
+    """Polarisations to draw for a reference, and whether to suffix the label with them.
+
+    At normal incidence TE, TM and their average coincide, so one curve suffices.  Otherwise the
+    reference follows the polarisations shown for the live design and says which one it is."""
+    checked = [p for p in checked if p in allowed] or [allowed[-1] if "avg" in allowed else allowed[0]]
+    if normal:
+        return [checked[0]], False
+    return checked, True
+
+
+def _ref_label(ref, pol, suffix):
+    return f"{ref.name} ({pol_label(pol)})" if suffix else ref.name
+
+
+def _visible_refs(ctx):
+    return [r for r in getattr(ctx, "references", []) if r.visible]
+
+
+def _ref_warning(problems):
+    if not problems:
+        return None
+    return tr("Some references cannot be computed for the current settings: {items}",
+              items="; ".join(problems))
+
+
+def _legend_if_any(ax, **kw):
+    if ax.get_legend_handles_labels()[0]:
+        ax.legend(**kw)
+
+
 def _style_for(pol, colors):
     return {"TE": dict(color=colors.series[0]), "TM": dict(color=colors.series[1], ls="--"),
             "avg": dict(color=colors.series[2], lw=2.4)}[pol]
@@ -119,6 +155,7 @@ class FrequencyView(_SweepSpinMixin, _QuantityMixin, PlotView):
         x = res.f / 1e9
         for pol in self._pols():
             ax.plot(x, quantity_values(res, q, pol, pos)[:, 0], label=pol_label(pol), **_style_for(pol, self.ctx.colors))
+        problems = self._draw_references(ax, q, pos)
         if q == "RL" and self.chk_target.isChecked():
             ax.axhline(10 if pos else -10, color=self.ctx.colors.muted, lw=1, ls=":")
         sw = self.ctx.project.sweep
@@ -130,10 +167,37 @@ class FrequencyView(_SweepSpinMixin, _QuantityMixin, PlotView):
         if q != "RL":
             ax.set_ylim(-0.02, 1.02)
         ax.set_title(tr("Incidence {a}°", a=f"{sw.angle:g}"), fontsize=10, loc="left")
-        if self._pols():
-            ax.legend(loc="best")
+        _legend_if_any(ax, loc="best")
         self._ax = ax
-        return None
+        return (_ref_warning(problems), "warn") if problems else None
+
+    def _reference_series(self, q, pos):
+        """[(ref, pol or None, label, x [GHz], y)] for the visible references; plus problems."""
+        sw = self.ctx.project.sweep
+        pols, suffix = _ref_pols(self._pols(), abs(sw.angle) < 1e-9)
+        out, problems = [], []
+        for ref in _visible_refs(self.ctx):
+            if ref.kind == "measured":
+                if q not in ("RL", "R"):
+                    continue
+                y = (-ref.rl_meas_db if pos else ref.rl_meas_db) if q == "RL" else 10 ** (ref.rl_meas_db / 10)
+                # measured data does not follow the sweep angle; say so in the legend
+                out.append((ref, None, f"{ref.name} {tr('(measured)')}", ref.f_meas / 1e9, y))
+                continue
+            r = ref.results(sw).get("freq")
+            if isinstance(r, Exception):
+                problems.append(f"{ref.name}: {r}")
+                continue
+            for pol in pols:
+                out.append((ref, pol, _ref_label(ref, pol, suffix), r.f / 1e9,
+                            quantity_values(r, q, pol, pos)[:, 0]))
+        return out, problems
+
+    def _draw_references(self, ax, q, pos):
+        series, problems = self._reference_series(q, pos)
+        for ref, _pol, label, x, y in series:
+            ax.plot(x, y, label=label, **_ref_style(ref, self.ctx.colors))
+        return problems
 
     def format_cursor(self, ax, x, y):
         return tr("f = {f} GHz, value = {v}", f=f"{x:.5g}", v=f"{y:.4g}")
@@ -146,6 +210,11 @@ class FrequencyView(_SweepSpinMixin, _QuantityMixin, PlotView):
         pols = ["TE", "TM", "avg"]
         cols = [quantity_values(res, q, p, self.ctx.rl_positive)[:, 0] for p in pols]
         header = ["f [GHz]"] + [f"{q} {p}" for p in pols]
+        # design references share the live grid; measured curves are the user's own data: not exported
+        for ref, pol, _label, _x, y in self._reference_series(q, self.ctx.rl_positive)[0]:
+            if pol is not None:
+                header.append(f"{q} {pol} ({ref.name})")
+                cols.append(y)
         return header, [[f"{a:.9g}" for a in row] for row in zip(res.f / 1e9, *cols)]
 
 
@@ -169,15 +238,33 @@ class AngleView(_SweepSpinMixin, _QuantityMixin, PlotView):
         for pol in self._pols():
             ax.plot(res.theta, quantity_values(res, q, pol, pos)[0, :], label=pol_label(pol),
                     **_style_for(pol, self.ctx.colors))
+        series, problems = self._reference_series(q, pos)
+        for ref, _pol, label, x, y in series:
+            ax.plot(x, y, label=label, **_ref_style(ref, self.ctx.colors))
         ax.set_xlim(res.theta[0], res.theta[-1])
         ax.set_xlabel(tr("Incidence angle [°]"))
         ax.set_ylabel(quantity_label(q, pos))
         if q != "RL":
             ax.set_ylim(-0.02, 1.02)
         ax.set_title(tr("f = {f} GHz", f=f"{res.f[0] / 1e9:.5g}"), fontsize=10, loc="left")
-        if self._pols():
-            ax.legend(loc="best")
-        return None
+        _legend_if_any(ax, loc="best")
+        return (_ref_warning(problems), "warn") if problems else None
+
+    def _reference_series(self, q, pos):
+        """Design references only (a measured S11 has no angle dependence)."""
+        sw = self.ctx.project.sweep
+        pols, suffix = _ref_pols(self._pols(), False)
+        out, problems = [], []
+        for ref in _visible_refs(self.ctx):
+            if ref.kind != "design":
+                continue
+            r = ref.results(sw).get("angle")
+            if isinstance(r, Exception):
+                problems.append(f"{ref.name}: {r}")
+                continue
+            for pol in pols:
+                out.append((ref, pol, _ref_label(ref, pol, suffix), r.theta, quantity_values(r, q, pol, pos)[0, :]))
+        return out, problems
 
     def format_cursor(self, ax, x, y):
         return tr("θ = {a}°, value = {v}", a=f"{x:.4g}", v=f"{y:.4g}")
@@ -189,8 +276,11 @@ class AngleView(_SweepSpinMixin, _QuantityMixin, PlotView):
         q = self.cb_q.currentData()
         pols = ["TE", "TM", "avg"]
         cols = [quantity_values(res, q, p, self.ctx.rl_positive)[0, :] for p in pols]
-        return (["theta [deg]"] + [f"{q} {p}" for p in pols],
-                [[f"{a:.9g}" for a in row] for row in zip(res.theta, *cols)])
+        header = ["theta [deg]"] + [f"{q} {p}" for p in pols]
+        for ref, pol, _label, _x, y in self._reference_series(q, self.ctx.rl_positive)[0]:
+            header.append(f"{q} {pol} ({ref.name})")
+            cols.append(y)
+        return header, [[f"{a:.9g}" for a in row] for row in zip(res.theta, *cols)]
 
 
 # ---------------------------------------------------------------------------
@@ -319,12 +409,28 @@ class SmithView(PlotView):
             ax.plot(g.real, g.imag, color=col, lw=2, label=pol)
             ax.plot(g.real[0], g.imag[0], "o", color=col)
             ax.plot(g.real[-1], g.imag[-1], "s", color=col)
+        problems = []
+        sw = self.ctx.project.sweep
+        checked = [p for p, b in self.pol_boxes.items() if b.isChecked()]
+        pols, suffix = _ref_pols(checked, abs(sw.angle) < 1e-9, allowed=("TE", "TM"))
+        for ref in _visible_refs(self.ctx):
+            if ref.kind != "design":
+                continue  # a measured |RL| has no phase
+            r = ref.results(sw).get("freq")
+            if isinstance(r, Exception):
+                problems.append(f"{ref.name}: {r}")
+                continue
+            st = _ref_style(ref, c)
+            for pol in pols:
+                g = r.pol[pol].gamma[:, 0]
+                ax.plot(g.real, g.imag, label=_ref_label(ref, pol, suffix), **st)
+                ax.plot(g.real[0], g.imag[0], "o", ms=4, color=st["color"])
+                ax.plot(g.real[-1], g.imag[-1], "s", ms=4, color=st["color"])
         ax.set_xlim(-1.12, 1.12)
         ax.set_ylim(-1.12, 1.12)
         ax.set_title(tr("Incidence {a}°", a=f"{self.ctx.project.sweep.angle:g}"), fontsize=10, loc="left")
-        if any(b.isChecked() for b in self.pol_boxes.values()):
-            ax.legend(loc="upper left")
-        return None
+        _legend_if_any(ax, loc="upper left")
+        return (_ref_warning(problems), "warn") if problems else None
 
     def format_cursor(self, ax, x, y):
         g = complex(x, y)

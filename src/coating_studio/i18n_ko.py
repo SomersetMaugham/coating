@@ -126,6 +126,27 @@ KO.update({
     "Show or hide the diagnostics panel": "진단 패널 보이기/숨기기",
     "No problems": "문제 없음", "1 problem": "문제 1개", "{n} problems": "문제 {n}개",
     "1 note": "참고 1개", "{n} notes": "참고 {n}개",
+    # reference traces
+    "&Pin reference": "비교 곡선 고정(&P)", "References": "비교 곡선", "References ({n})": "비교 곡선 ({n})",
+    "Reference {n}": "비교 곡선 {n}", "Before optimisation": "최적화 전", "(measured)": "(측정)",
+    "Import measured curve": "측정 곡선 가져오기", "Import measured curve…": "측정 곡선 가져오기…",
+    "Remove all references": "모든 비교 곡선 지우기", "Rename reference": "비교 곡선 이름 바꾸기",
+    "Rename…": "이름 바꾸기…", "Remove": "제거", "No references yet": "비교 곡선이 아직 없습니다",
+    "Pin the current design as a reference curve on the Frequency, Angle and Smith chart tabs":
+        "현재 설계를 비교 곡선으로 고정해 주파수·입사각·Smith 차트 탭에 함께 표시합니다",
+    "Show a measured reflection-loss curve (CSV) on the Frequency tab":
+        "측정한 반사손실 곡선(CSV)을 주파수 탭에 표시합니다",
+    "Show, hide, rename or remove reference curves": "비교 곡선을 보이기·숨기기·이름 바꾸기·제거합니다",
+    "All {n} reference slots are in use; remove one first.": "비교 곡선 {n}개 자리가 모두 찼습니다. 하나를 먼저 제거하세요.",
+    "The design before optimisation was not pinned: all {n} reference slots are in use.":
+        "비교 곡선 {n}개 자리가 모두 차서 최적화 전 설계를 고정하지 못했습니다.",
+    "Pinned “{name}”. It follows the current sweep settings.":
+        "“{name}”을(를) 고정했습니다. 현재 스윕 설정에 맞춰 다시 계산됩니다.",
+    "Imported “{name}” (read as positive return loss).": "“{name}”을(를) 가져왔습니다(양수 반사손실로 읽음).",
+    "Imported “{name}” (read as 20·log₁₀|Γ|, negative = good).":
+        "“{name}”을(를) 가져왔습니다(20·log₁₀|Γ|, 음수일수록 우수로 읽음).",
+    "Some references cannot be computed for the current settings: {items}":
+        "일부 비교 곡선은 현재 설정에서 계산할 수 없습니다: {items}",
     "f = {f} GHz, θ = {a}°, RL = {v} dB": "f = {f} GHz, θ = {a}°, RL = {v} dB",
     "Γ locus over the frequency sweep; ● start, ■ stop": "주파수 스윕에 따른 Γ 궤적 (● 시작, ■ 끝)",
     "Γ = {g}, z = {z}": "Γ = {g}, z = {z}", "Transmitted": "투과", "Reflected": "반사",

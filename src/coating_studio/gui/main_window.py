@@ -8,11 +8,14 @@ import numpy as np
 from PySide6.QtCore import QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
-    QApplication, QDockWidget, QFileDialog, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-    QTabWidget, QToolBar, QToolButton,
+    QApplication, QDockWidget, QFileDialog, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMainWindow,
+    QMenu, QMessageBox, QTabWidget, QToolBar, QToolButton,
 )
 
 from coating_studio import APP_NAME, __version__
+from coating_studio.comparison import (
+    BEFORE_OPTIMISATION, MAX_REFERENCES, free_slot, load_measured, snapshot_design,
+)
 from coating_studio.core.solver import SolverError, solve
 from coating_studio.examples import EXAMPLES
 from coating_studio.gui.dialogs.materials import MaterialManager
@@ -32,6 +35,7 @@ from coating_studio.gui.widgets.properties import PropertiesPanel
 from coating_studio.gui.widgets.sweep_panel import SweepPanel
 from coating_studio.i18n import issue_text, tr
 from coating_studio.materials.checks import check_material
+from coating_studio.materials.csvio import CsvFormatError
 from coating_studio.materials.models import MaterialCycleError, OutOfRangeError
 from coating_studio.project import FILE_EXTENSION, Project, ProjectError, new_project_with_example_stack
 
@@ -47,6 +51,9 @@ class MainWindow(QMainWindow):
         self.doc = Document(new_project_with_example_stack(tr("Untitled")))
         self.results = {}
         self.result_error = None
+        # Pinned reference traces live for the session, across New/Open (not saved, not undoable).
+        self.references = []
+        self._ref_counter = 0
         self.setWindowIcon(QApplication.windowIcon())
         self.setDockOptions(QMainWindow.AnimatedDocks | QMainWindow.AllowTabbedDocks)
         self.setDocumentMode(True)
@@ -57,6 +64,7 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._build_toolbar()
         self._build_status()
+        self._references_changed()
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -173,6 +181,17 @@ class MainWindow(QMainWindow):
         self.a_stop_opt = self._action(tr("S&top optimisation"), lambda: self.p_opt.stop(), "Shift+F5", "stop")
         self.a_stop_opt.setEnabled(False)
         self.a_run_tol = self._action(tr("Run &tolerance analysis"), self.run_tolerance, "F6", "tolerance")
+        self.a_pin = self._action(tr("&Pin reference"), lambda: self.pin_reference(), "Ctrl+Shift+P", "pin",
+                                  tr("Pin the current design as a reference curve on the Frequency, Angle "
+                                     "and Smith chart tabs"))
+        self.a_import_meas = self._action(tr("Import measured curve…"), self.import_measured, None, "import",
+                                          tr("Show a measured reflection-loss curve (CSV) on the Frequency tab"))
+        self.a_clear_refs = self._action(tr("Remove all references"), self.clear_references)
+        self.m_refs = QMenu(self)
+        self.m_refs.aboutToShow.connect(self._fill_references_menu)
+        self.a_refs = QAction(icon("refs"), tr("References"), self)
+        self.a_refs.setMenu(self.m_refs)
+        self.a_refs.setToolTip(tr("Show, hide, rename or remove reference curves"))
         self.a_about = self._action(tr("&About Coating Studio"), self.about)
         self.a_conventions = self._action(tr("Physics &conventions"), self.show_conventions, "F1")
 
@@ -220,6 +239,10 @@ class MainWindow(QMainWindow):
         m.addAction(self.a_run_opt)
         m.addAction(self.a_stop_opt)
         m.addAction(self.a_run_tol)
+        m.addSeparator()
+        m.addAction(self.a_pin)
+        m.addAction(self.a_import_meas)
+        m.addAction(self.a_clear_refs)
 
         m = mb.addMenu(tr("&Help"))
         m.addAction(self.a_conventions)
@@ -243,6 +266,12 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
         tb.addAction(self.a_run_opt)
         tb.addAction(self.a_export_fig)
+        tb.addSeparator()
+        tb.addAction(self.a_pin)
+        tb.addAction(self.a_refs)
+        btn = tb.widgetForAction(self.a_refs)
+        btn.setPopupMode(QToolButton.InstantPopup)
+        btn.setStyleSheet("QToolButton { padding-right: 14px; }")  # room for the menu arrow
         for a in (self.a_new, self.a_open, self.a_save, self.a_undo, self.a_redo):
             tb.widgetForAction(a).setToolButtonStyle(Qt.ToolButtonIconOnly)
         self.addToolBar(tb)
@@ -307,7 +336,8 @@ class MainWindow(QMainWindow):
         pairs = ((self.a_new, "new"), (self.a_open, "open"), (self.a_save, "save"), (self.a_undo, "undo"),
                  (self.a_redo, "redo"), (self.a_materials, "materials"), (self.a_prefs, "settings"),
                  (self.a_run_opt, "optimize"), (self.a_stop_opt, "stop"), (self.a_run_tol, "tolerance"),
-                 (self.a_export_fig, "export"), (self.w_layers.act_add_slab, "layer-add"),
+                 (self.a_export_fig, "export"), (self.a_pin, "pin"), (self.a_refs, "refs"),
+                 (self.a_import_meas, "import"), (self.w_layers.act_add_slab, "layer-add"),
                  (self.w_layers.act_add_sheet, "sheet-add"), (self.w_layers.act_dup, "duplicate"),
                  (self.w_layers.act_del, "delete"), (self.w_layers.act_up, "up"), (self.w_layers.act_down, "down"))
         for a, n in pairs:
@@ -373,8 +403,7 @@ class MainWindow(QMainWindow):
     # =====================================================================
     # computation
     def _f_grid(self, n):
-        s = self.project.sweep
-        return np.geomspace(s.f_min, s.f_max, n) if s.log_f else np.linspace(s.f_min, s.f_max, n)
+        return self.project.sweep.freq_grid(n)
 
     def recompute(self):
         p = self.project
@@ -386,10 +415,9 @@ class MainWindow(QMainWindow):
             if problems:
                 raise SolverError("; ".join(problems))
             self.results["freq"] = solve(p.structure, p.materials, self._f_grid(s.n_f), s.angle)
-            self.results["angle"] = solve(p.structure, p.materials, [s.f_at],
-                                          np.linspace(s.angle_min, s.angle_max, s.n_angle))
+            self.results["angle"] = solve(p.structure, p.materials, [s.f_at], s.angle_grid())
             self.results["map"] = solve(p.structure, p.materials, self._f_grid(s.map_n_f),
-                                        np.linspace(s.angle_min, s.angle_max, s.map_n_angle))
+                                        s.angle_grid(s.map_n_angle))
         except (SolverError, OutOfRangeError, MaterialCycleError, KeyError, ValueError) as e:
             self.results = {}
             self.result_error = tr("Cannot compute: {e}", e=e)
@@ -588,6 +616,104 @@ class MainWindow(QMainWindow):
         self.set_rl_positive(rl)
         if lang != old_lang:
             QMessageBox.information(self, APP_NAME, tr("The new language will be used after a restart."))
+
+    # =====================================================================
+    # reference traces
+    def _add_reference(self, ref):
+        self.references.append(ref)
+        self._references_changed()
+
+    def _references_changed(self):
+        n = len(self.references)
+        self.a_refs.setText(tr("References ({n})", n=n) if n else tr("References"))
+        self.a_clear_refs.setEnabled(bool(n))
+        for v in (self.v_freq, self.v_angle, self.v_smith):
+            v.mark_dirty()
+
+    def pin_reference(self, name=None):
+        """Pin the current design; returns the new reference or None when all slots are taken."""
+        slot = free_slot(self.references)
+        if slot is None:
+            self.statusBar().showMessage(
+                tr("All {n} reference slots are in use; remove one first.", n=MAX_REFERENCES), 8000)
+            return None
+        if name is None:
+            self._ref_counter += 1
+            name = tr("Reference {n}", n=self._ref_counter)
+        ref = snapshot_design(self.project, name, slot)
+        self._add_reference(ref)
+        self.statusBar().showMessage(tr("Pinned “{name}”. It follows the current sweep settings.", name=name), 6000)
+        return ref
+
+    def pin_before_optimisation(self):
+        """Called by the optimiser just before a result replaces the design."""
+        name = tr(BEFORE_OPTIMISATION)
+        self.references = [r for r in self.references if not (r.kind == "design" and r.name == name)]
+        if self.pin_reference(name) is None:
+            self._references_changed()
+            self.statusBar().showMessage(
+                tr("The design before optimisation was not pinned: all {n} reference slots are in use.",
+                   n=MAX_REFERENCES), 8000)
+
+    def import_measured(self, path=None):
+        if path is None:
+            path, _ = QFileDialog.getOpenFileName(self, tr("Import measured curve"), "",
+                                                  tr("CSV files (*.csv *.txt *.dat);;All files (*)"))
+            if not path:
+                return None
+        slot = free_slot(self.references)
+        if slot is None:
+            QMessageBox.information(self, tr("References"),
+                                    tr("All {n} reference slots are in use; remove one first.", n=MAX_REFERENCES))
+            return None
+        try:
+            ref, positive = load_measured(path)
+        except (CsvFormatError, OSError, ValueError, UnicodeDecodeError) as e:
+            QMessageBox.critical(self, tr("Import failed"), str(e))
+            return None
+        ref.slot = slot
+        self._add_reference(ref)
+        self.statusBar().showMessage(
+            tr("Imported “{name}” (read as positive return loss).", name=ref.name) if positive else
+            tr("Imported “{name}” (read as 20·log₁₀|Γ|, negative = good).", name=ref.name), 8000)
+        return ref
+
+    def remove_reference(self, ref):
+        self.references = [r for r in self.references if r is not ref]
+        self._references_changed()
+
+    def clear_references(self):
+        self.references = []
+        self._references_changed()
+
+    def set_reference_visible(self, ref, visible):
+        ref.visible = bool(visible)
+        self._references_changed()
+
+    def rename_reference(self, ref):
+        name, ok = QInputDialog.getText(self, tr("Rename reference"), tr("Name"), text=ref.name)
+        if ok and name.strip():
+            ref.name = name.strip()
+            self._references_changed()
+
+    def _fill_references_menu(self):
+        m = self.m_refs
+        m.clear()
+        if not self.references:
+            a = m.addAction(tr("No references yet"))
+            a.setEnabled(False)
+        for ref in self.references:
+            sub = m.addMenu(ref.name + ("" if ref.kind == "design" else "  " + tr("(measured)")))
+            a = sub.addAction(tr("Show"))
+            a.setCheckable(True)
+            a.setChecked(ref.visible)
+            a.toggled.connect(lambda on, r=ref: self.set_reference_visible(r, on))
+            sub.addAction(tr("Rename…"), lambda r=ref: self.rename_reference(r))
+            sub.addAction(tr("Remove"), lambda r=ref: self.remove_reference(r))
+        m.addSeparator()
+        m.addAction(self.a_pin)
+        m.addAction(self.a_import_meas)
+        m.addAction(self.a_clear_refs)
 
     def set_rl_positive(self, positive):
         """Switch the RL display convention everywhere (values stay negative dB internally)."""

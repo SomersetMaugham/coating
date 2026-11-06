@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 
+import numpy as np
+
 from coating_studio import __version__
 from coating_studio.core.structure import Backing, SheetLayer, SlabLayer, Structure
 from coating_studio.materials.library import builtin_materials
@@ -34,6 +36,19 @@ class SweepSettings:
     f_at: float = 10e9  # Hz, for angle plots
     map_n_f: int = 161
     map_n_angle: int = 61
+
+    # Grids shared by the live design and pinned references (one place, so they always match).
+    def freq_grid(self, n=None):
+        n = self.n_f if n is None else n
+        return np.geomspace(self.f_min, self.f_max, n) if self.log_f else np.linspace(self.f_min, self.f_max, n)
+
+    def angle_grid(self, n=None):
+        return np.linspace(self.angle_min, self.angle_max, self.n_angle if n is None else n)
+
+    def key(self):
+        """Everything the frequency and angle sweeps depend on (cache key for reference solves)."""
+        return (self.f_min, self.f_max, self.n_f, self.log_f, self.angle,
+                self.f_at, self.angle_min, self.angle_max, self.n_angle)
 
 
 @dataclass

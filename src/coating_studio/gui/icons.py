@@ -34,6 +34,8 @@ _ICONS = {
     "error": '<circle cx="12" cy="12" r="9" {s}/><path d="M9 9l6 6M15 9l-6 6" {s}/>',
     "info": '<circle cx="12" cy="12" r="9" {s}/><path d="M12 11v6M12 7.5v.5" {s}/>',
     "add": '<path d="M12 5v14M5 12h14" {s}/>',
+    "pin": '<path d="M9 3h6l-1 6 3 3H7l3-3z" {s}/><path d="M12 12v9" {s}/>',
+    "refs": '<path d="M3 17c4-8 7-8 9-3s5 4 9-7" {s}/><path d="M3 20c4-6 7-6 9-2s5 3 9-5" {s} stroke-dasharray="3 2"/>',
     "import": '<path d="M12 15V3M7 10l5 5 5-5" {s}/><path d="M4 15v5h16v-5" {s}/>',
     "fit": '<path d="M3 19c4-12 8-12 18-14" {s}/><circle cx="6" cy="14" r="1" fill="{c}"/><circle cx="10" cy="9" r="1" fill="{c}"/><circle cx="15" cy="7" r="1" fill="{c}"/><circle cx="19" cy="5.5" r="1" fill="{c}"/>',
 }

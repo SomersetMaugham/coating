@@ -270,3 +270,102 @@ def test_diagnostics_dock_auto_visibility(app):
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()
+
+
+def test_reference_traces(app, tmp_path):
+    """Pinned design references and measured curves on the Frequency, Angle and Smith tabs."""
+    import numpy as np
+
+    from coating_studio.comparison import MAX_REFERENCES, free_slot, snapshot_design
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.materials import TabulatedMaterial
+    from coating_studio.optimize.optimizer import ObjectiveTerms, OptimizationResult
+
+    def labels(view):
+        w.tabs.setCurrentWidget(view)
+        view.redraw()
+        return [ln.get_label() for ax in view.fig.axes for ln in ax.get_lines()]
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["jaumann2"][1]())
+    ref = w.pin_reference("A")
+    assert ref is not None and ref.slot == 0
+    w.doc.edit("thin", lambda p: setattr(p.structure.layers[1], "thickness", 4e-3))
+    w.recompute()
+    assert "A" in labels(w.v_freq) and "A" in labels(w.v_smith)  # normal incidence: one curve, no suffix
+    assert any(lab.startswith("A (") for lab in labels(w.v_angle))  # oblique: polarisation named
+    # the reference is re-solved under the current sweep, the live design is not affected
+    key_before = ref._cache_key
+    w.doc.edit("thinner", lambda p: setattr(p.structure.layers[3], "thickness", 3e-3))
+    w.recompute()
+    labels(w.v_freq)
+    assert ref._cache_key == key_before  # model edit: no reference re-solve
+    w.v_freq.sp_sweep.setValue(45.0)
+    w.recompute()
+    labs = labels(w.v_freq)
+    assert "A (TE)" in labs and "A (TM)" in labs and ref._cache_key != key_before
+    # export: one extra column per reference and polarisation
+    header, _ = w.v_freq.data_table()
+    assert "RL TE (A)" in header and "RL TM (A)" in header
+    # legend stays when the live curves are hidden
+    for b in w.v_freq.pol_boxes.values():
+        b.setChecked(False)
+    w.v_freq.redraw()
+    assert w.v_freq.fig.axes[0].get_legend() is not None
+    for pol, b in w.v_freq.pol_boxes.items():
+        b.setChecked(pol != "avg")
+    w.v_freq.sp_sweep.setValue(0.0)
+    # hide / survive project switch
+    w.set_reference_visible(ref, False)
+    assert "A" not in labels(w.v_freq)
+    w.set_reference_visible(ref, True)
+    w.doc.set_project(EXAMPLES["dallenbach"][1]())
+    w.recompute()
+    assert "A" in labels(w.v_freq)
+    # a reference that cannot be solved on the frequency sweep: amber warning, live curves still drawn
+    p = EXAMPLES["dallenbach"][1]()
+    p.add_material(TabulatedMaterial("Narrow", np.array([8e9, 12e9]), [4, 4], [0.2, 0.2]))
+    p.structure.layers[0].material = "Narrow"
+    bad = snapshot_design(p, "narrow", free_slot(w.references))
+    w._add_reference(bad)
+    labs = labels(w.v_freq)
+    assert "TE" in labs and not w.v_freq.banner.isHidden()
+    assert w.colors.warn in w.v_freq.banner.styleSheet()
+    labels(w.v_angle)
+    assert w.v_angle.banner.isHidden()  # 10 GHz is inside the data: fine on the angle tab
+    w.remove_reference(bad)
+    # measured curve: Frequency tab only, sign detected
+    csv = tmp_path / "meas.csv"
+    csv.write_text("f [GHz], RL [dB]\n2, 0.5\n10, 25\n18, 4\n", encoding="utf-8")
+    meas = w.import_measured(str(csv))
+    assert meas is not None and np.allclose(meas.rl_meas_db, [-0.5, -25, -4])
+    assert "meas (measured)" in labels(w.v_freq)
+    assert not any(lab.startswith("meas") for lab in labels(w.v_angle) + labels(w.v_smith))
+    # positive-dB preference applies to references too
+    w.set_rl_positive(True)
+    w.v_freq.redraw()
+    line = [ln for ln in w.v_freq.fig.axes[0].get_lines() if ln.get_label() == "meas (measured)"][0]
+    assert line.get_ydata().max() == 25
+    w.set_rl_positive(False)
+    # optimiser apply pins "Before optimisation" (replacing an older one)
+    w.p_opt.result = OptimizationResult(values={}, choices={}, terms=ObjectiveTerms(-20, 0.01, 0.002, 1, 0.5))
+    w.p_opt._apply()
+    w.p_opt._apply()
+    assert [r.name for r in w.references].count("Before optimisation") == 1
+    # slot cap: never blocks, colour slots are reused
+    while w.pin_reference() is not None:
+        pass
+    assert len(w.references) == MAX_REFERENCES
+    w.p_opt._apply()  # full: skipped with a status note, apply still works
+    assert len(w.references) == MAX_REFERENCES
+    gone = w.references[1]
+    w.remove_reference(gone)
+    assert w.pin_reference("again").slot == gone.slot
+    assert w.a_refs.text() == f"References ({MAX_REFERENCES})"
+    w.clear_references()
+    assert w.a_refs.text() == "References"
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()

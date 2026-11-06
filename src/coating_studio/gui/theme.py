@@ -22,6 +22,7 @@ class Colors:
     accent_text: str
     grid: str
     series: tuple  # plot colour cycle
+    ref_series: tuple  # pinned reference traces, one per slot
     warn: str
     error: str
     ok: str
@@ -33,12 +34,14 @@ LIGHT = Colors(
     name="light", window="#f4f5f7", base="#ffffff", alt_base="#f7f8fa", text="#1d2330",
     muted="#5f6b7a", border="#d5d9e0", accent="#2563eb", accent_text="#ffffff", grid="#e3e6eb",
     series=("#2563eb", "#e4572e", "#17a398", "#9c6ade", "#f2a541", "#6b7280"),
+    ref_series=("#7c3aed", "#db2777", "#65a30d", "#0891b2", "#a16207", "#475569"),
     warn="#b45309", error="#c0262d", ok="#15803d", pec="#8a94a6", sheet="#d97706")
 
 DARK = Colors(
     name="dark", window="#1e2128", base="#16181d", alt_base="#1b1e24", text="#e6e9ef",
     muted="#9aa4b2", border="#343944", accent="#4f8cff", accent_text="#ffffff", grid="#2b2f38",
     series=("#5b9bff", "#ff7a59", "#2dd4bf", "#c4a1ff", "#fbbf24", "#9ca3af"),
+    ref_series=("#c4b5fd", "#f472b6", "#a3e635", "#22d3ee", "#fcd34d", "#cbd5e1"),
     warn="#fbbf24", error="#f87171", ok="#4ade80", pec="#6b7385", sheet="#f59e0b")
 
 
