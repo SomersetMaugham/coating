@@ -21,8 +21,8 @@ from coating_studio.gui.theme import mpl_rc
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
 from coating_studio.i18n import issue_text, tr
 from coating_studio.materials import (
-    ConstantMaterial, DispersiveMaterial, MixtureMaterial, TabulatedMaterial, make_term,
-    material_from_dict,
+    ConstantMaterial, DispersiveMaterial, MixtureMaterial, TabulatedMaterial, eps_from_nk, make_term,
+    material_from_dict, nk_from_eps_mu,
 )
 from coating_studio.materials.checks import check_material
 from coating_studio.materials.csvio import CsvFormatError, load_csv
@@ -220,7 +220,36 @@ class MaterialManager(QDialog):
         for lab, sp in (("ε′", self.c_er), ("ε″", self.c_el), ("μ′", self.c_mr), ("μ″", self.c_ml)):
             sp.valueEdited.connect(self._commit)
             f.addRow(lab, sp)
+        # Refractive index view of the same material: editing n or k rewrites ε, keeping μ.
+        self.c_n = SciSpinBox(minimum=0.0, maximum=1e6)
+        self.c_k = SciSpinBox(minimum=0.0, maximum=1e6)
+        for lab, sp in (("n", self.c_n), ("k", self.c_k)):
+            sp.valueEdited.connect(self._commit_nk)
+            f.addRow(lab, sp)
+        f.addRow(muted(tr("Refractive index N = n − jk = √(εμ). Editing n or k sets ε = N²/μ "
+                          "and keeps μ.")))
         return w
+
+    def _show_nk(self):
+        n, k = nk_from_eps_mu(complex(self.c_er.value(), -self.c_el.value()),
+                              complex(self.c_mr.value(), -self.c_ml.value()))
+        self.c_n.set_value(n)
+        self.c_k.set_value(k)
+
+    def _commit_nk(self, *_):
+        if self._loading:
+            return
+        mu = complex(self.c_mr.value(), -self.c_ml.value())
+        if mu == 0:
+            return
+        eps = eps_from_nk(self.c_n.value(), self.c_k.value(), mu)
+        self._loading = True
+        try:
+            self.c_er.set_value(eps.real)
+            self.c_el.set_value(-eps.imag)
+        finally:
+            self._loading = False
+        self._commit()
 
     def _build_dispersive(self):
         w = QWidget()
@@ -365,6 +394,7 @@ class MaterialManager(QDialog):
                 self.c_el.set_value(m.eps_loss)
                 self.c_mr.set_value(m.mu_re)
                 self.c_ml.set_value(m.mu_loss)
+                self._show_nk()
             elif isinstance(m, DispersiveMaterial):
                 self.stack.setCurrentIndex(1)
                 self.d_einf.set_value(m.eps_inf)
@@ -444,6 +474,8 @@ class MaterialManager(QDialog):
             self.current = new_name
             self._fill_list(new_name)
         else:
+            if mat.kind == "constant":
+                self._show_nk()
             self._update_preview()
 
     def _update_preview(self):

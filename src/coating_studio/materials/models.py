@@ -130,6 +130,22 @@ class ConstantMaterial(Material):
         return d
 
 
+def eps_from_nk(n, k, mu=1.0 + 0j):
+    """Permittivity of a medium with complex refractive index N = n - jk and permeability mu.
+
+    N^2 = eps * mu, so eps = (n - jk)^2 / mu.  k > 0 is loss (same convention as eps'').
+    """
+    return (n - 1j * k) ** 2 / mu
+
+
+def nk_from_eps_mu(eps, mu=1.0 + 0j):
+    """(n, k) with N = n - jk = sqrt(eps * mu) on the passive branch (k >= 0, and n >= 0 if k = 0)."""
+    N = np.sqrt(complex(eps) * complex(mu))
+    if N.imag > 0 or (N.imag == 0 and N.real < 0):
+        N = -N
+    return N.real, -N.imag
+
+
 # ---------------------------------------------------------------------------
 def make_term(kind="debye", delta=1.0, f0=1e9, gamma=1e9):
     if kind not in ("debye", "lorentz"):

@@ -199,6 +199,8 @@ KO.update({
     "ε = ε′ − jε″ (ε″ > 0 is lossy).":
         "변경 내용은 즉시 적용되며 기본 창에서 Ctrl+Z로 되돌릴 수 있습니다. 손실 규약은 ε = ε′ − jε″ "
         "(ε″ > 0 이면 손실)입니다.",
+    "Refractive index N = n − jk = √(εμ). Editing n or k sets ε = N²/μ and keeps μ.":
+        "굴절률 N = n − jk = √(εμ). n이나 k를 바꾸면 μ는 그대로 두고 ε = N²/μ로 설정합니다.",
     "Constant complex ε and μ": "상수 복소 ε, μ", "Permittivity ε(f)": "유전율 ε(f)",
     "Permeability μ(f)": "투자율 μ(f)",
     "Debye: Δ/(1 + jf/f₀). Lorentz: Δ·f₀²/(f₀² − f² + jfγ). A Debye μ-term models Snoek-type ferrite "

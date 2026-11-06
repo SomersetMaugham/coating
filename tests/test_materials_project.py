@@ -129,3 +129,17 @@ def test_mixture_cycle_detected():
     from coating_studio.materials import MaterialCycleError
     with pytest.raises(MaterialCycleError):
         p.materials["M1"].eps_mu(np.array([1e9]), p.resolver)
+
+
+def test_refractive_index_conversion_round_trip():
+    from coating_studio.materials import eps_from_nk, nk_from_eps_mu
+
+    # MgF2 (lossless), a lossy dielectric, a metal (eps' < 0) and a magnetic medium
+    for n, k, mu in [(1.38, 0.0, 1), (2.0, 0.3, 1), (0.13, 3.2, 1), (3.0, 0.5, 2.0 - 0.4j)]:
+        eps = eps_from_nk(n, k, mu)
+        assert np.sqrt(eps * mu) ** 2 == pytest.approx((n - 1j * k) ** 2)
+        assert nk_from_eps_mu(eps, mu) == pytest.approx((n, k))
+    eps = eps_from_nk(2.0, 0.3)
+    assert eps.real == pytest.approx(4.0 - 0.09) and -eps.imag == pytest.approx(2 * 2.0 * 0.3)
+    n, k = nk_from_eps_mu(-20 - 1j)  # Drude-like metal: large k, small positive n
+    assert k > 4 and 0 < n < 1
