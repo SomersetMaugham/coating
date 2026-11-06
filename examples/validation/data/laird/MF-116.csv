@@ -1,0 +1,7 @@
+# Laird Eccosorb MF-116, datasheet RFP-DS-MF 092115 p.3 (typical values, transcribed). eps''=K'', mu''=M''
+f [GHz], eps', eps'', mu', mu''
+1.0,17,1.2,3.0,0.39
+3.0,16.5,0.99,2.8,0.59
+8.6,16.2,1.1,1.6,0.75
+10.0,16.0,0.96,1.5,1.02
+18.0,15.8,0.79,1.4,1.02

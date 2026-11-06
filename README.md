@@ -113,6 +113,9 @@ refractiveindex.info's two-block export (`wl,n` then `wl,k`) is read directly. D
 error, so fit a dispersion model if you need to extrapolate. A synthetic example is in
 [`examples/synthetic_magnetic_composite.csv`](examples/synthetic_magnetic_composite.csv).
 
+Validation against analytic results, a commercial datasheet and published measurements is in
+[`examples/validation`](examples/validation/README.md).
+
 The built-in materials use **representative, textbook-order values for demonstration**. They are
 not datasheet values; use measured data for real designs.
 

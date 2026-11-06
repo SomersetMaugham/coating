@@ -101,6 +101,8 @@ print(10 * np.log10(res.pol["TE"].R))   # 반사손실 [dB], 배열 크기 (5, 2
 
 측정 CSV 파일은 `f, ε′, ε″[, μ′, μ″]` 열로 구성합니다. 주파수 단위는 머리글에서 읽고, 없으면 GHz로 봅니다. 광학 데이터는 굴절률로 넣을 수도 있습니다. 값 열 이름을 `n, k`로 하면 됩니다(손실이 없으면 `n`만, μ = 1). 첫 머리글 칸에는 파장(`nm`, `µm`, `mm`; 단위 없이 `wavelength`/`wl`이면 µm)이나 파수(`cm-1`)를 써도 됩니다. refractiveindex.info에서 내려받은 두 블록 형식(`wl,n` 다음 `wl,k`)도 그대로 읽습니다. 데이터는 선형 보간하며, 측정 범위 밖은 오류로 처리합니다. 범위 밖이 필요하면 분산 모델로 피팅하세요. 합성 예제는 [`examples/synthetic_magnetic_composite.csv`](examples/synthetic_magnetic_composite.csv)에 있습니다.
 
+해석해, 상용 데이터시트, 논문 실측값과 비교한 검증은 [`examples/validation`](examples/validation/README.md)에 있습니다.
+
 기본 제공 재료 값은 **시연용 대표값**입니다. 특정 제품의 데이터시트 값이 아니므로, 실제 설계에는 측정 데이터를 쓰세요.
 
 ## 개발
