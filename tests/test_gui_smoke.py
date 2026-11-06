@@ -222,3 +222,39 @@ def test_inline_sweep_controls(app):
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()
+
+
+def test_diagnostics_dock_auto_visibility(app):
+    """Batch 2 / C: the dock appears for problems, hides when clean, and obeys a manual choice."""
+    import numpy as np
+
+    from coating_studio.core import SlabLayer
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.materials import TabulatedMaterial
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["jaumann2"][1]())
+    w.recompute()
+    _pump(app, 20)
+    assert not w.d_msgs.isVisible() and w.btn_diag.text() == "1 note"  # demo PMI foam only
+    p = EXAMPLES["jaumann2"][1]()
+    p.add_material(TabulatedMaterial("Narrow", np.array([1e9, 2e9]), [3, 3], [0.1, 0.1]))
+    p.structure.layers.append(SlabLayer("Narrow", 1e-3))  # data stops at 2 GHz, sweep goes to 20
+    w.doc.set_project(p)
+    w.recompute()
+    _pump(app, 20)
+    assert w.d_msgs.isVisible() and "problem" in w.btn_diag.text()  # range error (+ solve error)
+    w.doc.set_project(EXAMPLES["jaumann2"][1]())
+    w.recompute()
+    _pump(app, 20)
+    assert not w.d_msgs.isVisible()  # back to clean: hidden again
+    assert not w._msgs_user_pinned
+    w.btn_diag.click()  # the user opens it by hand: it stays open
+    w.recompute()
+    _pump(app, 20)
+    assert w.d_msgs.isVisible() and w._msgs_user_pinned
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()
