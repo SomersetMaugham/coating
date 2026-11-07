@@ -1,6 +1,6 @@
 # 계획 v6 — Agent Friendly CLI 어댑터
 
-작성: 2026-11-07 · 브랜치 `agent-cli` · 상태: **v6 (블라인드 테스트 반영, 구현 전)**
+작성: 2026-11-07 · 브랜치 `agent-cli` · 상태: **v6 (블라인드 테스트 반영, 열린 질문 모두 결정, 구현 전)**
 - v1 → v2: 1차 Argon 리뷰 반영(12.1·12.2절).
 - v2 → v3: 목표 워크플로우를 "에이전트가 사용자의 현재 조성에서 출발해 목표에 도달할 때까지 스스로 실험한다"로 정하고,
   설계 명세(`build`/`spec`), 실험 기록(`--journal`), 물리 한계 검사(Rozanov), 에이전트 플레이북, 연결 방식 비교를 추가(13절).
@@ -300,6 +300,7 @@ CLI와 GUI가 같은 숫자를 내도록 GUI 안에 있던 로직을 엔진으�
   `values[]`(`path`, `label`, `before`, `after` — 4.1절 형식), `choices[]`(`uid`, `layer`, `before`, `after`), `history`(`[[n_evals, best], …]`), `output_path`.
   `before`는 `apply_result()`를 부르기 **전에** 기록합니다.
 - 유효한 설계를 못 찾으면(`terms is None`, `message == "no valid design found"`) `ok:false`, `solver_error`류가 아니라 `no_valid_design`(종료 4), 파일은 쓰지 않습니다.
+  (N2 결정) `error.details.first_failure`에 처음 실패한 평가의 원인(4.5절 코드와 메시지, 예: `material_out_of_range`)을 담아, 에이전트가 모델의 어디를 고칠지 알 수 있게 합니다.
 - 중단(5절)이면 `stopped: true`, 종료 코드 5. `-o`가 있으면 부분 결과도 저장합니다(결과에 `stopped`를 적어 구분).
 
 ### `coating-cli tolerance FILE [--seed N] [--n-samples N] [--target-db G] [--angle-deg X] [--pol TE|TM|avg] [--samples]`
@@ -389,16 +390,10 @@ src/coating_studio/cli/
 커밋 1에 GUI 화면 문구 변화는 없습니다(`unknown_material`은 기존 문구와 같고, `material_cycle`은 지금까지 예외로 나던 경우에만 보임).
 그래도 2.1절 6단계에 따라 영문·한글 진단 패널을 오프스크린으로 한 번 캡처해 확인합니다.
 
-## 11. 남은 열린 질문
+## 11. 열린 질문
 
-v1의 Q1~Q7은 모두 결정했습니다(12.2절). 새로 남은 질문입니다.
-- **N1** GUI 진단 패널도 혼합물 성분까지 펼쳐 검사하게 할지(7절 `check` 3번). 이번 범위에서는 CLI만 넓히는 안.
-- **N2** `optimize`가 `no_valid_design`일 때 종료 코드 4가 맞는지(설정은 유효하지만 모든 평가가 실패한 경우).
-- N3~N6은 v4에서 결정했습니다(12.4절).
-- (v5) **N7** 혼합 모델 위험 구간의 기준값(13.7절의 0.25~0.40, MG 0.30)이 적절한지. 문헌값(구형 입자 Bruggeman 임계 1/3)에 기댄 경험적 경계입니다.
-- (v5) **N8** `tolerance --corners`의 비용: 꼭짓점 수 × 표본 수만큼 계산합니다(목표 1개·2편광·2각도면 4배). 기본 표본 수를 줄일지.
-- (v6) **N9** 측정 복합재 CSV에서 충전재 고유 물성을 역산(유효 매질 역변환)해 함량을 연속으로 바꾸는 기능. 물리적으로 가능하지만(MG는 해석적 역변환) 모델 오차가 커서 v1 범위 밖으로 둡니다.
-- (v6) **N10** `fit` 결과로 정적 투자율(Rozanov)을 계산하는 것은 측정 범위 밖 외삽입니다. `static_mu`를 "추정"으로 표시하는 안이 충분한지.
+모든 열린 질문을 결정했습니다. Q1~Q7은 12.2절, N3~N6은 12.4절, N1·N2·N7~N10은 12.7절에 근거와 함께 있습니다.
+구현 중에 새 질문이 생기면 여기에 N11부터 이어 적습니다.
 
 ## 12. Argon 리뷰 반영 기록
 
@@ -515,6 +510,17 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
 **행동에서 드러난 위험**: agy 테스터는 "빈틈을 메우지 말고 기록하라"는 지시에도 S2에서 문서에 없는 카보닐철 분산 모델(Δμ = 18, f₀ = 3.5 GHz, "CSV에 맞춘 값")을
 지어내 함량 최적화를 진행했습니다. Claude 테스터는 같은 지점을 "수행 불가"로 보고했습니다. 실제 에이전트도 막히면 그럴듯한 가정으로 진행해 근거 없는 결과를 낼 수 있으므로,
 플레이북에 "재료 파라미터를 지어내지 말 것, `fit`과 사용자 확인을 거칠 것, 문서에 없는 방법이 필요하면 멈출 것"을 넣었습니다(13.5절 1단계).
+
+### 12.7 열린 질문 결정 (N1, N2, N7~N10)
+
+| 질문 | 결정 | 근거 |
+|---|---|---|
+| N1 GUI 진단에도 혼합 성분 검사 | **CLI `check`만 넓힘.** GUI는 후속 작업(구현 후 DEVELOPMENT_HISTORY 6장 "미뤄 둔 작업"에 기록) | GUI를 바꾸면 영문·한글 화면 캡처 검증까지 범위가 늘어남 |
+| N2 `no_valid_design`의 종료 코드 | **4 유지** + `error.details.first_failure`(7절 `optimize`) | 설정은 유효하나 모든 평가가 계산 실패 → 원인은 모델. 첫 실패 원인을 주면 에이전트가 고칠 곳을 앎 |
+| N7 혼합 모델 경고 구간 | **v1은 0.25~0.40(Bruggeman 전도성)·> 0.30(MG) 유지** | 경고일 뿐 계산을 막지 않음. 구간은 이슈 `args`에 들어 있어 근거가 생기면 바꾸기 쉬움 |
+| N8 `--corners` 비용 | **기본 표본 수를 줄이지 않음** | 모의 실행에서 공차 분석은 몇 초. 수율 추정 정확도가 더 중요. `--n-samples`로 조절 가능 |
+| N9 측정 복합재에서 충전재 물성 역산 | **v1 범위 밖** | 함량별 CSV를 재료 후보로 두기 / 추가 측정 요청 경로로 처리(13.8절). 수요가 확인되면 MG 해석적 역변환부터 검토 |
+| N10 피팅 모델의 정적 μ로 Rozanov 판정 | **외삽 μs에서는 판정을 `violated`보다 올리지 않음**(13.4·13.8절) | 측정 범위 밖 외삽값은 "불가능하니 멈춤"의 근거로 약함. 경고로만 알리고 `note`에 외삽임을 적음 |
 
 ## 13. (v3) 에이전트 실험 루프
 
@@ -666,6 +672,7 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
   - `status`: `"ok"`(현재 설계가 필요조건을 만족) / `"violated"`(현재 설계는 위반, 최적화 범위 안에서는 만족 가능) /
     `"infeasible"`(최적화 범위를 다 써도 위반) / `"unknown"`(PEC 아님, μs를 알 수 없음, 사입사 전용 목표).
   - `ok`는 "가능하다"가 아니라 "이 필요조건에 걸리지 않는다"는 뜻입니다(문서와 `note`에 명시).
+  - (N10) μs가 피팅 모델의 외삽값인 재료가 판정에 들어가면 `infeasible` 대신 `violated`로 냅니다(13.8절).
   - 이슈는 **둘 다 경고 수준**입니다: `rozanov_limit`(violated), `rozanov_infeasible`(infeasible). 오류로 두면 의욕적인 목표만으로 `check`가 실패(종료 4)하는데,
     도달할 수 없는 목표도 "최선의 RL을 찾는" 정상 사용입니다(예: `cara` 예제는 −20 dB 기본 목표에 −14.6 dB까지). 판단은 플레이북의 멈춤 규칙이 합니다.
   - **사입사(N4) — (v6) 수정**: 목표의 각도 범위가 **0°를 포함하면** 그 목표는 0°에서도 만족해야 하므로, 수직 입사 판정(`violated`/`infeasible`)이 **그대로 적용됩니다**
@@ -766,7 +773,9 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
   - `materials/fitting.fit_dispersive`를 부릅니다(Debye·Lorentz 항은 인과적이라 측정 범위 밖에서도 계산은 됨).
   - 결과: `material`(부록 A의 `dispersive` dict, 명세에 그대로 사용), `rms_eps`, `rms_mu`(최대 |ε|·|μ| 대비 상대 잔차), `data_range_hz`, `warnings`.
   - 잔차가 크면(예: 0.05 초과) 경고 `fit_poor`를 냅니다. 항 수를 늘려 보라는 안내를 함께 냅니다.
-  - 용도: 측정 범위 밖(예: 더 넓은 sweep)을 계산하거나, 정적 투자율을 추정할 때(Rozanov). 이때 `static_mu`는 **외삽 추정**이므로 `limits[].note`에 "fitted model, extrapolated"를 적습니다(N10).
+  - 용도: 측정 범위 밖(예: 더 넓은 sweep)을 계산하거나, 정적 투자율을 추정할 때(Rozanov). 이때 `static_mu`는 **외삽 추정**이므로 `limits[].note`에 "fitted model, extrapolated"를 적습니다.
+    (N10 결정) 외삽 μs가 들어간 판정은 `infeasible`로 올리지 않고 **`violated`까지만** 냅니다(경고 `rozanov_limit`). 플레이북의 "`infeasible`이면 멈춤"이 외삽값만으로 발동하지 않게 하기 위해서입니다.
+    피팅 재료는 `fit`이 붙이는 note 접두사 `"fitted:"`(예: `"fitted: ci_sheet.csv, 1-8 GHz"`)로 알아봅니다.
   - `fit`은 측정 데이터를 대체하지 않습니다. 플레이북은 맞춘 모델을 쓸 때 사용자 확인을 받게 합니다(13.5절 1단계).
 
 ## 부록 A. (v5) 재료 dict 형식 (`.coat`·명세 공통, SI, 접미사 없음)
@@ -871,6 +880,6 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
 `fit CSV --mu-debye 1`
 ```json
 {"material": {"kind": "dispersive", "name": "CI sheet fit", "eps_inf": 14.2, "eps_loss": 0.4, "sigma": 0.0, "eps_terms": [],
-              "mu_inf": 1.0, "mu_loss": 0.0, "mu_terms": [{"type": "debye", "delta": 2.8, "f0": 2.1e9}], "density": 1000.0, "note": "fitted"},
+              "mu_inf": 1.0, "mu_loss": 0.0, "mu_terms": [{"type": "debye", "delta": 2.8, "f0": 2.1e9}], "density": 1000.0, "note": "fitted: ci_sheet.csv, 1-8 GHz"},
  "rms_eps": 0.012, "rms_mu": 0.031, "data_range_hz": [1e9, 8e9]}
 ```
