@@ -372,7 +372,9 @@
    "asi_dib_2010": "M. J. Asi, N. I. Dib, 'Design of multilayer microwave broadband absorbers using central force optimization', Prog. Electromagn. Res. B 26, 101-113 (2010), doi:10.2528/PIERB10090103",
    "kankilic_karpat_2023": "S. Kankilic, E. Karpat, 'Optimization of multilayer absorbers using the bald eagle optimization algorithm', Appl. Sci. 13, 10301 (2023), doi:10.3390/app131810301",
    "zong_2024": "Y. M. Zong et al., 'Optimization of multilayer microwave absorbers using multi-strategy improved gold rush optimizer', ACES J. 39(8), 708-717 (2024), doi:10.13052/2024.ACES.J.390806",
-   "amaya_correa_2013": "I. Amaya, R. Correa, 'Optimal design of multilayer EMAs for frequencies between 0.85 GHz and 5.4 GHz', Revista de Ingeniería (Universidad de los Andes, Bogotá) 38, 33-37 (2013), ISSN 0121-4993; the traditional-PSO design is from Salazar & Mora (2011) as cited there"
+   "amaya_correa_2013": "I. Amaya, R. Correa, 'Optimal design of multilayer EMAs for frequencies between 0.85 GHz and 5.4 GHz', Revista de Ingeniería (Universidad de los Andes, Bogotá) 38, 33-37 (2013), ISSN 0121-4993; the traditional-PSO design is from Salazar & Mora (2011) as cited there",
+   "chamaani_2008": "S. Chamaani, S. A. Mirtaheri, M. A. Shooredeli, 'Design of very thin wide band absorbers using modified local best particle swarm optimization', AEU Int. J. Electron. Commun. 62, 549-556 (2008), as reprinted in [asi_dib_2010] Table 10",
+   "goudos_2009": "S. Goudos, 'Design of microwave broadband absorbers using a self-adaptive differential evolution algorithm', Int. J. RF Microwave CAE 19, 364-372 (2009) (citation as printed in [asi_dib_2010])"
   },
   "designs": [
    {
@@ -401,7 +403,8 @@
       15,
       1.425
      ]
-    ]
+    ],
+    "must_reproduce": true
    },
    {
     "name": "CFO (uniform probes, acceleration clipping)",
@@ -429,7 +432,8 @@
       11,
       0.441
      ]
-    ]
+    ],
+    "must_reproduce": true
    },
    {
     "name": "SADE (DE)",
@@ -457,7 +461,8 @@
       15,
       1.454
      ]
-    ]
+    ],
+    "must_reproduce": true
    },
    {
     "name": "PSO",
@@ -485,7 +490,8 @@
       11,
       1.128
      ]
-    ]
+    ],
+    "must_reproduce": true
    },
    {
     "name": "GSA",
@@ -513,7 +519,8 @@
       4,
       0.986
      ]
-    ]
+    ],
+    "must_reproduce": true
    },
    {
     "name": "BESOA",
@@ -572,33 +579,6 @@
     ]
    }
   ],
-  "coating_studio_design": {
-   "how": "coating-cli optimize, 16 candidates per layer, thickness 0.01-5 mm, total <= 5 mm, 0.1 GHz grid, 3 runs of --restarts 3 (2026-11-07)",
-   "max_dB_0p1GHz": -25.927,
-   "total_mm": 4.99572,
-   "layers": [
-    [
-     16,
-     0.37288
-    ],
-    [
-     6,
-     2.96644
-    ],
-    [
-     6,
-     0.20325
-    ],
-    [
-     14,
-     1.24977
-    ],
-    [
-     11,
-     0.20338
-    ]
-   ]
-  },
   "problem_3layer": {
    "layers": 3,
    "band_GHz": [
@@ -608,7 +588,9 @@
    "incidence": "normal",
    "objective": "minimise the maximum of 20 log10|Gamma| over the band",
    "layer_1": "incident side",
-   "grid": "not stated in the paper; results agree within 0.01 dB on 0.05, 0.01 and 0.001 GHz grids"
+   "grid": "not stated in the paper; results agree within 0.01 dB on 0.05, 0.01 and 0.001 GHz grids",
+   "max_layer_thickness_mm": 2.0,
+   "note": "per-layer limit 2 mm is inferred (the published optimum sits at 2.000000 mm and the interval-analysis box ends at 2.0000 mm); the paper's constraint text is not explicit"
   },
   "designs_3layer": [
    {
@@ -628,7 +610,8 @@
       4,
       1.626098
      ]
-    ]
+    ],
+    "must_reproduce": true
    },
    {
     "name": "UPSO chi=0.800 u=0.5",
@@ -647,7 +630,8 @@
       4,
       1.627319
      ]
-    ]
+    ],
+    "must_reproduce": true
    },
    {
     "name": "UPSO chi=0.600 u=0.5",
@@ -666,8 +650,405 @@
       9,
       0.796004
      ]
+    ],
+    "must_reproduce": true
+   }
+  ],
+  "problem_7layer": {
+   "layers": 7,
+   "band_GHz": [
+    0.1,
+    20.0
+   ],
+   "incidence": "normal",
+   "max_total_thickness_mm": 10.0,
+   "grid": "0.1 GHz per [zong_2024]; results are identical on a 0.01 GHz grid",
+   "layer_1": "incident side",
+   "note": "Asi & Dib (2010) solve the same band without stating a thickness limit; Chamaani's design is 9.6 mm"
+  },
+  "designs_7layer": [
+   {
+    "name": "CFO",
+    "source": "asi_dib_2010 Table 10",
+    "published_dB": -17.924,
+    "must_reproduce": true,
+    "layers": [
+     [
+      16,
+      0.2102
+     ],
+     [
+      6,
+      1.8485
+     ],
+     [
+      14,
+      0.5678
+     ],
+     [
+      5,
+      1.682
+     ],
+     [
+      4,
+      1.2007
+     ],
+     [
+      4,
+      0.263
+     ],
+     [
+      3,
+      0.0894
+     ]
+    ]
+   },
+   {
+    "name": "MLPSO",
+    "source": "chamaani_2008 via asi_dib_2010 Table 10",
+    "published_dB": -18.5,
+    "note": "recomputes 0.21 dB better than published (-18.709); the published value looks rounded",
+    "layers": [
+     [
+      14,
+      0.21267
+     ],
+     [
+      6,
+      2.1786
+     ],
+     [
+      14,
+      0.50102
+     ],
+     [
+      6,
+      1.1592
+     ],
+     [
+      5,
+      1.7043
+     ],
+     [
+      6,
+      2.1965
+     ],
+     [
+      5,
+      1.6561
+     ]
+    ]
+   },
+   {
+    "name": "MIGRO",
+    "source": "zong_2024 Table 3",
+    "published_dB": -18.3183,
+    "layers": [
+     [
+      16,
+      0.2131
+     ],
+     [
+      6,
+      2.0127
+     ],
+     [
+      14,
+      0.5994
+     ],
+     [
+      6,
+      0.9139
+     ],
+     [
+      5,
+      1.6448
+     ],
+     [
+      4,
+      0.6706
+     ],
+     [
+      5,
+      0.9627
+     ]
+    ]
+   },
+   {
+    "name": "GRO",
+    "source": "zong_2024 Table 3",
+    "published_dB": -18.0175,
+    "layers": [
+     [
+      16,
+      0.2114
+     ],
+     [
+      6,
+      1.7644
+     ],
+     [
+      14,
+      0.5457
+     ],
+     [
+      3,
+      1.9669
+     ],
+     [
+      6,
+      2.2745
+     ],
+     [
+      4,
+      1.6528
+     ],
+     [
+      6,
+      0.2784
+     ]
+    ]
+   },
+   {
+    "name": "BLSA-SA",
+    "source": "zong_2024 Table 3",
+    "published_dB": -18.0406,
+    "layers": [
+     [
+      16,
+      0.208
+     ],
+     [
+      6,
+      1.749
+     ],
+     [
+      16,
+      0.085
+     ],
+     [
+      6,
+      0.082
+     ],
+     [
+      14,
+      0.4922
+     ],
+     [
+      5,
+      1.502
+     ],
+     [
+      4,
+      1.6602
+     ]
+    ]
+   },
+   {
+    "name": "CAS",
+    "source": "zong_2024 Table 3",
+    "published_dB": -18.0879,
+    "layers": [
+     [
+      16,
+      0.2107
+     ],
+     [
+      6,
+      1.1066
+     ],
+     [
+      6,
+      0.7916
+     ],
+     [
+      14,
+      0.5482
+     ],
+     [
+      5,
+      1.3785
+     ],
+     [
+      6,
+      0.557
+     ],
+     [
+      4,
+      1.745
+     ]
+    ]
+   },
+   {
+    "name": "DE (layer-1/3 materials as in kankilic_karpat_2023)",
+    "source": "reprinted in kankilic_karpat_2023 Table 6",
+    "published_dB": -17.9,
+    "layers": [
+     [
+      16,
+      0.2064
+     ],
+     [
+      6,
+      1.8762
+     ],
+     [
+      14,
+      0.5391
+     ],
+     [
+      6,
+      0.9499
+     ],
+     [
+      5,
+      1.9596
+     ],
+     [
+      4,
+      0.7817
+     ],
+     [
+      5,
+      0.4864
+     ]
+    ]
+   },
+   {
+    "name": "DE (layer-1/3 materials as in zong_2024)",
+    "source": "reprinted in zong_2024 Table 3",
+    "published_dB": -17.9,
+    "note": "zong_2024 swaps the materials of layers 1 and 3 (14/16) relative to kankilic_karpat_2023; only the latter reproduces",
+    "layers": [
+     [
+      14,
+      0.2064
+     ],
+     [
+      6,
+      1.8762
+     ],
+     [
+      16,
+      0.5391
+     ],
+     [
+      6,
+      0.9499
+     ],
+     [
+      5,
+      1.9596
+     ],
+     [
+      4,
+      0.7817
+     ],
+     [
+      5,
+      0.4864
+     ]
     ]
    }
-  ]
+  ],
+  "coating_studio_designs": {
+   "A": {
+    "band_GHz": [
+     2.0,
+     8.0
+    ],
+    "grid_step_GHz": 0.1,
+    "max_dB": -25.9564,
+    "max_dB_0p01GHz": -25.9533,
+    "total_mm": 4.99896,
+    "layers": [
+     [
+      16,
+      0.37139
+     ],
+     [
+      6,
+      3.03774
+     ],
+     [
+      6,
+      0.10794
+     ],
+     [
+      14,
+      1.21748
+     ],
+     [
+      11,
+      0.26441
+     ]
+    ],
+    "how": "coating-cli optimize, 16 candidates per layer, thickness 0.01-5 mm, total <= 5 mm; 4 rounds of --restarts 3, the last restarting from the previous best after the x0 fix (2026-11-07)"
+   },
+   "B": {
+    "band_GHz": [
+     0.85,
+     5.4
+    ],
+    "grid_step_GHz": 0.01,
+    "max_dB": -21.4601,
+    "total_mm": 4.23424,
+    "layers": [
+     [
+      16,
+      0.60155
+     ],
+     [
+      3,
+      2.0
+     ],
+     [
+      4,
+      1.63269
+     ]
+    ],
+    "how": "coating-cli optimize, 16 candidates per layer, thickness 0.01-2 mm (assumed limit), one run of --restarts 3; all three restarts reach the same 16/3/4 design"
+   },
+   "C": {
+    "band_GHz": [
+     0.1,
+     20.0
+    ],
+    "grid_step_GHz": 0.1,
+    "max_dB": -18.8429,
+    "total_mm": 9.60296,
+    "layers": [
+     [
+      16,
+      0.20267
+     ],
+     [
+      6,
+      1.86984
+     ],
+     [
+      16,
+      0.54645
+     ],
+     [
+      5,
+      1.83223
+     ],
+     [
+      6,
+      0.33028
+     ],
+     [
+      7,
+      3.2727
+     ],
+     [
+      4,
+      1.54879
+     ]
+    ],
+    "how": "coating-cli optimize, 16 candidates per layer, thickness 0.01-10 mm, total <= 10 mm; 6 runs (first runs stalled at 5.8 mm; the best came from restarting the -18.29 dB design after the x0 fix)"
+   }
+  }
  }
 }
