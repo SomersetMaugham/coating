@@ -724,6 +724,27 @@ def test_export_touchstone_and_report(app, tmp_path):
     out = w.export_report(str(tmp_path / "r.html"))
     text = open(out, encoding="utf-8").read()
     assert "data:image/png;base64," in text and "<li>d <span class=muted>(measured)" in text
+    assert text.count("data:image/png;base64,") == 2  # no tolerance result yet
+
+    # After an analysis the report carries its band plot; settings edited afterwards change neither the
+    # report nor the tolerance tab, which both show what the run used.
+    from matplotlib.figure import Figure
+
+    from coating_studio.tolerance import run_tolerance, tolerance_frequencies, yield_intervals
+    p = w.project
+    p.tolerance.n_samples = 6
+    res = run_tolerance(p, tolerance_frequencies(p), band=yield_intervals(p))
+    w.p_tol.plot.result = res
+    w.doc.edit_settings(lambda pp: (setattr(pp.tolerance, "lower_pct", 30.0), setattr(pp.tolerance, "target_db", -33.0),
+                                    setattr(pp.tolerance, "thickness", 0.4)))
+    assert w.p_tol.plot.result is res
+    fig = Figure()
+    w.p_tol.plot.draw_plot(fig)
+    ax = fig.axes[0]
+    assert ax.get_legend().get_texts()[0].get_text().startswith("5–95") and ax.get_lines()[2].get_ydata()[0] == -10.0
+    assert "6 samples" in ax.get_title(loc="left")
+    text = open(w.export_report(str(tmp_path / "r2.html")), encoding="utf-8").read()
+    assert text.count("data:image/png;base64,") == 3 and "thickness 5 %" in text and "target -10 dB" in text
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()

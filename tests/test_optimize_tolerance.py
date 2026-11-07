@@ -446,6 +446,8 @@ def test_angle_rows_equal_run_tolerance_bit_for_bit():
             for k in ("nominal_db", "median_db", "lower_db", "upper_db", "worst_db"):
                 assert np.array_equal(getattr(r, k), getattr(d, k)), (mode, ti, ang, pol, k)
             assert r.yield_fraction == d.yield_fraction
+            assert r.settings == d.settings and r.band == d.band  # the row records its own angle, pol and goal
+            assert (r.settings.angle, r.settings.pol, r.settings.target_db) == (ang, pol, tdb)
         passes = np.all([np.asarray(r.worst_db) <= tdb for *_x, tdb, r in cr.corners], axis=0)
         assert cr.joint_yield_fraction == float(np.mean(passes))
         assert cr.joint_yield_fraction <= min(r.yield_fraction for *_x, r in cr.corners)
@@ -504,3 +506,21 @@ def test_angle_rows_reject_bad_polarisations_and_keep_the_band_fallback():
     cr = run_tolerance_targets(p, f, "corners")
     row = next(r for r in cr.corners if r[0] == 0)
     assert np.array_equal(row[5].worst_db, _direct(p, f, 0, row[2], row[3], row[4]).worst_db)  # whole grid
+
+
+def test_results_record_their_band_and_a_complete_run_is_not_stopped():
+    from coating_studio.tolerance import run_tolerance_targets, tolerance_frequencies
+    p = _angle_project(n=5)
+    f = tolerance_frequencies(p)
+    assert run_tolerance(p, f).band == [(f[0], f[-1])]  # no band: the whole grid
+    assert run_tolerance(p, f, band=[(8e9, 9e9), (10e9, 11e9)]).band == [(8e9, 9e9), (10e9, 11e9)]
+    mid = float(f[3] + f[4]) / 2
+    assert run_tolerance(p, f, band=(mid, mid)).band == [(f[0], f[-1])]  # no grid point inside: whole grid
+    # a stop request answered after the last sample does not mark the run stopped
+    r = run_tolerance(p, f, progress=lambda k, n: True)
+    assert r.n_samples == 1 and r.stopped
+    r = run_tolerance(p, f, progress=lambda k, n: k == n)
+    assert r.n_samples == 5 and not r.stopped
+    cr = run_tolerance_targets(p, f, "grid", progress=lambda k, n: k == n)
+    assert cr.n_samples == 5 and not cr.stopped
+    assert cr.settings == p.tolerance and cr.settings is not p.tolerance

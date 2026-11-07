@@ -20,10 +20,13 @@ from coating_studio.core.structure import SheetLayer, SlabLayer
 from coating_studio.i18n import tr
 from coating_studio.limits import target_limits
 from coating_studio.optimize import evaluate_terms
-from coating_studio.tolerance import CornerResult, ToleranceResult
+from coating_studio.tolerance import CornerResult, ToleranceResult, result_band, result_settings
 
 _COLORS = {"TE": "#2563eb", "TM": "#dc2626", "avg": "#111827", "target": "#c0262d"}
 _REF_COLORS = ("#0d9488", "#9333ea", "#ca8a04", "#db2777", "#4b5563", "#65a30d")
+# colours of the tolerance band plot (the GUI passes its theme colours instead)
+TOL_COLORS = {"spread": "#2563eb", "nominal": "#dc2626", "target": "#5f6b7a", "band": "#0d9488"}
+MAX_TOLERANCE_PLOTS = 6  # per-target tolerance plots in a report; the weakest targets are kept
 _CSS = """
 body { font-family: -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; color: #111827;
        max-width: 960px; margin: 24px auto; padding: 0 16px; line-height: 1.45; }
@@ -73,6 +76,77 @@ def _pol_curves(ax, x, res, cut, normal, positive):
         y = _rl(10 * np.log10(np.maximum(r, 1e-30)), positive)
         label = tr("TE = TM (normal incidence)") if normal else pol
         ax.plot(x, y, color=_COLORS[pol], ls="-" if pol == "TE" else "--", lw=1.6, label=label)
+
+
+def corner_label(ti, name, angle, pol):
+    """'Target 1 (X) 30° TE' — the angle and polarisation of one target row of a tolerance analysis."""
+    head = tr("Target {n}", n=ti + 1) + (f" ({name})" if name else "")
+    return f"{head} {angle:g}° {pol}"
+
+
+def samples_text(r, s):
+    """'200 samples', or 'stopped after 37 of 200 samples' for a stopped run (``s``: the settings of the run)."""
+    if r.stopped:
+        return tr("stopped after {n} of {m} samples", n=r.n_samples, m=s.n_samples)
+    return tr("{n} samples", n=r.n_samples)
+
+
+def draw_tolerance_band(ax, r, target_db, bands, lower_pct, upper_pct, colors, positive=False, log_f=False):
+    """Draw one ToleranceResult: percentile band, median, nominal design, target level and the yield intervals.
+
+    Shared by the GUI's tolerance tab and the report.  ``colors``: {"spread", "nominal", "target", "band"}.
+    Labels, legend, title and grid are left to the caller."""
+    sgn = -1 if positive else 1
+    x = r.f / 1e9
+    ax.fill_between(x, sgn * r.lower_db, sgn * r.upper_db, color=colors["spread"], alpha=0.22,
+                    label=tr("{a:g}–{b:g} percentile band", a=lower_pct, b=upper_pct))
+    ax.plot(x, sgn * r.median_db, color=colors["spread"], label=tr("Median"))
+    ax.plot(x, sgn * r.nominal_db, color=colors["nominal"], ls="--", label=tr("Nominal design"))
+    ax.axhline(sgn * target_db, color=colors["target"], lw=1, ls=":", label=tr("Target"))
+    for lo, hi in bands:
+        ax.axvspan(lo / 1e9, hi / 1e9, color=colors["band"], alpha=0.07)
+    if log_f:
+        ax.set_xscale("log")  # before set_xlim
+    ax.set_xlim(x[0], x[-1])
+
+
+def _tolerance_figure(r, s, title, positive, log_f):
+    from matplotlib.figure import Figure
+
+    fig = Figure(figsize=(8, 3.2), layout="constrained")
+    ax = fig.add_subplot(111)
+    draw_tolerance_band(ax, r, s.target_db, r.band or [], s.lower_pct, s.upper_pct, TOL_COLORS, positive, log_f)
+    ax.set_xlabel(tr("Frequency [GHz]"))
+    ax.set_ylabel(_rl_label(positive))
+    ax.set_title(title, fontsize=10, loc="left", wrap=True)
+    ax.grid(True, color="#e3e6eb")
+    ax.legend(loc="best", fontsize=8)
+    return _png(fig)
+
+
+def _tolerance_figures(p, tolerance, positive):
+    """Band plots of a tolerance result: one for a single-angle result; for target rows, the lowest-yield row of each
+    target (at most MAX_TOLERANCE_PLOTS, keeping the weakest targets), in target order."""
+    log_f = p.sweep.log_f
+    if isinstance(tolerance, ToleranceResult):
+        s = result_settings(tolerance, p)
+        r = tolerance if tolerance.band is not None else _with_band(tolerance, result_band(tolerance, p))
+        title = f"{s.angle:g}° {s.pol} — " + tr("Yield {y} ({s})", y=_pct(r.yield_fraction), s=samples_text(r, s))
+        return [_tolerance_figure(r, s, title, positive, log_f)]
+    rows = sorted(tolerance.per_target().values(), key=lambda i: tolerance.corners[i][5].yield_fraction)
+    out = []
+    for i in sorted(rows[:MAX_TOLERANCE_PLOTS]):
+        ti, name, ang, pol, _goal, r = tolerance.corners[i]
+        s = result_settings(r, p)
+        title = corner_label(ti, name, ang, pol) + " — " + tr("Yield {y} ({s})", y=_pct(r.yield_fraction),
+                                                                 s=samples_text(r, s))
+        out.append(_tolerance_figure(r, s, title, positive, log_f))
+    return out
+
+
+def _with_band(r, band):
+    import dataclasses
+    return dataclasses.replace(r, band=list(band))
 
 
 def _freq_figure(project, positive, references):
@@ -253,31 +327,39 @@ def build_report(project, rl_positive=False, references=(), tolerance=None, sour
     # tolerance
     if tolerance is not None:
         out.append(f"<h2>{_e(tr('Tolerance analysis'))}</h2>")
-        s = p.tolerance
+        s = result_settings(tolerance, p)  # the settings of the run, not the current ones
         if isinstance(tolerance, CornerResult):
             grid = tolerance.angle_mode == "grid"
+            n_txt = samples_text(tolerance, s)
             if grid:
-                head_text = tr("Joint yield over every target's angle grid ({k} points): {y} ({n} samples). Lowest "
+                head_text = tr("Joint yield over every target's angle grid ({k} points): {y} ({s}). Lowest "
                                "yield per target:", k=len(tolerance.corners), y=_pct(tolerance.joint_yield_fraction),
-                               n=tolerance.n_samples)
+                               s=n_txt)
                 shown = list(tolerance.per_target().values())  # a grid has too many rows to list them all
             else:
-                head_text = tr("Joint yield over all target corners: {y} ({n} samples)",
-                               y=_pct(tolerance.joint_yield_fraction), n=tolerance.n_samples)
+                head_text = tr("Joint yield over all target corners: {y} ({s})",
+                               y=_pct(tolerance.joint_yield_fraction), s=n_txt)
                 shown = range(len(tolerance.corners))
             out.append(f"<p>{_e(head_text)}</p><ul>")
             for i in shown:
                 ti, name, ang, pol, goal, r = tolerance.corners[i]
-                head = tr("Target {n}", n=ti + 1) + (f" ({name})" if name else "")
-                out.append(f"<li>{_e(head)} {ang:g}° {pol}: {_e(_pct(r.yield_fraction))}"
+                out.append(f"<li>{_e(corner_label(ti, name, ang, pol))}: {_e(_pct(r.yield_fraction))}"
                            f" ({_e(tr('goal'))} {_rl(goal, pos):g} dB)</li>")
             out.append("</ul>")
             for ti in tolerance.fallback_targets:
                 out.append(f"<p class=muted>{_e(tr('Target {n}: fewer than 2 angle-grid points, so the two ends of its range were used.', n=ti + 1))}</p>")
         elif isinstance(tolerance, ToleranceResult):
-            out.append(f"<p>{_e(tr('Yield {y} at {a}° {pol} ({n} samples), target {t} dB', y=_pct(tolerance.yield_fraction), a=f'{s.angle:g}', pol=s.pol, n=tolerance.n_samples, t=f'{_rl(s.target_db, pos):g}'))}</p>")
+            out.append(f"<p>{_e(tr('Yield {y} at {a}° {pol} ({s}), target {t} dB', y=_pct(tolerance.yield_fraction), a=f'{s.angle:g}', pol=s.pol, s=samples_text(tolerance, s), t=f'{_rl(s.target_db, pos):g}'))}</p>")
+        try:
+            out.extend(_tolerance_figures(p, tolerance, pos))
+        except Exception as e:  # noqa: BLE001 - the text above is still useful
+            out.append(f"<p class=fail>{_e(tr('Cannot compute: {e}', e=e))}</p>")
+        if isinstance(tolerance, CornerResult) and len(tolerance.per_target()) > MAX_TOLERANCE_PLOTS:
+            out.append(f"<p class=muted>{_e(tr('Plots show the {k} targets with the lowest yield.', k=MAX_TOLERANCE_PLOTS))}</p>")
         loss = lambda v: tr("follows the real part") if v is None else f"{v * 100:g} %"  # noqa: E731
-        out.append(f"<p class=muted>{_e(tr('Tolerances: thickness {t} %, ε′ {e} %, ε″ {el}, μ′ {m} %, μ″ {ml}, sheet {sh} %, real/loss correlation ρ = {rho}; {d} distribution, seed {seed}. Per-layer overrides are not listed.', t=f'{s.thickness * 100:g}', e=f'{s.eps * 100:g}', el=loss(s.eps_loss), m=f'{s.mu * 100:g}', ml=loss(s.mu_loss), sh=f'{s.sheet * 100:g}', rho=f'{s.loss_correlation:g}', d=s.distribution, seed=s.seed))}</p>")
+        dist = tr("uniform") if s.distribution == "uniform" else tr("normal")
+        seed = tr("random") if s.seed is None else s.seed
+        out.append(f"<p class=muted>{_e(tr('Tolerances: thickness {t} %, ε′ {e} %, ε″ {el}, μ′ {m} %, μ″ {ml}, sheet {sh} %, real/loss correlation ρ = {rho}; {d} distribution, seed {seed}. Per-layer overrides are not listed.', t=f'{s.thickness * 100:g}', e=f'{s.eps * 100:g}', el=loss(s.eps_loss), m=f'{s.mu * 100:g}', ml=loss(s.mu_loss), sh=f'{s.sheet * 100:g}', rho=f'{s.loss_correlation:g}', d=dist, seed=seed))}</p>")
 
     # diagnostics
     out.append(f"<h2>{_e(tr('Diagnostics'))}</h2>")

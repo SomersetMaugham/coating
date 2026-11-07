@@ -18,8 +18,9 @@ from coating_studio.gui.plots.base import PlotView
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
 from coating_studio.gui.workers import ToleranceWorker, start_worker
 from coating_studio.i18n import tr
+from coating_studio.report import corner_label, draw_tolerance_band, samples_text
 from coating_studio.tolerance import (  # noqa: F401 (yield_band re-exported)
-    CornerResult, tolerance_frequencies, yield_band, yield_intervals,
+    CornerResult, result_band, result_settings, tolerance_frequencies, yield_band, yield_intervals,
 )
 
 _KEYS = ("thickness", "eps", "eps_loss", "mu", "mu_loss", "loss_correlation", "sheet")
@@ -27,18 +28,13 @@ _COEFF_KEYS = {"loss_correlation"}  # per-layer cells that hold a plain coeffici
 _LOSS_BASE = {"eps_loss": "eps", "mu_loss": "mu"}
 
 
-def corner_label(ti, name, angle, pol):
-    """'Target 1 (X) 30° TE' — the angle and polarisation of one target row."""
-    head = tr("Target {n}", n=ti + 1) + (f" ({name})" if name else "")
-    return f"{head} {angle:g}° {pol}"
-
-
-def joint_yield_title(r):
+def joint_yield_title(r, s):
+    """Plot title of a multi-angle result (``s``: the settings of the run)."""
     if r.angle_mode == "grid":
-        return tr("Joint yield {y:.1f}% over {n} angle-grid points ({s} samples)",
-                  y=100 * (r.joint_yield_fraction or 0.0), n=len(r.corners), s=r.n_samples)
-    return tr("Joint yield {y:.1f}% over {n} corners ({s} samples)",
-              y=100 * (r.joint_yield_fraction or 0.0), n=len(r.corners), s=r.n_samples)
+        return tr("Joint yield {y:.1f}% over {n} angle-grid points ({s})",
+                  y=100 * (r.joint_yield_fraction or 0.0), n=len(r.corners), s=samples_text(r, s))
+    return tr("Joint yield {y:.1f}% over {n} corners ({s})",
+              y=100 * (r.joint_yield_fraction or 0.0), n=len(r.corners), s=samples_text(r, s))
 
 
 class TolerancePlot(PlotView):
@@ -53,9 +49,7 @@ class TolerancePlot(PlotView):
         ax = fig.add_subplot(111)
         r = self.result
         pos = self.ctx.rl_positive
-        sgn = -1 if pos else 1
         c = self.ctx.colors
-        s = self.ctx.project.tolerance
         ax.set_xlabel(tr("Frequency [GHz]"))
         ax.set_ylabel(tr("Reflection loss [dB] (higher is better)") if pos
                       else tr("Reflection loss [dB] (lower is better)"))
@@ -63,29 +57,20 @@ class TolerancePlot(PlotView):
             ax.text(0.5, 0.5, tr("Run the analysis to see the spread of reflection loss."),
                     ha="center", va="center", transform=ax.transAxes, color=c.muted)
             return None
-        title = None
-        target_db, bands = s.target_db, yield_intervals(self.ctx.project)
+        project = self.ctx.project
         if isinstance(r, CornerResult):
-            # Show the weakest corner's spread; the title carries the joint yield over all corners.
-            # The panel drops the result when the targets change, so its target index is still valid here.
-            ti, name, ang, pol, target_db, worst = r.corners[r.worst]
-            t = self.ctx.project.optimization.enabled_targets()[ti]
-            bands = [(t.f_min, t.f_max)]
-            title = joint_yield_title(r)
-            r = worst
-        x = r.f / 1e9
-        ax.fill_between(x, sgn * r.lower_db, sgn * r.upper_db, color=c.series[0], alpha=0.22,
-                        label=tr("{a:g}–{b:g} percentile band", a=s.lower_pct, b=s.upper_pct))
-        ax.plot(x, sgn * r.median_db, color=c.series[0], label=tr("Median"))
-        ax.plot(x, sgn * r.nominal_db, color=c.series[1], ls="--", label=tr("Nominal design"))
-        ax.axhline(sgn * target_db, color=c.muted, lw=1, ls=":", label=tr("Target"))
-        for lo, hi in bands:
-            ax.axvspan(lo / 1e9, hi / 1e9, color=c.series[2], alpha=0.07)
-        if self.ctx.project.sweep.log_f:
-            ax.set_xscale("log")
-        ax.set_xlim(x[0], x[-1])
+            # Show the weakest row's spread; the title carries the joint yield over all rows.  The row records its
+            # own band and criterion, so later target edits cannot misplace them.
+            title = joint_yield_title(r, result_settings(r, project))
+            r = r.corners[r.worst][5]
+        else:
+            title = None
+        s = result_settings(r, project)  # the settings of the run, not the current ones
+        draw_tolerance_band(ax, r, s.target_db, result_band(r, project), s.lower_pct, s.upper_pct,
+                            {"spread": c.series[0], "nominal": c.series[1], "target": c.muted, "band": c.series[2]},
+                            pos, project.sweep.log_f)
         ax.legend(loc="best")
-        ax.set_title(title or tr("Yield {y:.1f}% ({n} samples)", y=100 * r.yield_fraction, n=r.n_samples),
+        ax.set_title(title or tr("Yield {y:.1f}% ({s})", y=100 * r.yield_fraction, s=samples_text(r, s)),
                      fontsize=10, loc="left", wrap=True)  # long joint-yield titles wrap instead of being clipped
         return None
 

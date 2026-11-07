@@ -63,6 +63,26 @@ class ToleranceResult:
     yield_fraction: float  # samples whose in-band worst <= target
     n_samples: int
     stopped: bool = False
+    # What the result was computed with, so plots and reports stay true after the settings change: a deep copy of
+    # the tolerance settings (for a target row: its angle, polarisation and criterion) and the frequency intervals
+    # the yield was judged on.  None on results built by hand (callers then fall back to the project's settings).
+    settings: ToleranceSettings | None = None
+    band: list | None = None
+
+
+def result_settings(r, project: Project) -> ToleranceSettings:
+    """The settings ``r`` was computed with; the project's current ones for a result that does not record them."""
+    return r.settings if getattr(r, "settings", None) is not None else project.tolerance
+
+
+def result_band(r, project: Project):
+    """The yield intervals of a ToleranceResult; the project's yield intervals if it does not record them."""
+    return r.band if getattr(r, "band", None) is not None else yield_intervals(project)
+
+
+def _snapshot(s: ToleranceSettings, **changes) -> ToleranceSettings:
+    """Deep copy of ``s`` (per_layer included), with ``changes`` applied."""
+    return ToleranceSettings.from_dict({**s.to_dict(), **changes})
 
 
 @dataclass
@@ -79,6 +99,7 @@ class CornerResult:
     stopped: bool = False
     angle_mode: str = "corners"
     fallback_targets: list = field(default_factory=list)
+    settings: ToleranceSettings | None = None  # deep copy of the settings of the run (seed, tolerances, samples)
 
     @property
     def worst(self):
@@ -145,7 +166,7 @@ def run_tolerance_targets(project: Project, f, mode="corners", n_angle=None, tar
     plan, fallback = target_rows(project, mode, n_angle)
     if not plan:
         raise ValueError("no enabled target to take angles from")
-    s = project.tolerance
+    s = _snapshot(project.tolerance)
     f = np.asarray(f, dtype=float)
     n = int(s.n_samples)
     need = {}
@@ -172,18 +193,20 @@ def run_tolerance_targets(project: Project, f, mode="corners", n_angle=None, tar
         perturb = {uid: {key: arr[k] for key, arr in d.items()} for uid, d in factors.items()}
         for key, db in rl_db(perturb).items():
             samples[key].append(db)
-        if progress is not None and progress(k + 1, n):
+        # a stop request after the last sample does not make a complete run "stopped"
+        if progress is not None and progress(k + 1, n) and k + 1 < n:
             stopped = True
             break
     rows, passes = [], []
     for ti, t, ang, pol in plan:
         tdb = float(target_db) if target_db is not None else t.goal_db
         arr = np.array(samples[ang, pol]) if n else nominal[ang, pol][None, :]  # n_samples = 0: as run_tolerance
-        r = _summarise(f, nominal[ang, pol], arr, [(t.f_min, t.f_max)], s, tdb, stopped)
+        r = _summarise(f, nominal[ang, pol], arr, [(t.f_min, t.f_max)], _snapshot(s, angle=ang, pol=pol, target_db=tdb),
+                       tdb, stopped)
         rows.append((ti, t.name, ang, pol, tdb, r))
         passes.append(np.asarray(r.worst_db) <= tdb)
     joint = float(np.mean(np.all(passes, axis=0)))
-    return CornerResult(rows, joint, rows[0][5].n_samples, stopped, mode, fallback)
+    return CornerResult(rows, joint, rows[0][5].n_samples, stopped, mode, fallback, s)
 
 
 def run_tolerance_corners(project: Project, f, target_db=None, progress=None, should_stop=None) -> CornerResult:
@@ -256,7 +279,7 @@ def run_tolerance(project: Project, f, settings: ToleranceSettings | None = None
     """``band`` = (f_lo, f_hi) or a list of such intervals for the yield criterion (default: all of
     ``f``).  Several intervals are combined as a union, so the gap between disjoint target bands
     does not count against the yield."""
-    s = settings or project.tolerance
+    s = _snapshot(settings or project.tolerance)
     f = np.asarray(f, dtype=float)
     rng = np.random.default_rng(s.seed)
     n = int(s.n_samples)
@@ -275,7 +298,7 @@ def run_tolerance(project: Project, f, settings: ToleranceSettings | None = None
         for k in range(n):
             perturb = {uid: {key: arr[k] for key, arr in d.items()} for uid, d in factors.items()}
             samples.append(rl_db(perturb))
-            if progress is not None and progress(k + 1, n):
+            if progress is not None and progress(k + 1, n) and k + 1 < n:  # not after the last sample
                 raise _Stop
     except _Stop:
         stopped = True
@@ -286,19 +309,22 @@ def run_tolerance(project: Project, f, settings: ToleranceSettings | None = None
 
 def _summarise(f, nominal, arr, band, s, target_db, stopped):
     """ToleranceResult from the per-sample RL curves ``arr`` (samples x f).  ``band`` = (f_lo, f_hi), a list of
-    them (a union), or None (all of ``f``); a band without any grid point falls back to all of ``f``."""
+    them (a union), or None (all of ``f``); a band without any grid point falls back to all of ``f``.  The result
+    records ``s`` and the intervals actually used, always as a list of (lo, hi) pairs."""
+    whole = [(float(f[0]), float(f[-1]))]
     if band is None:
-        mask = np.ones(f.shape, dtype=bool)
+        mask, used = np.ones(f.shape, dtype=bool), whole
     else:
         intervals = band if np.ndim(band) == 2 else [band]
         mask = np.zeros(f.shape, dtype=bool)
         for lo, hi in intervals:
             mask |= (f >= lo) & (f <= hi)
+        used = [(float(lo), float(hi)) for lo, hi in intervals]
         if not mask.any():
-            mask = np.ones(f.shape, dtype=bool)
+            mask, used = np.ones(f.shape, dtype=bool), whole
     worst = arr[:, mask].max(axis=1)
     return ToleranceResult(
         f=f, nominal_db=nominal, median_db=np.median(arr, axis=0),
         lower_db=np.percentile(arr, s.lower_pct, axis=0), upper_db=np.percentile(arr, s.upper_pct, axis=0),
         worst_db=worst, yield_fraction=float(np.mean(worst <= target_db)), n_samples=len(arr),
-        stopped=stopped)
+        stopped=stopped, settings=s, band=used)
