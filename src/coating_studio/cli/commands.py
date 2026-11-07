@@ -1,0 +1,549 @@
+"""Subcommand implementations of ``coating-cli``.
+
+Each command is a plain function: it takes options and a ``RunControl`` and returns a ``CommandResult`` (or
+raises ``CliError``).  Argument parsing, stdout, signal handling and exit codes live in ``cli/__init__.py``,
+so the same functions can later back other front ends (docs/CLI_PLAN.md, section 8).
+"""
+
+from __future__ import annotations
+
+import csv
+import io
+import math
+import os
+import secrets
+from dataclasses import asdict, dataclass, field
+
+import numpy as np
+
+from coating_studio.cli.output import LOAD_ERRORS, MODEL_ERRORS, CliError, issue_dict, load_error, model_error
+from coating_studio.core.solver import solve
+from coating_studio.core.structure import SlabLayer
+from coating_studio.core.units import power_to_db, si_unit, to_display
+from coating_studio.examples import EXAMPLES
+from coating_studio.materials.checks import Issue, check_material
+from coating_studio.materials.models import MaterialCycleError
+from coating_studio.optimize.optimizer import (
+    MAX_ENUMERATED_COMBOS, OptimizationError, apply_result, evaluate_terms, optimize, preflight,
+)
+from coating_studio.project import Project, available_params, describe_path, get_param, param_unit
+from coating_studio.tolerance import run_tolerance, tolerance_frequencies, yield_intervals
+
+POLS = ("TE", "TM", "avg")
+
+
+@dataclass
+class CommandResult:
+    result: dict
+    warnings: list = field(default_factory=list)
+    stopped: bool = False
+    input_info: dict | None = None
+    text: str | None = None  # raw text for stdout instead of the envelope (CSV without --output)
+
+
+def warning(code, message, **extra):
+    return {"code": code, "level": "warning", "message": message, **extra}
+
+
+# ---------------------------------------------------------------------------
+# helpers
+
+def load_project(path):
+    try:
+        p = Project.load(path)
+    except LOAD_ERRORS as e:
+        raise load_error(e, path) from None
+    return p, {"path": str(path), "schema": getattr(p, "source_schema", None)}
+
+
+def resolve_seed(seed):
+    """CLI seed: negative = random (GUI convention); random seeds are drawn here so runs can be replayed."""
+    if seed is not None and seed < 0:
+        seed = None
+    return secrets.randbelow(2 ** 31) if seed is None else int(seed)
+
+
+def param_value(value_si, display_unit):
+    return {"value": value_si, "unit": si_unit(display_unit),
+            "display_value": to_display(value_si, display_unit), "display_unit": display_unit}
+
+
+def layer_label(project, uid):
+    for i, ly in enumerate(project.structure.layers, start=1):
+        if ly.uid == uid:
+            return ly.name or str(i)
+    return None
+
+
+def check_output_path(path, force, input_path=None):
+    if path is None:
+        return
+    if input_path is not None and os.path.abspath(path) == os.path.abspath(input_path):
+        return  # --in-place handled by the caller
+    if os.path.exists(path) and not force:
+        raise CliError("file_exists", f"{path} exists (use --force to overwrite)", 3, {"path": str(path)})
+
+
+def write_text(path, text):
+    try:
+        with open(path, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+    except OSError as e:
+        raise CliError("file_unwritable", f"{path}: {e.strerror or e}", 3, {"path": str(path)}) from None
+
+
+def save_project(project, path):
+    try:
+        project.save(path)
+    except OSError as e:
+        raise CliError("file_unwritable", f"{path}: {e.strerror or e}", 3, {"path": str(path)}) from None
+
+
+def csv_text(header, rows):
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(header)
+    w.writerows(rows)
+    return buf.getvalue()
+
+
+def rl_db(res, pol):
+    return power_to_db(res.quantity("R", pol))
+
+
+def quantity(res, q, pol):
+    return rl_db(res, pol) if q == "RL" else res.quantity(q, pol)
+
+
+def target_rows(project, settings=None):
+    """Per enabled target: worst RL and margin (margin = worst - goal; <= 0 means met)."""
+    s = settings or project.optimization
+    targets = s.enabled_targets()
+    if not targets:
+        return [], None
+    terms = evaluate_terms(project, s)
+    rows = []
+    for i, (t, pt) in enumerate(zip(targets, terms.per_target)):
+        worst, margin = pt
+        rows.append({"index": i, "name": t.name, "goal_db": t.goal_db, "worst_rl_db": worst, "margin_db": margin})
+    margins = [r["margin_db"] for r in rows if r["margin_db"] is not None and math.isfinite(r["margin_db"])]
+    return rows, (max(margins) if len(margins) == len(rows) else None)
+
+
+def first_failure(project, settings=None):
+    """Re-run the first enabled target's solve to report why evaluations fail."""
+    s = settings or project.optimization
+    for t in s.enabled_targets():
+        f, th = t.grid()
+        try:
+            solve(project.structure, project.materials, f, th, pols=tuple(t.pols))
+        except MODEL_ERRORS as e:
+            err = model_error(e)
+            return {"code": err.code, "message": err.message, **({"details": err.details} if err.details else {})}
+    return None
+
+
+def optimisation_size(project, s=None):
+    s = s or project.optimization
+    n_cont = len(s.variables)
+    n_combos = math.prod(len(c.candidates) for c in s.choices) if s.choices else 1
+    if n_cont == 0:
+        evals = n_combos
+    elif n_combos <= MAX_ENUMERATED_COMBOS:
+        evals = n_combos * (int(s.maxiter) + 1) * int(s.popsize) * n_cont
+    else:
+        n = n_cont + len(s.choices)
+        evals = (int(s.maxiter) + 1) * int(s.popsize) * n
+    if s.polish and n_cont:
+        evals += 200 * (n_cont + 1)
+    return {"n_vars": n_cont, "n_choices": len(s.choices), "n_combos": n_combos, "estimated_max_evals": evals}
+
+
+def target_dict(t):
+    return {"name": t.name, "f_hz": [t.f_min, t.f_max], "n_f": t.n_f, "angle_deg": [t.angle_min, t.angle_max],
+            "n_angle": t.n_angle, "pols": list(t.pols), "goal_db": t.goal_db, "enabled": t.enabled}
+
+
+def sweep_dict(sw):
+    return {"f_hz": [sw.f_min, sw.f_max], "n_f": sw.n_f, "log_f": sw.log_f, "angle_deg": sw.angle,
+            "angle_range_deg": [sw.angle_min, sw.angle_max], "n_angle": sw.n_angle, "f_at_hz": sw.f_at,
+            "map_n_f": sw.map_n_f, "map_n_angle": sw.map_n_angle}
+
+
+def used_materials(project, include_candidates=True):
+    """Materials the design uses, with mixture constituents expanded (sorted)."""
+    names = set(project.structure.referenced_materials())
+    if include_candidates:
+        for c in project.optimization.choices:
+            names |= set(c.candidates)
+    seen, stack = set(), list(names)
+    while stack:
+        n = stack.pop()
+        if n in seen:
+            continue
+        seen.add(n)
+        if n in project.materials:
+            stack.extend(project.materials[n].references())
+    return sorted(seen)
+
+
+# ---------------------------------------------------------------------------
+# examples
+
+def cmd_examples_list():
+    out = []
+    for key, (name, builder) in EXAMPLES.items():
+        p = builder()
+        desc = p.notes or (builder.__doc__ or "").strip()
+        out.append({"key": key, "name": name, "description": desc, "n_layers": len(p.structure.layers)})
+    return CommandResult({"examples": out})
+
+
+def cmd_examples_save(key, output, force=False):
+    if key not in EXAMPLES:
+        raise CliError("unknown_example", f"unknown example {key!r}", 3, {"known": list(EXAMPLES)})
+    if not output:
+        raise CliError("usage", "examples save needs -o PATH", 2)
+    check_output_path(output, force)
+    p = EXAMPLES[key][1]()
+    save_project(p, output)
+    return CommandResult({"key": key, "output_path": str(output), "n_layers": len(p.structure.layers)})
+
+
+# ---------------------------------------------------------------------------
+# info
+
+def _layer_dict(i, ly):
+    d = {"index": i, "uid": ly.uid, "kind": "slab" if isinstance(ly, SlabLayer) else "sheet", "name": ly.name}
+    if isinstance(ly, SlabLayer):
+        d.update(material=ly.material, thickness_m=ly.thickness)
+    else:
+        d.update(model=ly.model, R_ohm=ly.R, X_ohm=ly.X, L_h=ly.L, C_f=ly.C)
+    return d
+
+
+def cmd_info(path):
+    p, inp = load_project(path)
+    try:
+        mass = p.areal_mass()
+    except (KeyError, MaterialCycleError):
+        mass = None
+    s = p.optimization
+    variables = []
+    for v in s.variables:
+        try:
+            unit = param_unit(p, v.path)
+        except (KeyError, AttributeError, IndexError):
+            unit = ""
+        variables.append({"path": list(v.path), "label": describe_path(p, v.path),
+                          "lower": param_value(v.lower, unit), "upper": param_value(v.upper, unit)})
+    params = []
+    for path_, label, unit in available_params(p):
+        params.append({"path": list(path_), "label": label, **param_value(get_param(p, path_), unit)})
+    result = {
+        "name": p.name, "notes": p.notes, "incident": p.structure.incident,
+        "backing": {"kind": p.structure.backing.kind, "material": p.structure.backing.material},
+        "layers": [_layer_dict(i, ly) for i, ly in enumerate(p.structure.layers, start=1)],
+        "materials": [{"name": m.name, "kind": m.kind, "users": p.material_users(m.name),
+                       "used": bool(p.material_users(m.name))} for m in p.materials.values()],
+        "total_thickness_m": p.structure.total_thickness(), "areal_mass_kg_m2": mass,
+        "sweep": sweep_dict(p.sweep),
+        "optimization": {
+            "targets": [target_dict(t) for t in s.targets], "variables": variables,
+            "choices": [{"uid": c.uid, "layer": layer_label(p, c.uid), "candidates": list(c.candidates)}
+                        for c in s.choices],
+            "weights": {"w_worst": s.w_worst, "w_mean": s.w_mean, "w_thickness": s.w_thickness, "w_mass": s.w_mass},
+            "rl_ref_db": s.rl_ref_db, "thickness_ref_m": s.thickness_ref, "mass_ref_kg_m2": s.mass_ref,
+            "thickness_max_m": s.thickness_max, "maxiter": s.maxiter, "popsize": s.popsize, "seed": s.seed,
+            "polish": s.polish, **optimisation_size(p)},
+        "tolerance": asdict(p.tolerance),
+        "params": params,
+    }
+    return CommandResult(result, input_info=inp)
+
+
+# ---------------------------------------------------------------------------
+# check
+
+def cmd_check(path, no_opt=False):
+    p, inp = load_project(path)
+    issues, seen = [], set()
+
+    def add(d):
+        key = (d["code"], d["material"], d["target"], d["message"])
+        if key not in seen:
+            seen.add(key)
+            issues.append(d)
+
+    for n in sorted(set(p.structure.referenced_materials())):
+        if n not in p.materials:
+            add(issue_dict(Issue("error", "unknown_material", n, {"n": n})))
+    # trial solve on the frequency sweep (the GUI's "Cannot compute" diagnostic)
+    try:
+        if not any(i["code"] == "unknown_material" for i in issues):
+            solve(p.structure, p.materials, p.sweep.freq_grid(), p.sweep.angle)
+    except MODEL_ERRORS as e:
+        err = model_error(e)
+        add({"level": "error", "code": err.code, "material": err.details.get("material", ""), "target": None,
+             "args": err.details, "message": err.message})
+    f = p.sweep.freq_grid(min(p.sweep.n_f, 200))
+    for n in used_materials(p):
+        if n in p.materials:
+            for iss in check_material(p.materials[n], f, p.resolver):
+                add(issue_dict(iss))
+    s = p.optimization
+    if (s.variables or s.choices) and not no_opt:
+        try:
+            errs, warns = preflight(p, s)
+            for iss in errs + warns:
+                add(issue_dict(iss))
+        except (OptimizationError, KeyError) as e:
+            add({"level": "error", "code": "invalid_optimization_settings", "material": "", "target": None,
+                 "args": {}, "message": str(e)})
+    counts = {lvl: sum(1 for i in issues if i["level"] == lvl) for lvl in ("error", "warning", "info")}
+    result = {"valid": counts["error"] == 0, "counts": counts, "issues": issues,
+              "optimization": optimisation_size(p)}
+    if counts["error"]:
+        raise CliError("validation_failed", f"{counts['error']} error(s) found", 4, result=result)
+    return CommandResult(result, input_info=inp)
+
+
+# ---------------------------------------------------------------------------
+# solve
+
+def _apply_sweep_overrides(sw, o):
+    def ghz(key):
+        return None if o.get(key) is None else float(o[key]) * 1e9
+    for attr, key in (("f_min", "f_min_ghz"), ("f_max", "f_max_ghz"), ("f_at", "f_at_ghz")):
+        if ghz(key) is not None:
+            setattr(sw, attr, ghz(key))
+    for attr, key in (("n_f", "n_f"), ("n_angle", "n_angle"), ("map_n_f", "map_n_f"), ("map_n_angle", "map_n_angle")):
+        if o.get(key) is not None:
+            setattr(sw, attr, int(o[key]))
+    for attr, key in (("angle", "angle_deg"), ("angle_min", "angle_min_deg"), ("angle_max", "angle_max_deg")):
+        if o.get(key) is not None:
+            setattr(sw, attr, float(o[key]))
+    if o.get("log_f") is not None:
+        sw.log_f = bool(o["log_f"])
+
+
+def _best(db, f, th, sweep):
+    i = int(np.nanargmin(db))
+    if sweep == "freq":
+        return {"rl_db": db.flat[i], "f_hz": f[i]}
+    if sweep == "angle":
+        return {"rl_db": db.flat[i], "theta_deg": th[i]}
+    fi, ti = np.unravel_index(i, db.shape)
+    return {"rl_db": db[fi, ti], "f_hz": f[fi], "theta_deg": th[ti]}
+
+
+def cmd_solve(path, sweep="freq", quantity_name="RL", pol="avg", targets=False, summary_only=False,
+              layer_absorption=False, fmt="json", output=None, force=False, overrides=None):
+    p, inp = load_project(path)
+    sw = p.sweep
+    _apply_sweep_overrides(sw, overrides or {})
+    if sweep == "freq":
+        f, th = sw.freq_grid(), np.array([sw.angle])
+    elif sweep == "angle":
+        f, th = np.array([sw.f_at]), sw.angle_grid()
+    else:
+        f, th = sw.freq_grid(sw.map_n_f), sw.angle_grid(sw.map_n_angle)
+    try:
+        res = solve(p.structure, p.materials, f, th)
+    except MODEL_ERRORS as e:
+        raise model_error(e) from None
+
+    def cut(a):
+        return a[:, 0] if sweep == "freq" else a[0, :] if sweep == "angle" else a
+
+    if fmt == "csv":
+        text = _solve_csv(res, sweep, quantity_name, pol)
+        if output is None:
+            return CommandResult({}, input_info=inp, text=text)
+        check_output_path(output, force)
+        write_text(output, text)
+        return CommandResult({"output_path": str(output), "rows": text.count("\n") - 1}, input_info=inp)
+
+    warnings = []
+    try:
+        mass = p.areal_mass()
+    except (KeyError, MaterialCycleError):
+        mass = None
+    result = {"sweep": sweep, "summary": {
+        "best": {q: _best(cut(rl_db(res, q)), res.f, res.theta, sweep) for q in POLS},
+        "total_thickness_m": p.structure.total_thickness(), "areal_mass_kg_m2": mass}}
+    if targets:
+        try:
+            rows, max_margin = target_rows(p)
+        except MODEL_ERRORS as e:
+            rows, max_margin = None, None
+            warnings.append(warning("targets_failed", f"target evaluation failed: {e}"))
+        result["targets"], result["max_margin_db"] = rows, max_margin
+    if not summary_only:
+        data = {"f_hz": res.f if sweep != "angle" else res.f[0],
+                "theta_deg": res.theta if sweep != "freq" else res.theta[0]}
+        if sweep == "map":
+            data["rl_db"] = {pol: rl_db(res, pol)}
+        else:
+            data["rl_db"] = {q: cut(rl_db(res, q)) for q in POLS}
+            for name in ("R", "T", "A"):
+                data[name] = {q: cut(res.quantity(name, q)) for q in POLS}
+            if layer_absorption:
+                data["layer_uids"] = list(res.layer_uids)
+                data["A_layers"] = {q: [cut(a) for a in res.layer_absorption(q)] for q in POLS}
+        result["data"] = data
+    if output is not None:
+        check_output_path(output, force)
+        from coating_studio.cli.output import dumps
+        write_text(output, dumps(result) + "\n")
+        result = {"output_path": str(output), "sweep": sweep, "summary": result["summary"],
+                  **({"targets": result["targets"], "max_margin_db": result["max_margin_db"]} if targets else {})}
+    return CommandResult(result, warnings=warnings, input_info=inp)
+
+
+def _solve_csv(res, sweep, q, pol):
+    """Same columns and number formats as the GUI's data export (gui/plots/views.py ``data_table``)."""
+    if sweep == "map":
+        z = rl_db(res, pol)
+        header = ["f [GHz] \\ theta [deg]"] + [f"{t:.6g}" for t in res.theta]
+        rows = [[f"{fi / 1e9:.9g}"] + [f"{v:.6g}" for v in z[i]] for i, fi in enumerate(res.f)]
+        return csv_text(header, rows)
+    if sweep == "freq":
+        cols = [quantity(res, q, p_)[:, 0] for p_ in POLS]
+        header = ["f [GHz]"] + [f"{q} {p_}" for p_ in POLS]
+        return csv_text(header, [[f"{a:.9g}" for a in row] for row in zip(res.f / 1e9, *cols)])
+    cols = [quantity(res, q, p_)[0, :] for p_ in POLS]
+    header = ["theta [deg]"] + [f"{q} {p_}" for p_ in POLS]
+    return csv_text(header, [[f"{a:.9g}" for a in row] for row in zip(res.theta, *cols)])
+
+
+# ---------------------------------------------------------------------------
+# optimize
+
+def _at_bound(v, value):
+    span = v.upper - v.lower
+    if value <= v.lower + 1e-9 * span:
+        return "lower"
+    if value >= v.upper - 1e-9 * span:
+        return "upper"
+    return None
+
+
+def _terms_dict(t):
+    if t is None:
+        return None
+    return {"objective": t.objective, "worst_db": t.worst_db, "margin_db": t.margin_db, "mean_r": t.mean_r,
+            "thickness_m": t.thickness, "mass_kg_m2": t.mass}
+
+
+def cmd_optimize(path, control, output=None, in_place=False, force=False, seed=None, maxiter=None,
+                 popsize=None, polish=None, strict=False):
+    p, inp = load_project(path)
+    if in_place:
+        output = path
+    s = p.optimization
+    if maxiter is not None:
+        s.maxiter = int(maxiter)
+    if popsize is not None:
+        s.popsize = int(popsize)
+    if polish is not None:
+        s.polish = bool(polish)
+    s.seed = resolve_seed(seed if seed is not None else s.seed)
+    check_output_path(output, force, input_path=path if in_place else None)
+    try:
+        errors, warns = preflight(p, s)
+    except (OptimizationError, KeyError) as e:
+        raise model_error(e if isinstance(e, OptimizationError) else OptimizationError(str(e))) from None
+    warnings = [issue_dict(i) for i in warns]
+    if errors:
+        raise CliError("validation_failed", "pre-flight check failed", 4,
+                       {"issues": [issue_dict(i) for i in errors]})
+    if strict and warns:
+        raise CliError("preflight_warnings", "pre-flight warnings with --strict", 4, {"issues": warnings})
+
+    before = {tuple(v.path): get_param(p, v.path) for v in s.variables}
+    before_choice = {c.uid: p.structure.layer_by_uid(c.uid).material for c in s.choices}
+    work = p.copy()
+    try:
+        res = optimize(work, work.optimization, progress=control.optimize_callback(), throttle_s=0.0)
+    except MODEL_ERRORS as e:
+        raise model_error(e) from None
+    if res.terms is None:
+        raise CliError("no_valid_design", res.message, 4,
+                       {"first_failure": first_failure(p, s), "n_evals": res.n_evals})
+    apply_result(p, res)
+    rows, max_margin = target_rows(p, s)
+    values = []
+    for v in s.variables:
+        unit = param_unit(p, v.path)
+        after = res.values[tuple(v.path)]
+        values.append({"path": list(v.path), "label": describe_path(p, v.path),
+                       "layer": layer_label(p, v.path[1]) if v.path[0] == "layer" else None,
+                       "before": param_value(before[tuple(v.path)], unit), "after": param_value(after, unit),
+                       "at_bound": _at_bound(v, after)})
+    choices = [{"uid": c.uid, "layer": layer_label(p, c.uid), "before": before_choice[c.uid],
+                "after": res.choices.get(c.uid, before_choice[c.uid])} for c in s.choices]
+    if output is not None:
+        save_project(p, output)
+    message = "stopped by timeout" if control.timed_out else res.message
+    result = {"message": message, "n_evals": res.n_evals, "elapsed_s": res.elapsed, "seed_used": s.seed,
+              "targets": rows, "max_margin_db": max_margin, "terms": _terms_dict(res.terms),
+              "values": values, "choices": choices, "history": [list(h) for h in res.history],
+              "output_path": None if output is None else str(output)}
+    if control.timed_out:
+        warnings.append(warning("timeout", "stopped by --timeout"))
+    return CommandResult(result, warnings=warnings, stopped=res.stopped, input_info=inp)
+
+
+# ---------------------------------------------------------------------------
+# tolerance
+
+def _stats(a):
+    a = np.asarray(a, dtype=float)
+    return {"min": float(np.min(a)), "median": float(np.median(a)), "max": float(np.max(a))}
+
+
+def cmd_tolerance(path, control, seed=None, n_samples=None, target_db=None, angle_deg=None, pol=None,
+                  samples=False, summary_only=False, fmt="json", output=None, force=False):
+    p, inp = load_project(path)
+    s = p.tolerance
+    s.seed = resolve_seed(seed if seed is not None else s.seed)
+    if n_samples is not None:
+        s.n_samples = int(n_samples)
+    if target_db is not None:
+        s.target_db = float(target_db)
+    if angle_deg is not None:
+        s.angle = float(angle_deg)
+    if pol is not None:
+        s.pol = pol
+    f = tolerance_frequencies(p)
+    band = yield_intervals(p)
+    try:
+        r = run_tolerance(p, f, band=band, progress=control.tolerance_callback())
+    except MODEL_ERRORS as e:
+        raise model_error(e) from None
+    if fmt == "csv":
+        header = ["f [GHz]", "nominal [dB]", "median [dB]", "lower [dB]", "upper [dB]"]
+        rows = [[f"{a / 1e9:.9g}", f"{b:.6g}", f"{c:.6g}", f"{d:.6g}", f"{e:.6g}"]
+                for a, b, c, d, e in zip(r.f, r.nominal_db, r.median_db, r.lower_db, r.upper_db)]
+        text = csv_text(header, rows)
+        if output is None:
+            return CommandResult({}, input_info=inp, text=text, stopped=r.stopped)
+        check_output_path(output, force)
+        write_text(output, text)
+        return CommandResult({"output_path": str(output), "rows": len(rows)}, input_info=inp, stopped=r.stopped)
+    result = {"scope": {"angle_deg": s.angle, "pol": s.pol}, "n_samples": r.n_samples, "seed_used": s.seed,
+              "yield_fraction": r.yield_fraction, "target_db": s.target_db, "lower_pct": s.lower_pct,
+              "upper_pct": s.upper_pct, "yield_intervals_hz": [list(iv) for iv in band],
+              "worst_db": _stats(r.worst_db)}
+    if not summary_only:
+        result["data"] = {"f_hz": r.f, "nominal_db": r.nominal_db, "median_db": r.median_db,
+                          "lower_db": r.lower_db, "upper_db": r.upper_db}
+    if samples:
+        result["samples_worst_db"] = r.worst_db
+    warnings = [warning("single_angle_yield",
+                        f"yield evaluated at a single angle ({s.angle:g} deg, {s.pol}) only; "
+                        "targets over an angle range need a check at every angle and polarisation")]
+    if control.timed_out:
+        warnings.append(warning("timeout", "stopped by --timeout"))
+    return CommandResult(result, warnings=warnings, stopped=r.stopped, input_info=inp)

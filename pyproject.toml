@@ -31,6 +31,9 @@ dev = ["pytest>=7.4"]
 [project.gui-scripts]
 coating-studio = "coating_studio.gui.app:main"
 
+[project.scripts]
+coating-cli = "coating_studio.cli:main"
+
 [tool.hatch.version]
 path = "src/coating_studio/__init__.py"
 
