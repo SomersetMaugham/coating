@@ -54,14 +54,14 @@ def test_kumar2021_peak_frequency(sample):
 
 
 def test_michielssen_benchmark_reproduces_published_designs():
-    """Asi & Dib (2010) designs on their own 0.5 GHz grid, and the recorded Coating Studio design."""
+    """Asi & Dib (2010) designs on their own 0.5 GHz grid, Goudos's own designs, and the recorded Coating Studio design."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("mb", VAL / "michielssen_benchmark.py")
     mb = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mb)
     mats = mb.database()
     for d in mb.BM["designs"]:
-        if d["source"].startswith("asi_dib_2010"):
+        if d["source"].startswith("asi_dib_2010") or d.get("must_reproduce"):
             got = mb.max_reflection(mats, d["layers"], d["grid_step_GHz"])
             assert abs(got - d["published_dB"]) <= mb.REPRODUCED_DB, d["name"]
     for d in mb.BM["designs_3layer"]:  # Amaya & Correa (2013): 3 layers, 0.85-5.4 GHz

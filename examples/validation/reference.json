@@ -374,7 +374,7 @@
    "zong_2024": "Y. M. Zong et al., 'Optimization of multilayer microwave absorbers using multi-strategy improved gold rush optimizer', ACES J. 39(8), 708-717 (2024), doi:10.13052/2024.ACES.J.390806",
    "amaya_correa_2013": "I. Amaya, R. Correa, 'Optimal design of multilayer EMAs for frequencies between 0.85 GHz and 5.4 GHz', Revista de Ingeniería (Universidad de los Andes, Bogotá) 38, 33-37 (2013), ISSN 0121-4993; the traditional-PSO design is from Salazar & Mora (2011) as cited there",
    "chamaani_2008": "S. Chamaani, S. A. Mirtaheri, M. A. Shooredeli, 'Design of very thin wide band absorbers using modified local best particle swarm optimization', AEU Int. J. Electron. Commun. 62, 549-556 (2008), as reprinted in [asi_dib_2010] Table 10",
-   "goudos_2009": "S. Goudos, 'Design of microwave broadband absorbers using a self-adaptive differential evolution algorithm', Int. J. RF Microwave CAE 19, 364-372 (2009) (citation as printed in [asi_dib_2010])"
+   "goudos_2009": "S. K. Goudos, 'Design of microwave broadband absorbers using a self-adaptive differential evolution algorithm', Int. J. RF Microwave CAE 19(3), 364-372 (2009), doi:10.1002/mmce.20357. Table I reprints the 16-material database and agrees with the values here (material 8: eps''(1 GHz) = 6). Uses Brest et al.'s self-adapting DE (jDE), max layer thickness 2 mm, 100 x 1000 generations, 20 trials; the frequency grid is not stated (0.1 GHz used here). Design DES1 (3-6 GHz, 0-10 deg, TE+TM, 6 mm; printed -25.98 dB) does not reproduce as printed (-13.2 dB here); with layer 3 = material 6 and layer 4 = material 15 it gives -26.1 dB, which suggests two misprints but is unverified. DES2 (0.5-8 GHz, 5 mm; materials 14/6/5/4/4, 0.431/1.438/1.143/0.507/1.479 mm; printed -20.26 dB) reproduces (-20.24 dB)."
   },
   "designs": [
    {
@@ -436,8 +436,8 @@
     "must_reproduce": true
    },
    {
-    "name": "SADE (DE)",
-    "source": "asi_dib_2010 Table 2 (from Goudos 2009)",
+    "name": "SADE (Asi & Dib run)",
+    "source": "asi_dib_2010 Table 2",
     "grid_step_GHz": 0.5,
     "published_dB": -25.485,
     "layers": [
@@ -462,7 +462,124 @@
       1.454
      ]
     ],
+    "must_reproduce": true,
+    "note": "Asi & Dib's own run of Tvrdik et al.'s competitive SADE library, not the design in goudos_2009 (whose best is -24.75 dB)"
+   },
+   {
+    "name": "jDE HF1 (Goudos)",
+    "source": "goudos_2009 Table IV",
+    "grid_step_GHz": 0.1,
+    "published_dB": -24.75,
+    "layers": [
+     [
+      14,
+      0.459
+     ],
+     [
+      6,
+      1.817
+     ],
+     [
+      6,
+      1.028
+     ],
+     [
+      5,
+      0.885
+     ],
+     [
+      15,
+      0.809
+     ]
+    ],
     "must_reproduce": true
+   },
+   {
+    "name": "jDE HF2 (Goudos, thinner)",
+    "source": "goudos_2009 Table V",
+    "grid_step_GHz": 0.1,
+    "published_dB": -20.03,
+    "layers": [
+     [
+      14,
+      0.57
+     ],
+     [
+      6,
+      0.766
+     ],
+     [
+      2,
+      0.722
+     ],
+     [
+      15,
+      0.206
+     ],
+     [
+      15,
+      0.304
+     ]
+    ],
+    "note": "2.57 mm design; 0.07 dB off, probably from 3-decimal thicknesses"
+   },
+   {
+    "name": "GA HF1 (Michielssen 1993)",
+    "source": "goudos_2009 Table IV",
+    "grid_step_GHz": 0.1,
+    "published_dB": -23.5,
+    "layers": [
+     [
+      16,
+      0.486
+     ],
+     [
+      6,
+      1.446
+     ],
+     [
+      5,
+      1.272
+     ],
+     [
+      11,
+      0.885
+     ],
+     [
+      2,
+      1.155
+     ]
+    ],
+    "note": "reprint of the Michielssen 1993 GA design (5.244 mm); computes 0.5 dB better than printed"
+   },
+   {
+    "name": "GA HF2 (Michielssen 1993)",
+    "source": "goudos_2009 Table V",
+    "grid_step_GHz": 0.1,
+    "published_dB": -19.8,
+    "layers": [
+     [
+      16,
+      0.537
+     ],
+     [
+      8,
+      0.432
+     ],
+     [
+      5,
+      0.261
+     ],
+     [
+      2,
+      0.465
+     ],
+     [
+      13,
+      0.975
+     ]
+    ],
+    "note": "reprint of the Michielssen 1993 GA design (2.670 mm)"
    },
    {
     "name": "PSO",
