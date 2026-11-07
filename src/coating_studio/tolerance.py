@@ -7,13 +7,14 @@ With a loss tolerance set (eps_loss / mu_loss), the real part and the loss part
 of eps (mu) get their own errors, so the loss tangent varies as well; with
 None the whole complex value is scaled by one factor (tan delta fixed).  The
 real-part and loss errors are independent by default; ``loss_correlation`` (rho)
-couples them, e.g. rho > 0 for a filler content that raises eps' and eps'' together.
+couples them, e.g. rho > 0 for a filler content that raises eps' and eps'' together.  A layer can
+override rho through ``per_layer[uid]["loss_correlation"]``.
 """
 
 from __future__ import annotations
 
 import dataclasses
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.special import ndtr, ndtri
@@ -62,68 +63,156 @@ class ToleranceResult:
     yield_fraction: float  # samples whose in-band worst <= target
     n_samples: int
     stopped: bool = False
+    # What the result was computed with, so plots and reports stay true after the settings change: a deep copy of
+    # the tolerance settings (for a target row: its angle, polarisation and criterion) and the frequency intervals
+    # the yield was judged on.  None on results built by hand (callers then fall back to the project's settings).
+    settings: ToleranceSettings | None = None
+    band: list | None = None
+
+
+def result_settings(r, project: Project) -> ToleranceSettings:
+    """The settings ``r`` was computed with; the project's current ones for a result that does not record them."""
+    return r.settings if getattr(r, "settings", None) is not None else project.tolerance
+
+
+def result_band(r, project: Project):
+    """The yield intervals of a ToleranceResult; the project's yield intervals if it does not record them."""
+    return r.band if getattr(r, "band", None) is not None else yield_intervals(project)
+
+
+def _snapshot(s: ToleranceSettings, **changes) -> ToleranceSettings:
+    """Deep copy of ``s`` (per_layer included), with ``changes`` applied."""
+    return ToleranceSettings.from_dict({**s.to_dict(), **changes})
 
 
 @dataclass
 class CornerResult:
-    """Tolerance analysis at every (angle end x polarisation) corner of the enabled targets."""
+    """Tolerance analysis at several (target, angle, polarisation) points that share the same samples.
+
+    ``angle_mode`` "corners": the two ends of each enabled target's angle range; "grid": the target's angle grid
+    (``BandTarget.n_angle`` points, or the ``n_angle`` override).  ``fallback_targets``: indices of targets whose
+    range has fewer than two grid points, evaluated at the two ends instead."""
 
     corners: list  # [(target index, target name, angle deg, pol, target dB, ToleranceResult)]
-    joint_yield_fraction: float | None  # samples that meet every corner's criterion
+    joint_yield_fraction: float | None  # samples that meet every row's criterion
     n_samples: int
     stopped: bool = False
+    angle_mode: str = "corners"
+    fallback_targets: list = field(default_factory=list)
+    settings: ToleranceSettings | None = None  # deep copy of the settings of the run (seed, tolerances, samples)
 
     @property
     def worst(self):
-        """Index into ``corners`` of the corner with the lowest yield."""
+        """Index into ``corners`` of the row with the lowest yield."""
         return min(range(len(self.corners)), key=lambda i: self.corners[i][5].yield_fraction)
 
+    def per_target(self):
+        """{target index: index into ``corners`` of that target's lowest-yield row}, in target order."""
+        out = {}
+        for i, row in enumerate(self.corners):
+            j = out.get(row[0])
+            if j is None or row[5].yield_fraction < self.corners[j][5].yield_fraction:
+                out[row[0]] = i
+        return out
 
-def _corner_progress(progress, k, n_req, n_corners):
-    def cb(done, total):
-        return progress(k * n_req + done, n_corners * n_req, k, n_corners)
-    return cb
+
+ANGLE_MODES = ("corners", "grid")
+
+
+def target_angles(t, mode="corners", n_angle=None):
+    """(angles [deg], fell_back) of one target.  A target without an angle range has one angle.  "corners": both
+    ends; "grid": ``n_angle`` (default ``t.n_angle``) evenly spaced angles, or both ends when that is below 2
+    (the optimiser then looks at angle_min only, so the ends are the stricter choice)."""
+    lo, hi = float(t.angle_min), float(t.angle_max)
+    if not hi > lo:
+        return [lo], False
+    if mode == "corners":
+        return [lo, hi], False
+    if mode != "grid":
+        raise ValueError(f"unknown angle mode {mode!r}")
+    n = int(t.n_angle if n_angle is None else n_angle)
+    if n < 2:
+        return [lo, hi], True
+    return [float(a) for a in np.linspace(lo, hi, n)], False
+
+
+def target_rows(project: Project, mode="corners", n_angle=None):
+    """([(target index, target, angle, pol)], fallback target indices) for the enabled targets."""
+    rows, fallback = [], []
+    for ti, t in enumerate(project.optimization.enabled_targets()):
+        if not t.pols or any(q not in ("TE", "TM") for q in t.pols):
+            raise ValueError(f"target {ti + 1}: polarisations must be TE and/or TM")
+        angles, fell_back = target_angles(t, mode, n_angle)
+        if fell_back:
+            fallback.append(ti)
+        rows += [(ti, t, ang, pol) for ang in angles for pol in t.pols]
+    return rows, fallback
 
 
 def target_corners(project: Project):
     """(target index, target, angle, pol) for the angle ends x polarisations of every enabled target."""
-    out = []
-    for ti, t in enumerate(project.optimization.enabled_targets()):
-        for ang in sorted({t.angle_min, t.angle_max}):
-            for pol in t.pols:
-                out.append((ti, t, float(ang), pol))
-    return out
+    return target_rows(project, "corners")[0]
 
 
-def run_tolerance_corners(project: Project, f, target_db=None, progress=None, should_stop=None) -> CornerResult:
-    """``run_tolerance`` at every target corner; each corner's yield band is its target's band and its criterion
-    the target's goal (or ``target_db``).  The perturbation samples depend only on the seed and the layers (they
-    are drawn before the solve loop), so every corner sees the same samples and the joint yield is exact.
+def run_tolerance_targets(project: Project, f, mode="corners", n_angle=None, target_db=None, progress=None,
+                          should_stop=None) -> CornerResult:
+    """Tolerance analysis at every (target, angle, polarisation) row of ``target_rows``.  Each row's yield band is its
+    target's band and its criterion the target's goal (or ``target_db``).  The samples are drawn once, and every
+    sample is solved once per distinct angle, so every row sees the same samples and the joint yield is exact.  Each
+    row equals ``run_tolerance`` at that angle and polarisation bit for bit (same draws, same per-angle solve).
 
-    ``progress(done, total, corner_index, n_corners) -> bool`` may return True to stop; ``should_stop()`` is
-    checked between corners."""
-    plan = target_corners(project)
+    ``progress(done, total) -> bool`` is called after each sample and may return True to stop; ``should_stop()``
+    is checked before every sample after the first.  At least one sample is always solved."""
+    plan, fallback = target_rows(project, mode, n_angle)
     if not plan:
-        raise ValueError("no enabled target to take corners from")
-    base = project.tolerance
-    rows, passes, stopped = [], [], False
-    n_req = int(base.n_samples)
-    for k, (ti, t, ang, pol) in enumerate(plan):
+        raise ValueError("no enabled target to take angles from")
+    s = _snapshot(project.tolerance)
+    f = np.asarray(f, dtype=float)
+    n = int(s.n_samples)
+    need = {}
+    for _ti, _t, ang, pol in plan:
+        need.setdefault(ang, set()).add(pol)
+
+    def rl_db(perturb=None):
+        out = {}
+        for ang, pset in need.items():
+            pols = tuple(q for q in ("TE", "TM") if q in pset)
+            res = solve(project.structure, project.materials, f, ang, pols=pols, perturb=perturb)
+            for q in pols:
+                out[ang, q] = 10 * np.log10(np.maximum(res.quantity("R", q)[:, 0], 1e-30))
+        return out
+
+    nominal = rl_db()
+    factors = sample_factors(project, s, np.random.default_rng(s.seed), n)
+    samples = {key: [] for key in nominal}
+    stopped = False
+    for k in range(n):
         if k and should_stop is not None and should_stop():
             stopped = True
             break
-        s = dataclasses.replace(base, angle=ang, pol=pol,
-                                target_db=float(target_db) if target_db is not None else t.goal_db)
-        cb = None if progress is None else _corner_progress(progress, k, n_req, len(plan))
-        r = run_tolerance(project, f, settings=s, band=[(t.f_min, t.f_max)], progress=cb)
-        rows.append((ti, t.name, ang, pol, s.target_db, r))
-        passes.append(np.asarray(r.worst_db) <= s.target_db)
-        if r.stopped:
+        perturb = {uid: {key: arr[k] for key, arr in d.items()} for uid, d in factors.items()}
+        for key, db in rl_db(perturb).items():
+            samples[key].append(db)
+        # a stop request after the last sample does not make a complete run "stopped"
+        if progress is not None and progress(k + 1, n) and k + 1 < n:
             stopped = True
             break
-    n = min(len(x) for x in passes)
-    joint = float(np.mean(np.all([x[:n] for x in passes], axis=0))) if n else None
-    return CornerResult(rows, joint, n, stopped or len(rows) < len(plan))
+    rows, passes = [], []
+    for ti, t, ang, pol in plan:
+        tdb = float(target_db) if target_db is not None else t.goal_db
+        arr = np.array(samples[ang, pol]) if n else nominal[ang, pol][None, :]  # n_samples = 0: as run_tolerance
+        r = _summarise(f, nominal[ang, pol], arr, [(t.f_min, t.f_max)], _snapshot(s, angle=ang, pol=pol, target_db=tdb),
+                       tdb, stopped)
+        rows.append((ti, t.name, ang, pol, tdb, r))
+        passes.append(np.asarray(r.worst_db) <= tdb)
+    joint = float(np.mean(np.all(passes, axis=0)))
+    return CornerResult(rows, joint, rows[0][5].n_samples, stopped, mode, fallback, s)
+
+
+def run_tolerance_corners(project: Project, f, target_db=None, progress=None, should_stop=None) -> CornerResult:
+    """``run_tolerance_targets`` at the angle ends of every enabled target (``progress(done, total)``)."""
+    return run_tolerance_targets(project, f, "corners", target_db=target_db, progress=progress,
+                                 should_stop=should_stop)
 
 
 def _draw(rng, dist, tol, n):
@@ -153,12 +242,12 @@ def sample_factors(project: Project, s: ToleranceSettings, rng, n):
     """Perturbation factors {layer uid: {key: array of n}} for ``n`` samples, drawn from ``rng``.
 
     The draw order is part of the reproducibility contract (same seed -> same samples as earlier versions)."""
-    rho = float(s.loss_correlation)
-    if not -1.0 <= rho <= 1.0:
-        raise ValueError(f"loss_correlation must be between -1 and 1, got {rho}")
     factors = {}
     for ly in project.structure.layers:
         if isinstance(ly, SlabLayer):
+            rho = float(s.tolerance_for(ly.uid, "loss_correlation"))
+            if not -1.0 <= rho <= 1.0:
+                raise ValueError(f"loss_correlation must be between -1 and 1, got {rho}")
             # Same draws, in the same order, as before loss tolerances existed (bit-identical results
             # for files with eps_loss = mu_loss = None); independent loss draws come afterwards.
             raw = {k: _draw(rng, s.distribution, s.tolerance_for(ly.uid, k), n) for k in ("thickness", "eps", "mu")}
@@ -190,7 +279,7 @@ def run_tolerance(project: Project, f, settings: ToleranceSettings | None = None
     """``band`` = (f_lo, f_hi) or a list of such intervals for the yield criterion (default: all of
     ``f``).  Several intervals are combined as a union, so the gap between disjoint target bands
     does not count against the yield."""
-    s = settings or project.tolerance
+    s = _snapshot(settings or project.tolerance)
     f = np.asarray(f, dtype=float)
     rng = np.random.default_rng(s.seed)
     n = int(s.n_samples)
@@ -209,25 +298,33 @@ def run_tolerance(project: Project, f, settings: ToleranceSettings | None = None
         for k in range(n):
             perturb = {uid: {key: arr[k] for key, arr in d.items()} for uid, d in factors.items()}
             samples.append(rl_db(perturb))
-            if progress is not None and progress(k + 1, n):
+            if progress is not None and progress(k + 1, n) and k + 1 < n:  # not after the last sample
                 raise _Stop
     except _Stop:
         stopped = True
     if not samples:
         samples = [nominal]
-    arr = np.array(samples)
+    return _summarise(f, nominal, np.array(samples), band, s, s.target_db, stopped)
+
+
+def _summarise(f, nominal, arr, band, s, target_db, stopped):
+    """ToleranceResult from the per-sample RL curves ``arr`` (samples x f).  ``band`` = (f_lo, f_hi), a list of
+    them (a union), or None (all of ``f``); a band without any grid point falls back to all of ``f``.  The result
+    records ``s`` and the intervals actually used, always as a list of (lo, hi) pairs."""
+    whole = [(float(f[0]), float(f[-1]))]
     if band is None:
-        mask = np.ones(f.shape, dtype=bool)
+        mask, used = np.ones(f.shape, dtype=bool), whole
     else:
         intervals = band if np.ndim(band) == 2 else [band]
         mask = np.zeros(f.shape, dtype=bool)
         for lo, hi in intervals:
             mask |= (f >= lo) & (f <= hi)
+        used = [(float(lo), float(hi)) for lo, hi in intervals]
         if not mask.any():
-            mask = np.ones(f.shape, dtype=bool)
+            mask, used = np.ones(f.shape, dtype=bool), whole
     worst = arr[:, mask].max(axis=1)
     return ToleranceResult(
         f=f, nominal_db=nominal, median_db=np.median(arr, axis=0),
         lower_db=np.percentile(arr, s.lower_pct, axis=0), upper_db=np.percentile(arr, s.upper_pct, axis=0),
-        worst_db=worst, yield_fraction=float(np.mean(worst <= s.target_db)), n_samples=len(samples),
-        stopped=stopped)
+        worst_db=worst, yield_fraction=float(np.mean(worst <= target_db)), n_samples=len(arr),
+        stopped=stopped, settings=s, band=used)

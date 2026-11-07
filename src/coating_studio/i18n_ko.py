@@ -229,15 +229,24 @@ KO.update({
     "Power law": "거듭제곱 법칙", "at 1 GHz": "1 GHz 값", "exponent": "지수",
     "New power-law material": "새 거듭제곱 법칙 재료",
     "Tolerance analysis": "공차 분석",
-    "Check every target corner": "목표의 모든 꼭짓점 평가",
-    "Run the analysis at both ends of each enabled target's angle range and for each of its polarisations, against that target's band and goal, and report the joint yield (samples that pass at every corner).":
-        "사용 중인 목표마다 각도 범위의 양 끝과 각 편광에서, 그 목표의 대역과 목표값을 기준으로 분석하고 결합 수율(모든 꼭짓점을 통과한 표본의 비율)을 보고합니다.",
-    "A single angle can overstate the yield of a target that spans several angles. With every corner checked, each target's own band and goal apply and the angle, polarisation, target and band above are not used.":
-        "각도 범위가 있는 목표는 한 각도만 보면 수율이 부풀려질 수 있습니다. 모든 꼭짓점을 평가하면 각 목표의 대역과 목표값이 적용되고, 위의 입사각·편광·목표·대역 설정은 쓰지 않습니다.",
-    "Checking every corner needs at least one enabled optimisation target.": "모든 꼭짓점을 평가하려면 사용 중인 최적화 목표가 하나 이상 있어야 합니다.",
+    "Angles evaluated": "평가 각도",
+    "Single angle (settings above)": "한 각도 (위 설정)",
+    "Ends of each target's angle range": "목표별 각도 범위의 양 끝",
+    "Each target's angle grid": "목표별 각도 격자",
+    "The two target modes run the analysis for each enabled target against its own band and goal, for each of its polarisations, at the two ends of its angle range or at every angle of its grid (the angles the optimiser checks), and report the joint yield (samples that pass everywhere).":
+        "목표 기준 두 방식은 사용 중인 목표마다 그 목표의 대역과 목표값을 기준으로, 각 편광에서, 각도 범위의 양 끝 또는 각도 격자의 모든 각도(최적화기가 확인하는 각도)에서 분석하고 결합 수율(모든 곳을 통과한 표본의 비율)을 보고합니다.",
+    "A single angle can overstate the yield of a target that spans several angles. The angle grid also checks the angles inside the range; angles between its points are not sampled. In both target modes the angle, polarisation, target and band above are not used.":
+        "각도 범위가 있는 목표는 한 각도만 보면 수율이 부풀려질 수 있습니다. 각도 격자는 범위 안쪽 각도도 확인하지만, 격자 점 사이의 각도는 보지 않습니다. 목표 기준 두 방식에서는 위의 입사각·편광·목표·대역 설정을 쓰지 않습니다.",
+    "Checking the target angles needs at least one enabled optimisation target.": "목표 각도를 평가하려면 사용 중인 최적화 목표가 하나 이상 있어야 합니다.",
+    "Joint yield {y:.1f}% over {n} angle-grid points ({s})": "각도 격자 {n}점의 결합 수율 {y:.1f}% ({s})",
+    "Weakest (plotted): {c}. Lowest yield per target: {rows}": "가장 취약한 곳(그래프): {c}. 목표별 최저 수율: {rows}",
+    "Target {n}: fewer than 2 angle-grid points, so the two ends of its range were used.":
+        "목표 {n}: 각도 격자 점이 2개 미만이라 각도 범위의 양 끝을 평가했습니다.",
+    "Tolerance analysis: joint yield {y:.1f}% over {n} angle-grid points": "공차 분석: 각도 격자 {n}점의 결합 수율 {y:.1f}%",
+    "Joint yield over every target's angle grid ({k} points): {y} ({s}). Lowest yield per target:":
+        "모든 목표의 각도 격자({k}점) 결합 수율: {y} ({s}). 목표별 최저 수율:",
     "Target {n}": "목표 {n}",
-    "Joint yield {y:.1f}% over {n} corners ({s} samples)": "꼭짓점 {n}개의 결합 수율 {y:.1f}% (표본 {s}개)",
-    "Weakest corner (plotted): {c}. Yield per corner: {rows}": "가장 취약한 꼭짓점(그래프): {c}. 꼭짓점별 수율: {rows}",
+    "Joint yield {y:.1f}% over {n} corners ({s})": "꼭짓점 {n}개의 결합 수율 {y:.1f}% ({s})",
     "Tolerance analysis: joint yield {y:.1f}% over {n} corners": "공차 분석: 꼭짓점 {n}개의 결합 수율 {y:.1f}%",
     "f in GHz. An empirical curve fit (e.g. the Michielssen 1993 absorber database), not a causal model: use it only inside the band it was fitted on.":
         "f의 단위는 GHz입니다. 경험적 곡선 맞춤(예: Michielssen 1993 흡수체 재료 데이터베이스)이며 인과적 모델이 아니므로, 맞춘 대역 안에서만 쓰십시오.",
@@ -270,13 +279,13 @@ KO.update({
     # ---- tolerance -------------------------------------------------------------
     "Run the analysis to see the spread of reflection loss.": "분석을 실행하면 반사손실의 분포가 표시됩니다.",
     "{a:g}–{b:g} percentile band": "{a:g}–{b:g} 백분위 구간", "Median": "중앙값",
-    "Nominal design": "공칭 설계", "Target": "목표", "Yield {y:.1f}% ({n} samples)": "수율 {y:.1f}% (표본 {n}개)",
+    "Nominal design": "공칭 설계", "Target": "목표", "Yield {y:.1f}% ({s})": "수율 {y:.1f}% ({s})",
     "Monte-Carlo settings": "몬테카를로 설정", "Normal (value = 1σ)": "정규분포 (값 = 1σ)",
     "Uniform (± value)": "균일분포 (± 값)", "Samples": "표본 수", "Distribution": "분포",
     "Default tolerances (relative)": "기본 공차 (상대값)", "Permittivity ε": "유전율 ε",
     "Permeability μ": "투자율 μ", "Sheet impedance": "시트 임피던스",
-    "Per-layer tolerances (%)": "층별 공차 (%)", "Blank cells use the default tolerance.":
-        "빈 칸은 기본 공차를 사용합니다.", "Evaluation": "평가", "Custom yield band": "수율 대역 직접 지정",
+    "Per-layer tolerances (%)": "층별 공차 (%)", "Blank cells use the default values. ρ is a coefficient from −1 to 1, not a percentage, and overrides the default ρ for that layer.":
+        "빈 칸은 기본값을 사용합니다. ρ는 백분율이 아니라 −1에서 1 사이의 계수이며, 그 층에서 기본 ρ 대신 쓰입니다.", "Evaluation": "평가", "Custom yield band": "수율 대역 직접 지정",
     "Target RL (≤)": "목표 RL (≤)", "Band from": "대역 시작",
     "Yield = share of samples whose worst RL in the band meets the target. "
     "Without a custom band, the bands of the enabled optimisation targets are used.":
@@ -372,7 +381,7 @@ KO.update({
     "Angles": "각도", "Band": "대역", "Goal": "요구값", "Margin": "마진", "Worst RL": "최악 RL",
     "Coating Studio {v} design report": "Coating Studio {v} 설계 보고서",
     "Comparison curves": "비교 곡선",
-    "Joint yield over all target corners: {y} ({n} samples)": "모든 목표 꼭짓점의 결합 수율: {y} (표본 {n}개)",
+    "Joint yield over all target corners: {y} ({s})": "모든 목표 꼭짓점의 결합 수율: {y} ({s})",
     "Layer 1 faces the incident wave.": "1층이 입사파 쪽입니다.",
     "Margin = worst RL − goal (20·log₁₀|Γ|); ≤ 0 dB means the target is met. Each target is evaluated on its own band, angles and polarisations. The Rozanov bound is a normal-incidence thickness limit for a metal-backed absorber.":
         "마진 = 최악 RL − 요구값(20·log₁₀|Γ| 기준)이며, 0 dB 이하이면 목표를 만족합니다. 목표마다 자기 대역·각도·편광에서 평가합니다. Rozanov 한계는 금속 뒷판 흡수체의 수직 입사 두께 한계입니다.",
@@ -385,7 +394,11 @@ KO.update({
     "TE = TM (normal incidence)": "TE = TM (수직 입사)",
     "Tolerances: thickness {t} %, ε′ {e} %, ε″ {el}, μ′ {m} %, μ″ {ml}, sheet {sh} %, real/loss correlation ρ = {rho}; {d} distribution, seed {seed}. Per-layer overrides are not listed.":
         "공차: 두께 {t} %, ε′ {e} %, ε″ {el}, μ′ {m} %, μ″ {ml}, 시트 {sh} %, 실수부·손실 상관계수 ρ = {rho}, 분포 {d}, 시드 {seed}. 층별 개별 공차는 싣지 않았습니다.",
-    "Yield {y} at {a}° {pol} ({n} samples), target {t} dB": "수율 {y}, {a}° {pol} (표본 {n}개), 목표 {t} dB",
+    "Yield {y} at {a}° {pol} ({s}), target {t} dB": "수율 {y}, {a}° {pol} ({s}), 목표 {t} dB",
+    "Yield {y} ({s})": "수율 {y} ({s})",
+    "{n} samples": "표본 {n}개", "stopped after {n} of {m} samples": "표본 {m}개 중 {n}개에서 중단",
+    "Plots show the {k} targets with the lowest yield.": "그래프는 수율이 가장 낮은 목표 {k}개만 보여 줍니다.",
+    "normal": "정규", "uniform": "균일",
     "design snapshot": "설계 스냅샷", "follows the real part": "실수부를 따름", "goal": "요구값", "hidden": "숨김",
     "infeasible": "불가능", "met": "만족", "no capacitor": "커패시터 없음", "not evaluated": "판정 안 함",
     "not met": "미달", "satisfied": "만족", "thicker needed": "더 두꺼워야 함",

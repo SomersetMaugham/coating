@@ -394,6 +394,9 @@ def spec_to_project(spec: dict, base_dir=".") -> tuple[Project, list]:
         tol.band_min, tol.band_max = from_display(band[0], "GHz"), from_display(band[1], "GHz")
     for i, d in enumerate(t.get("per_layer", [])):
         li = _layer_index(d.get("layer"), layers, f"tolerance.per_layer[{i}].layer")
+        rho = d.get("loss_correlation", 0.0)
+        if isinstance(rho, bool) or not isinstance(rho, (int, float)) or not -1 <= rho <= 1:
+            raise spec_error(f"tolerance.per_layer[{i}].loss_correlation", "must be a number between -1 and 1")
         tol.per_layer[layers[li].uid] = {k: v for k, v in d.items() if k != "layer"}
     p.tolerance = tol
 

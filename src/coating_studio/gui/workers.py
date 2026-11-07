@@ -9,7 +9,7 @@ import traceback
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from coating_studio.optimize import optimize
-from coating_studio.tolerance import run_tolerance, run_tolerance_corners
+from coating_studio.tolerance import run_tolerance, run_tolerance_targets
 
 
 class OptimizationWorker(QObject):
@@ -45,10 +45,11 @@ class ToleranceWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, project, f, band, corners=False):
+    def __init__(self, project, f, band, angle_mode=None):
+        """``angle_mode`` None: one angle (the tolerance settings); "corners" / "grid": every enabled target."""
         super().__init__()
         self.project = project.copy()
-        self.f, self.band, self.corners = f, band, corners
+        self.f, self.band, self.angle_mode = f, band, angle_mode
         self._stop = threading.Event()
 
     def request_stop(self):
@@ -65,8 +66,8 @@ class ToleranceWorker(QObject):
                     self.progress.emit(k, n)
                 return self._stop.is_set()
 
-            if self.corners:  # every target corner; emits a tolerance.CornerResult
-                res = run_tolerance_corners(self.project, self.f, progress=lambda k, n, _c, _nc: cb(k, n),
+            if self.angle_mode:  # every enabled target; emits a tolerance.CornerResult
+                res = run_tolerance_targets(self.project, self.f, self.angle_mode, progress=cb,
                                             should_stop=self._stop.is_set)
             else:
                 res = run_tolerance(self.project, self.f, band=self.band, progress=cb)

@@ -57,6 +57,8 @@ def summarize(command, result):
         out["yield_fraction"] = r.get("yield_fraction", r.get("joint_yield_fraction"))
         out["target_db"] = r.get("target_db")
         out["seed_used"] = r.get("seed_used")
+        if r.get("angle_mode"):
+            out["angle_mode"] = r["angle_mode"]
     elif command == "check":
         out["counts"] = r.get("counts")
         out["limits"] = [lim.get("status") for lim in r.get("limits", [])]

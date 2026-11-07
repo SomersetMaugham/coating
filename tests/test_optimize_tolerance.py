@@ -349,6 +349,66 @@ def test_rho_validation_old_files_and_spec():
         spec_to_project(spec)
 
 
+def _two_slab_project(n=4000):
+    """Two lossy slabs with independent loss tolerances (per-layer rho tests)."""
+    from coating_studio.core.structure import Backing, SlabLayer, Structure
+    from coating_studio.materials.models import ConstantMaterial
+    p = Project()
+    p.add_material(ConstantMaterial("A", eps_re=4.0, eps_loss=0.8, mu_re=1.5, mu_loss=0.6))
+    p.structure = Structure(layers=[SlabLayer("A", 2e-3), SlabLayer("A", 3e-3)], backing=Backing("pec"))
+    s = p.tolerance
+    s.n_samples, s.thickness, s.eps, s.mu, s.eps_loss, s.mu_loss = n, 0.03, 0.05, 0.04, 0.2, 0.3
+    return p, [ly.uid for ly in p.structure.layers]
+
+
+def test_per_layer_rho_overrides_the_default():
+    from coating_studio.tolerance import sample_factors
+    p, (u1, u2) = _two_slab_project()
+    p.tolerance.loss_correlation = 0.0
+    p.tolerance.per_layer = {u2: {"loss_correlation": 0.8}}
+    fac = sample_factors(p, p.tolerance, np.random.default_rng(11), 4000)
+    for part in ("eps", "mu"):
+        assert abs(np.corrcoef(fac[u1][f"{part}_re"], fac[u1][f"{part}_loss"])[0, 1]) < 0.04  # default rho = 0
+        assert abs(np.corrcoef(fac[u2][f"{part}_re"], fac[u2][f"{part}_loss"])[0, 1] - 0.8) < 0.04
+    # an override equal to the default draws exactly what the default alone draws
+    p.tolerance.loss_correlation = 0.5
+    p.tolerance.per_layer = {}
+    ref = sample_factors(p, p.tolerance, np.random.default_rng(2), 50)
+    p.tolerance.per_layer = {u1: {"loss_correlation": 0.5}}
+    got = sample_factors(p, p.tolerance, np.random.default_rng(2), 50)
+    assert all(np.array_equal(got[u][k], ref[u][k]) for u in ref for k in ref[u])
+    # a per-layer rho = 0 restores the independent draws of that layer only
+    p.tolerance.per_layer = {u1: {"loss_correlation": 0.0}}
+    got = sample_factors(p, p.tolerance, np.random.default_rng(2), 50)
+    p.tolerance.loss_correlation, p.tolerance.per_layer = 0.0, {}
+    indep = sample_factors(p, p.tolerance, np.random.default_rng(2), 50)
+    assert all(np.array_equal(got[u1][k], indep[u1][k]) for k in indep[u1])
+    assert all(np.array_equal(got[u2][k], ref[u2][k]) for k in ref[u2])
+
+
+def test_per_layer_rho_validation_and_round_trip():
+    from coating_studio.cli.output import CliError
+    from coating_studio.cli.spec import project_to_spec, spec_to_project
+    p, (u1, u2) = _two_slab_project(n=5)
+    p.tolerance.per_layer = {u2: {"loss_correlation": -1.2}}
+    with pytest.raises(ValueError):
+        run_tolerance(p, np.linspace(8e9, 12e9, 5))
+    p.tolerance.per_layer = {u2: {"loss_correlation": 0.7, "eps_loss": 0.25}}
+    d = json.loads(json.dumps(p.to_dict()))
+    assert d["schema"] == 6
+    assert Project.from_dict(d).tolerance.per_layer == {u2: {"loss_correlation": 0.7, "eps_loss": 0.25}}
+    spec = project_to_spec(p)
+    assert len(spec["tolerance"]["per_layer"]) == 1
+    assert spec["tolerance"]["per_layer"][0]["loss_correlation"] == 0.7
+    q = spec_to_project(spec)[0]
+    assert q.tolerance.tolerance_for(q.structure.layers[1].uid, "loss_correlation") == 0.7
+    assert q.tolerance.tolerance_for(q.structure.layers[0].uid, "loss_correlation") == 0.0
+    for bad in (2, "0.5", True):
+        spec["tolerance"]["per_layer"][0]["loss_correlation"] = bad
+        with pytest.raises(CliError):
+            spec_to_project(spec)
+
+
 def test_rho_changes_yield_only_when_set():
     p, _ = _rho_project(n=60)
     f = np.linspace(6e9, 14e9, 41)
@@ -357,3 +417,110 @@ def test_rho_changes_yield_only_when_set():
     assert np.array_equal(run_tolerance(p, f, band=(8e9, 12e9)).worst_db, base.worst_db)
     p.tolerance.loss_correlation = 0.9
     assert not np.array_equal(run_tolerance(p, f, band=(8e9, 12e9)).worst_db, base.worst_db)
+
+
+# ---------------------------------------------------------------- yield over each target's angles (corners / grid)
+def _angle_project(n=40):
+    p = EXAMPLES["dualband"][1]()  # target 1: 0 deg; target 2: 0-45 deg, n_angle 4; TE and TM
+    p.tolerance.n_samples = n
+    return p
+
+
+def _direct(p, f, ti, ang, pol, tdb):
+    """One row computed the way the corner check did before it shared its solves: run_tolerance at that point."""
+    from coating_studio.tolerance import run_tolerance
+    t = p.optimization.enabled_targets()[ti]
+    s = dataclasses.replace(p.tolerance, angle=ang, pol=pol, target_db=tdb)
+    return run_tolerance(p, f, settings=s, band=[(t.f_min, t.f_max)])
+
+
+def test_angle_rows_equal_run_tolerance_bit_for_bit():
+    from coating_studio.tolerance import run_tolerance_targets, tolerance_frequencies
+    p = _angle_project()
+    f = tolerance_frequencies(p)
+    for mode, n_rows in (("corners", 6), ("grid", 10)):
+        cr = run_tolerance_targets(p, f, mode)
+        assert cr.angle_mode == mode and len(cr.corners) == n_rows and cr.n_samples == 40 and not cr.stopped
+        for ti, _name, ang, pol, tdb, r in cr.corners:
+            d = _direct(p, f, ti, ang, pol, tdb)
+            for k in ("nominal_db", "median_db", "lower_db", "upper_db", "worst_db"):
+                assert np.array_equal(getattr(r, k), getattr(d, k)), (mode, ti, ang, pol, k)
+            assert r.yield_fraction == d.yield_fraction
+            assert r.settings == d.settings and r.band == d.band  # the row records its own angle, pol and goal
+            assert (r.settings.angle, r.settings.pol, r.settings.target_db) == (ang, pol, tdb)
+        passes = np.all([np.asarray(r.worst_db) <= tdb for *_x, tdb, r in cr.corners], axis=0)
+        assert cr.joint_yield_fraction == float(np.mean(passes))
+        assert cr.joint_yield_fraction <= min(r.yield_fraction for *_x, r in cr.corners)
+
+
+def test_angle_grid_angles_override_fallback_and_corners_equivalence():
+    from coating_studio.tolerance import run_tolerance_targets, target_angles, tolerance_frequencies
+    p = _angle_project(n=10)
+    f = tolerance_frequencies(p)
+    t2 = p.optimization.enabled_targets()[1]
+    assert target_angles(t2, "grid") == ([0.0, 15.0, 30.0, 45.0], False)
+    assert target_angles(t2, "grid", n_angle=7)[0] == pytest.approx(np.linspace(0, 45, 7))
+    grid = run_tolerance_targets(p, f, "grid", n_angle=7)
+    assert sorted({row[2] for row in grid.corners if row[0] == 1}) == pytest.approx(np.linspace(0, 45, 7))
+    assert {row[2] for row in grid.corners if row[0] == 0} == {0.0}  # no range: the override does not apply
+    # a grid of 2 points is the corner check
+    two = run_tolerance_targets(p, f, "grid", n_angle=2)
+    corners = run_tolerance_targets(p, f, "corners")
+    assert [row[:5] for row in two.corners] == [row[:5] for row in corners.corners]
+    assert all(np.array_equal(a[5].worst_db, b[5].worst_db) for a, b in zip(two.corners, corners.corners))
+    # a range with one grid point: both ends, flagged; a single angle with n_angle > 1: one angle, no duplicates
+    t2.n_angle = 1
+    cr = run_tolerance_targets(p, f, "grid")
+    assert cr.fallback_targets == [1] and sorted({row[2] for row in cr.corners if row[0] == 1}) == [0.0, 45.0]
+    t1 = p.optimization.enabled_targets()[0]
+    t1.n_angle = 5
+    assert target_angles(t1, "grid") == ([0.0], False)
+    with pytest.raises(ValueError):
+        target_angles(t2, "diagonal")
+
+
+def test_angle_rows_stop_after_at_least_one_sample():
+    from coating_studio.tolerance import run_tolerance_targets, tolerance_frequencies
+    p = _angle_project(n=30)
+    f = tolerance_frequencies(p)
+    cr = run_tolerance_targets(p, f, "grid", should_stop=lambda: True)  # stop requested before the start
+    assert cr.stopped and cr.n_samples == 1 and all(r.n_samples == 1 for *_x, r in cr.corners)
+    seen = []
+    cr = run_tolerance_targets(p, f, "grid", progress=lambda k, n: seen.append((k, n)) or k == 4)
+    assert cr.stopped and cr.n_samples == 4 and seen == [(k, 30) for k in range(1, 5)]
+    full = run_tolerance_targets(p, f, "grid")
+    first4 = [np.asarray(r.worst_db)[:4] for *_x, r in full.corners]
+    assert all(np.array_equal(r.worst_db, w) for (*_x, r), w in zip(cr.corners, first4))  # same samples
+
+
+def test_angle_rows_reject_bad_polarisations_and_keep_the_band_fallback():
+    from coating_studio.tolerance import run_tolerance_targets, tolerance_frequencies
+    p = _angle_project(n=5)
+    f = tolerance_frequencies(p)
+    p.optimization.enabled_targets()[1].pols = ["avg"]  # only a hand-edited file can hold this
+    with pytest.raises(ValueError):
+        run_tolerance_targets(p, f, "corners")
+    p = _angle_project(n=5)
+    t = p.optimization.enabled_targets()[0]
+    t.f_min = t.f_max = float(f[3] + f[4]) / 2  # a single-frequency band between two grid points
+    cr = run_tolerance_targets(p, f, "corners")
+    row = next(r for r in cr.corners if r[0] == 0)
+    assert np.array_equal(row[5].worst_db, _direct(p, f, 0, row[2], row[3], row[4]).worst_db)  # whole grid
+
+
+def test_results_record_their_band_and_a_complete_run_is_not_stopped():
+    from coating_studio.tolerance import run_tolerance_targets, tolerance_frequencies
+    p = _angle_project(n=5)
+    f = tolerance_frequencies(p)
+    assert run_tolerance(p, f).band == [(f[0], f[-1])]  # no band: the whole grid
+    assert run_tolerance(p, f, band=[(8e9, 9e9), (10e9, 11e9)]).band == [(8e9, 9e9), (10e9, 11e9)]
+    mid = float(f[3] + f[4]) / 2
+    assert run_tolerance(p, f, band=(mid, mid)).band == [(f[0], f[-1])]  # no grid point inside: whole grid
+    # a stop request answered after the last sample does not mark the run stopped
+    r = run_tolerance(p, f, progress=lambda k, n: True)
+    assert r.n_samples == 1 and r.stopped
+    r = run_tolerance(p, f, progress=lambda k, n: k == n)
+    assert r.n_samples == 5 and not r.stopped
+    cr = run_tolerance_targets(p, f, "grid", progress=lambda k, n: k == n)
+    assert cr.n_samples == 5 and not cr.stopped
+    assert cr.settings == p.tolerance and cr.settings is not p.tolerance

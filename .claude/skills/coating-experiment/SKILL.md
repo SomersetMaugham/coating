@@ -16,5 +16,5 @@ Essentials, in case you only skim:
   are demonstration values.
 - `margin_db = worst_rl_db − goal_db`; ≤ 0 means met.
 - Always pass `--journal DIR --note "why"` and finish with `coating-cli journal DIR`.
-- Check yield with `tolerance --corners` and report the joint yield, never a single-angle yield.
+- Check yield with `tolerance --angle-grid` and report the joint yield, never a single-angle yield.
 - Use the CLI for the search loop. The GUI (`coating-studio file.coat`) is only for showing a result to the user.

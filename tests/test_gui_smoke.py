@@ -497,7 +497,7 @@ def test_rlc_sheet_editing(app):
 
 
 def test_loss_tolerance_panel(app):
-    """Independent ε″/μ″ tolerances: default rows with Follow checkboxes and a 7-column table."""
+    """Independent ε″/μ″ tolerances: default rows with Follow checkboxes and an 8-column table (with ρ)."""
     from coating_studio.examples import EXAMPLES
     from coating_studio.gui.main_window import MainWindow
     from coating_studio.project import Project
@@ -525,11 +525,21 @@ def test_loss_tolerance_panel(app):
     assert pt.rho.isEnabled() and w.project.tolerance.loss_correlation == 0.0
     pt.rho.setValue(0.6)
     assert w.project.tolerance.loss_correlation == pytest.approx(0.6) and w.doc.is_dirty
-    # 7-column per-layer table; a loss cell overrides one layer
-    assert pt.tbl.columnCount() == 7 and pt.tbl.horizontalHeaderItem(3).text() == "ε″"
+    # 8-column per-layer table; a loss cell overrides one layer
+    assert pt.tbl.columnCount() == 8 and pt.tbl.horizontalHeaderItem(3).text() == "ε″"
     pt.tbl.item(0, 3).setText("25")
     uid = w.project.structure.layers[0].uid
     assert w.project.tolerance.per_layer[uid]["eps_loss"] == pytest.approx(0.25)
+    # the rho column holds a coefficient, not a percentage; it is undoable like the other cells
+    assert pt.tbl.horizontalHeaderItem(6).text() == "ρ"
+    pt.tbl.item(0, 6).setText("-0.4")
+    assert w.project.tolerance.per_layer[uid]["loss_correlation"] == pytest.approx(-0.4)
+    assert pt.tbl.item(0, 6).text() == "-0.4"
+    pt.tbl.item(0, 6).setText("1.5")  # out of range: rejected, cell restored
+    assert w.project.tolerance.per_layer[uid]["loss_correlation"] == pytest.approx(-0.4)
+    assert pt.tbl.item(0, 6).text() == "-0.4"
+    w.doc.undo_stack.undo()
+    assert "loss_correlation" not in w.project.tolerance.per_layer[uid] and pt.tbl.item(0, 6).text() == ""
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()
@@ -542,27 +552,43 @@ def test_tolerance_corners_and_extended_diagnostics(app):
     from coating_studio.gui.main_window import MainWindow
     from coating_studio.materials.models import MixtureMaterial
     from coating_studio.project import ContinuousVariable
-    from coating_studio.tolerance import CornerResult, run_tolerance_corners, tolerance_frequencies
+    from coating_studio.tolerance import CornerResult, run_tolerance_targets, tolerance_frequencies
 
     w = MainWindow()
     p = EXAMPLES["dualband"][1]()
     p.tolerance.n_samples = 20
     w.doc.set_project(p)
     tol = w.p_tol
-    tol.chk_corners.setChecked(True)
-    assert not tol.angle.isEnabled() and not tol.pol.isEnabled() and not tol.target.isEnabled()
-    tol.run()
-    for _ in range(800):
-        _pump(app, 25)
-        if tol.thread is None:
-            break
-    res = tol.plot.result
-    assert isinstance(res, CornerResult) and not tol.lbl_corners.isHidden()
-    direct = run_tolerance_corners(w.project, tolerance_frequencies(w.project))
-    assert [c[5].yield_fraction for c in res.corners] == [c[5].yield_fraction for c in direct.corners]
-    assert res.joint_yield_fraction <= min(c[5].yield_fraction for c in res.corners)
-    assert tol.plot.data_table() is not None
-    tol.chk_corners.setChecked(False)
+
+    def run_mode(mode):
+        tol.angle_mode.setCurrentIndex(tol.angle_mode.findData(mode))
+        assert not tol.angle.isEnabled() and not tol.pol.isEnabled() and not tol.target.isEnabled()
+        tol.run()
+        for _ in range(800):
+            _pump(app, 25)
+            if tol.thread is None:
+                break
+        res = tol.plot.result
+        assert isinstance(res, CornerResult) and res.angle_mode == mode and not tol.lbl_corners.isHidden()
+        direct = run_tolerance_targets(w.project, tolerance_frequencies(w.project), mode)
+        assert [c[5].yield_fraction for c in res.corners] == [c[5].yield_fraction for c in direct.corners]
+        assert res.joint_yield_fraction <= min(c[5].yield_fraction for c in res.corners)
+        assert tol.plot.data_table() is not None
+        return res
+
+    assert len(run_mode("corners").corners) == 6  # target 1 at 0 deg, target 2 at 0 and 45 deg; TE and TM
+    res = run_mode("grid")
+    assert len(res.corners) == 10 and "Lowest yield per target" in tol.lbl_corners.text()  # target 2: 4 angles
+    assert tol.lbl_corners.toolTip().count("\n") == 9  # every row in the tooltip
+    tol.plot.redraw()
+    # Changing the targets drops the result (drawing it against other targets raised IndexError).
+    w.doc.edit_settings(lambda pp: setattr(pp.optimization.targets[0], "enabled", False))
+    assert tol.plot.result is None and tol.lbl_corners.isHidden()
+    w.doc.edit_settings(lambda pp: setattr(pp.optimization.targets[0], "enabled", True))
+    res = run_mode("grid")
+    w.doc.edit_settings(lambda pp: setattr(pp.tolerance, "n_samples", 21))  # other settings keep it
+    assert tol.plot.result is res
+    tol.angle_mode.setCurrentIndex(tol.angle_mode.findData(None))
     assert tol.angle.isEnabled() and tol.pol.isEnabled()
 
     # Diagnostics: a thin layer that cannot meet its target (Rozanov), and a mixture whose fraction range
@@ -698,6 +724,27 @@ def test_export_touchstone_and_report(app, tmp_path):
     out = w.export_report(str(tmp_path / "r.html"))
     text = open(out, encoding="utf-8").read()
     assert "data:image/png;base64," in text and "<li>d <span class=muted>(measured)" in text
+    assert text.count("data:image/png;base64,") == 2  # no tolerance result yet
+
+    # After an analysis the report carries its band plot; settings edited afterwards change neither the
+    # report nor the tolerance tab, which both show what the run used.
+    from matplotlib.figure import Figure
+
+    from coating_studio.tolerance import run_tolerance, tolerance_frequencies, yield_intervals
+    p = w.project
+    p.tolerance.n_samples = 6
+    res = run_tolerance(p, tolerance_frequencies(p), band=yield_intervals(p))
+    w.p_tol.plot.result = res
+    w.doc.edit_settings(lambda pp: (setattr(pp.tolerance, "lower_pct", 30.0), setattr(pp.tolerance, "target_db", -33.0),
+                                    setattr(pp.tolerance, "thickness", 0.4)))
+    assert w.p_tol.plot.result is res
+    fig = Figure()
+    w.p_tol.plot.draw_plot(fig)
+    ax = fig.axes[0]
+    assert ax.get_legend().get_texts()[0].get_text().startswith("5–95") and ax.get_lines()[2].get_ydata()[0] == -10.0
+    assert "6 samples" in ax.get_title(loc="left")
+    text = open(w.export_report(str(tmp_path / "r2.html")), encoding="utf-8").read()
+    assert text.count("data:image/png;base64,") == 3 and "thickness 5 %" in text and "target -10 dB" in text
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()

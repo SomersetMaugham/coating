@@ -63,6 +63,7 @@ would silently use the old file). Prefer a new file name per trial (`d1.coat`, `
   1 σ for `"normal"`, ± half-width for `"uniform"`. `tolerance.loss_correlation` (−1…1, default 0) correlates each
   layer's real-part and loss errors (ε′ with ε″, μ′ with μ″) where a loss tolerance is set; use it only when the
   user knows the errors move together (e.g. filler content raises ε′ and ε″ together → positive).
+  A `tolerance.per_layer[]` entry can set its own `loss_correlation` for that layer (a coefficient, not relative).
 - Omitted sections use defaults; omitted `targets` means **no target** (optimisation then refuses to run).
 - Do not put fractions in material names ("CB 20%"): an optimised fraction makes the name wrong.
 
@@ -125,9 +126,11 @@ this format, with their parameter paths and static permeability.
      stopped by `--timeout` exits 5 with the best design found so far.
    - Set `w_thickness` to 0 when a thickness limit is used to meet a strict goal; otherwise the thickness term
      trades RL for thickness and stops short of the goal.
-5. **Yield.** `coating-cli tolerance next.coat --corners --journal DIR` (each target's own goal is the criterion;
+5. **Yield.** `coating-cli tolerance next.coat --angle-grid --journal DIR` (each target's own goal is the criterion;
    `--target-db` overrides it). Report `joint_yield_fraction` and `min_corner`, never a single-angle yield.
-   Corners are the ends of each target's angle range; angles in between are not sampled.
+   `--angle-grid` checks every angle of each target's grid (the angles the optimiser checks); add `--n-angle N` to
+   check more angles than the optimisation used. Angles between the grid points are not sampled. `--corners`
+   checks only the two ends of each range.
    A design optimised to exactly meet the goal usually has a low yield (about half the samples fall on the wrong
    side). If the yield matters, re-optimise with a stricter goal (for example 1–2 dB below the user's) and check
    the yield again against the user's goal with `--target-db`.
@@ -136,7 +139,7 @@ this format, with their parameter paths and static permeability.
    or when `rozanov_infeasible` appears.
 7. **Report.** `coating-cli journal DIR` (best trial per fingerprint), the final spec (`coating-cli spec`), the
    `best_seed` for reproduction (`optimize … --seed <best_seed> --restarts 1` with the same run options reruns the reported design;
-   `seed_used` is only the first seed of the restarts), and the remaining risks: demonstration materials, yield, corners only, mixing-model
+   `seed_used` is only the first seed of the restarts), and the remaining risks: demonstration materials, yield, angles checked (grid points only), mixing-model
    range, fitted models. If the target was missed, give the best margin and the trade-offs, each re-optimised:
    a goal near the best achieved, a larger thickness limit, a narrower angle range.
 

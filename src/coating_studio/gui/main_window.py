@@ -396,6 +396,7 @@ class MainWindow(QMainWindow):
             self.v_mat.sync_materials()
         else:
             self.p_tol.refresh()  # its default yield band follows the optimisation targets
+            self.p_tol.settings_changed()  # a multi-angle result is dropped when the targets change
             self.w_props.refresh()  # RLC info shows Zs at the angle-sweep frequency
             self.p_tol.plot.mark_dirty()
             self._sync_sweep_editors()
