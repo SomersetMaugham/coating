@@ -165,8 +165,8 @@ python -m pytest
 The tests check the engine against analytic results: a Salisbury screen, Fresnel reflection and the
 Brewster angle, the Dallenbach input impedance, energy conservation, total internal reflection, and
 numerical stability with thick, very lossy layers. They also cover mixing-rule limits, fitting, the
-optimiser and tolerance analysis, translation coverage, and offscreen GUI smoke tests. CI runs them
-on Windows, macOS and Linux.
+optimiser and tolerance analysis, translation coverage, and offscreen GUI smoke tests. The CI workflow can run
+them on Windows, macOS and Linux; it is started by hand (Actions → CI → Run workflow).
 
 The implementation plan is in [docs/PLAN.md](docs/PLAN.md).
 

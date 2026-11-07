@@ -137,7 +137,7 @@ python -m pip install -e ".[dev]"
 python -m pytest
 ```
 
-테스트는 엔진을 해석해와 비교합니다. 비교 대상은 Salisbury 스크린, Fresnel 반사와 Brewster 각, Dallenbach 입력 임피던스, 에너지 보존, 전반사, 두꺼운 고손실 층의 수치 안정성입니다. 이 밖에 혼합 규칙의 극한값, 피팅, 최적화, 공차 분석, 번역 누락, GUI 오프스크린 스모크 테스트도 포함합니다. CI는 Windows, macOS, Linux에서 이 테스트를 실행합니다.
+테스트는 엔진을 해석해와 비교합니다. 비교 대상은 Salisbury 스크린, Fresnel 반사와 Brewster 각, Dallenbach 입력 임피던스, 에너지 보존, 전반사, 두꺼운 고손실 층의 수치 안정성입니다. 이 밖에 혼합 규칙의 극한값, 피팅, 최적화, 공차 분석, 번역 누락, GUI 오프스크린 스모크 테스트도 포함합니다. CI 워크플로로 Windows, macOS, Linux에서 이 테스트를 실행할 수 있고, 수동으로 시작합니다(Actions → CI → Run workflow).
 
 구현 계획은 [docs/PLAN.md](docs/PLAN.md)에 있습니다.
 
