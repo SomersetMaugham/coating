@@ -29,6 +29,11 @@ class _Parser(argparse.ArgumentParser):
         raise _UsageError(f"{self.prog}: {message}")
 
 
+def _journal(sub):
+    sub.add_argument("--journal", metavar="DIR", help="append this run to the experiment journal in DIR")
+    sub.add_argument("--note", default="", help="why this run was made (stored in the journal)")
+
+
 def _common(sub, long_running=False, export=False):
     if export:
         sub.add_argument("--format", choices=("json", "csv"), default="json",
@@ -59,6 +64,7 @@ def build_parser():
     chk = sp.add_parser("check", help="validate the model: trial solve, material checks, optimisation pre-flight")
     chk.add_argument("file")
     chk.add_argument("--no-opt", action="store_true", help="skip the optimisation pre-flight")
+    _journal(chk)
 
     so = sp.add_parser("solve", help="frequency / angle / map sweep with a summary")
     so.add_argument("file")
@@ -75,6 +81,7 @@ def build_parser():
     so.add_argument("--log-f", dest="log_f", action="store_const", const=True)
     so.add_argument("--linear-f", dest="log_f", action="store_const", const=False)
     _common(so, export=True)
+    _journal(so)
 
     op = sp.add_parser("optimize", help="run the optimisation; -o saves the optimised design")
     op.add_argument("file")
@@ -86,7 +93,9 @@ def build_parser():
     op.add_argument("--popsize", type=int)
     op.add_argument("--no-polish", dest="polish", action="store_const", const=False)
     op.add_argument("--strict", action="store_true", help="stop on pre-flight warnings (exit 4)")
+    op.add_argument("--restarts", type=int, default=1, help="run N seeds (seed, seed+1, ...) and keep the best")
     _common(op, long_running=True)
+    _journal(op)
 
     to = sp.add_parser("tolerance", help="Monte-Carlo tolerance analysis (bands and yield)")
     to.add_argument("file")
@@ -97,7 +106,44 @@ def build_parser():
     to.add_argument("--pol", choices=("TE", "TM", "avg"))
     to.add_argument("--samples", action="store_true", help="include every sample's in-band worst RL")
     to.add_argument("--summary-only", action="store_true")
+    to.add_argument("--corners", action="store_true",
+                    help="yield at every angle end x polarisation of each enabled target, plus the joint yield")
     _common(to, long_running=True, export=True)
+    _journal(to)
+
+    ma = sp.add_parser("materials", help="built-in materials as spec-ready dicts, with parameter paths")
+    ma.add_argument("--name")
+    ma.add_argument("--library", help="also list a user library JSON file")
+
+    bo = sp.add_parser("bound", help="Rozanov minimum mu_s*d (and thickness) for a band and RL goal")
+    bo.add_argument("--f-ghz", type=float, nargs=2, required=True, metavar=("LO", "HI"))
+    bo.add_argument("--goal-db", type=float, required=True)
+    bo.add_argument("--mu-s", type=float, default=1.0)
+
+    fi = sp.add_parser("fit", help="fit Debye/Lorentz terms to a measured CSV; prints a spec-ready material")
+    fi.add_argument("csv")
+    fi.add_argument("--name")
+    fi.add_argument("--eps-debye", type=int, default=1)
+    fi.add_argument("--eps-lorentz", type=int, default=0)
+    fi.add_argument("--sigma", action="store_true")
+    fi.add_argument("--eps-const-loss", action="store_true")
+    fi.add_argument("--mu-debye", type=int, default=0)
+    fi.add_argument("--mu-lorentz", type=int, default=0)
+    fi.add_argument("--mu-const-loss", action="store_true")
+    fi.add_argument("--density", type=float, default=1000.0)
+
+    bu = sp.add_parser("build", help="build a .coat project from a design spec (JSON)")
+    bu.add_argument("spec")
+    bu.add_argument("--output", "-o", required=True)
+    bu.add_argument("--force", action="store_true")
+
+    se = sp.add_parser("spec", help="export a .coat project as a design spec (inverse of build)")
+    se.add_argument("file")
+    se.add_argument("--output", "-o", help="write the bare spec to this file (for editing and build)")
+    se.add_argument("--force", action="store_true")
+
+    jo = sp.add_parser("journal", help="summarise an experiment journal directory")
+    jo.add_argument("dir")
     return ap
 
 
@@ -112,14 +158,29 @@ def _run(args, control):
     if c == "solve":
         overrides = {k: getattr(args, k) for k in ("f_min_ghz", "f_max_ghz", "f_at_ghz", "angle_deg", "angle_min_deg",
                                                     "angle_max_deg", "n_f", "n_angle", "map_n_f", "map_n_angle", "log_f")}
-        return C.cmd_solve(args.file, args.sweep, args.quantity, args.pol, args.targets, args.summary_only,
+        return C.cmd_solve(args.file, args.sweep, args.quantity, args.pol, args.targets or bool(args.journal),
+                           args.summary_only,
                            args.layer_absorption, args.format, args.output, args.force, overrides)
     if c == "optimize":
         return C.cmd_optimize(args.file, control, args.output, args.in_place, args.force, args.seed, args.maxiter,
-                              args.popsize, args.polish, args.strict)
+                              args.popsize, args.polish, args.strict, args.restarts)
     if c == "tolerance":
         return C.cmd_tolerance(args.file, control, args.seed, args.n_samples, args.target_db, args.angle_deg,
-                               args.pol, args.samples, args.summary_only, args.format, args.output, args.force)
+                               args.pol, args.samples, args.summary_only, args.format, args.output, args.force,
+                               args.corners)
+    if c == "materials":
+        return C.cmd_materials(args.name, args.library)
+    if c == "bound":
+        return C.cmd_bound(args.f_ghz[0], args.f_ghz[1], args.goal_db, args.mu_s)
+    if c == "fit":
+        return C.cmd_fit(args.csv, args.name, args.eps_debye, args.eps_lorentz, args.sigma, args.eps_const_loss,
+                         args.mu_debye, args.mu_lorentz, args.mu_const_loss, args.density)
+    if c == "build":
+        return C.cmd_build(args.spec, args.output, args.force)
+    if c == "spec":
+        return C.cmd_spec(args.file, args.output, args.force)
+    if c == "journal":
+        return C.cmd_journal(args.dir)
     raise _UsageError(f"unknown command {c!r}")
 
 
@@ -148,10 +209,24 @@ def main(argv=None, stdout=None, stderr=None, control=None) -> int:
     if control is None:
         control = RunControl(timeout=getattr(args, "timeout", None), progress=getattr(args, "progress", False),
                              progress_interval=getattr(args, "progress_interval", 1.0), command=command, stream=err)
+    journal_dir = getattr(args, "journal", None)
+
+    def journal(result, code, stopped, error_code=None):
+        if not journal_dir:
+            return
+        from coating_studio.cli.journal import record
+        record(journal_dir, command=command, argv=argv, note=getattr(args, "note", ""),
+               input_path=getattr(args, "file", None), result=result, exit_code=code, stopped=stopped,
+               error_code=error_code, output_path=getattr(args, "output", None) if command == "optimize" else None)
+
     try:
         with signal_handlers(control):
             res = _run(args, control)
     except CliError as e:
+        try:
+            journal(e.result, e.exit_code, False, e.code)
+        except CliError:
+            pass
         write(envelope(command, result=e.result,
                        error={"code": e.code, "message": e.message, "details": e.details}))
         return e.exit_code
@@ -162,10 +237,15 @@ def main(argv=None, stdout=None, stderr=None, control=None) -> int:
         write(envelope(command, error={"code": "internal_error", "message": f"{type(e).__name__}: {e}",
                                        "details": {"traceback": traceback.format_exc(limit=5)}}))
         return EXIT_INTERNAL
+    code = EXIT_STOPPED if res.stopped else EXIT_OK
+    try:
+        journal(res.result, code, res.stopped)
+    except CliError as e:
+        res.warnings.append({"code": e.code, "level": "warning", "message": e.message})
     if res.text is not None:
         out.write(res.text)
         out.flush()
-        return EXIT_STOPPED if res.stopped else EXIT_OK
+        return code
     write(envelope(command, result=res.result, input_info=res.input_info, warnings=res.warnings,
                    stopped=res.stopped))
     return EXIT_STOPPED if res.stopped else EXIT_OK

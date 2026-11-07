@@ -55,6 +55,14 @@ _ISSUES_EN = {
                    "Use measured data for a real design.",
     "unknown_material": "Unknown material: {n}",
     "material_cycle": "This mixture references itself (directly or through other mixtures).",
+    "rozanov_limit": "Target {target}: the design's mu_s x d is {design_mm:.3g} mm but at least {required_mm:.3g} mm "
+                     "is needed (Rozanov bound, normal incidence).",
+    "rozanov_infeasible": "Target {target}: even the optimisation ranges reach only {max_mm:.3g} mm of mu_s x d; "
+                          "at least {required_mm:.3g} mm is needed (Rozanov bound, normal incidence).",
+    "mixture_fraction_range": "Fraction {fraction_lo:.3g}-{fraction_hi:.3g} reaches {lo:.3g}-{hi:.3g}, where the "
+                              "{model} model is unreliable.",
+    "sweep_outside_data": "Frequencies {flo:.4g}-{fhi:.4g} GHz ({where}) lie outside the measured data "
+                          "{lo:.4g}-{hi:.4g} GHz.",
 }
 
 

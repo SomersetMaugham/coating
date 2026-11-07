@@ -21,8 +21,13 @@ from coating_studio.core.solver import solve
 from coating_studio.core.structure import SlabLayer
 from coating_studio.core.units import power_to_db, si_unit, to_display
 from coating_studio.examples import EXAMPLES
-from coating_studio.materials.checks import Issue, check_material
-from coating_studio.materials.models import MaterialCycleError
+from coating_studio.limits import (
+    FITTED_PREFIX, limit_issues, measured_range, mixture_range_issues, rozanov_required_mu_d, static_permeability,
+    target_limits,
+)
+from coating_studio.materials.checks import Issue, check_material, is_builtin_demo
+from coating_studio.materials.library import builtin_materials
+from coating_studio.materials.models import MaterialCycleError, MixtureMaterial
 from coating_studio.optimize.optimizer import (
     MAX_ENUMERATED_COMBOS, OptimizationError, apply_result, evaluate_terms, optimize, preflight,
 )
@@ -63,9 +68,19 @@ def resolve_seed(seed):
     return secrets.randbelow(2 ** 31) if seed is None else int(seed)
 
 
-def param_value(value_si, display_unit):
-    return {"value": value_si, "unit": si_unit(display_unit),
-            "display_value": to_display(value_si, display_unit), "display_unit": display_unit}
+def param_value(value_si, display_unit, project=None, path=None):
+    d = {"value": value_si, "unit": si_unit(display_unit),
+         "display_value": to_display(value_si, display_unit), "display_unit": display_unit}
+    if project is not None and path is not None and path[0] == "material" and list(path[2:]) == ["fraction"]:
+        m = project.materials.get(path[1])
+        if isinstance(m, MixtureMaterial):
+            from coating_studio.cli.spec import mixture_densities, vol_to_wt
+            try:
+                rho_i, rho_m = mixture_densities(project, m)
+                d["value_wt"] = vol_to_wt(value_si, rho_i, rho_m)
+            except (KeyError, MaterialCycleError):
+                pass
+    return d
 
 
 def layer_label(project, uid):
@@ -236,10 +251,10 @@ def cmd_info(path):
         except (KeyError, AttributeError, IndexError):
             unit = ""
         variables.append({"path": list(v.path), "label": describe_path(p, v.path),
-                          "lower": param_value(v.lower, unit), "upper": param_value(v.upper, unit)})
+                          "lower": param_value(v.lower, unit, p, v.path), "upper": param_value(v.upper, unit, p, v.path)})
     params = []
     for path_, label, unit in available_params(p):
-        params.append({"path": list(path_), "label": label, **param_value(get_param(p, path_), unit)})
+        params.append({"path": list(path_), "label": label, **param_value(get_param(p, path_), unit, p, path_)})
     result = {
         "name": p.name, "notes": p.notes, "incident": p.structure.incident,
         "backing": {"kind": p.structure.backing.kind, "material": p.structure.backing.material},
@@ -264,6 +279,24 @@ def cmd_info(path):
 
 # ---------------------------------------------------------------------------
 # check
+
+def measured_range_issues(p):
+    """``sweep_outside_data`` errors: sweep, targets or tolerance band beyond the measured data."""
+    names = set(p.structure.referenced_materials())
+    for c in p.optimization.choices:
+        names |= set(c.candidates)
+    rng = measured_range(p, names)
+    if rng is None:
+        return []
+    lo, hi = rng
+    spans = [("sweep", p.sweep.f_min, p.sweep.f_max)]
+    spans += [(f"target {i + 1}", t.f_min, t.f_max) for i, t in enumerate(p.optimization.enabled_targets())]
+    if p.tolerance.band_min and p.tolerance.band_max:
+        spans.append(("tolerance band", p.tolerance.band_min, p.tolerance.band_max))
+    return [Issue("error", "sweep_outside_data", "", {"where": w, "flo": a / 1e9, "fhi": b / 1e9,
+                                                       "lo": lo / 1e9, "hi": hi / 1e9})
+            for w, a, b in spans if a < lo or b > hi]
+
 
 def cmd_check(path, no_opt=False):
     p, inp = load_project(path)
@@ -300,8 +333,16 @@ def cmd_check(path, no_opt=False):
         except (OptimizationError, KeyError) as e:
             add({"level": "error", "code": "invalid_optimization_settings", "material": "", "target": None,
                  "args": {}, "message": str(e)})
+    used = used_materials(p)
+    for iss in mixture_range_issues(p, float(np.sqrt(p.sweep.f_min * p.sweep.f_max)), names=set(used)):
+        add(issue_dict(iss))
+    for iss in measured_range_issues(p):
+        add(issue_dict(iss))
+    limits = target_limits(p)
+    for ti, iss in limit_issues(limits):
+        add(issue_dict(iss, target=ti))
     counts = {lvl: sum(1 for i in issues if i["level"] == lvl) for lvl in ("error", "warning", "info")}
-    result = {"valid": counts["error"] == 0, "counts": counts, "issues": issues,
+    result = {"valid": counts["error"] == 0, "counts": counts, "issues": issues, "limits": limits,
               "optimization": optimisation_size(p)}
     if counts["error"]:
         raise CliError("validation_failed", f"{counts['error']} error(s) found", 4, result=result)
@@ -422,9 +463,9 @@ def _solve_csv(res, sweep, q, pol):
 
 def _at_bound(v, value):
     span = v.upper - v.lower
-    if value <= v.lower + 1e-9 * span:
+    if value <= v.lower + 1e-3 * span:
         return "lower"
-    if value >= v.upper - 1e-9 * span:
+    if value >= v.upper - 1e-3 * span:
         return "upper"
     return None
 
@@ -437,7 +478,7 @@ def _terms_dict(t):
 
 
 def cmd_optimize(path, control, output=None, in_place=False, force=False, seed=None, maxiter=None,
-                 popsize=None, polish=None, strict=False):
+                 popsize=None, polish=None, strict=False, restarts=1):
     p, inp = load_project(path)
     if in_place:
         output = path
@@ -454,6 +495,8 @@ def cmd_optimize(path, control, output=None, in_place=False, force=False, seed=N
         errors, warns = preflight(p, s)
     except (OptimizationError, KeyError) as e:
         raise model_error(e if isinstance(e, OptimizationError) else OptimizationError(str(e))) from None
+    warns = list(warns) + mixture_range_issues(p, float(np.sqrt(p.sweep.f_min * p.sweep.f_max)),
+                                               names=set(used_materials(p)))
     warnings = [issue_dict(i) for i in warns]
     if errors:
         raise CliError("validation_failed", "pre-flight check failed", 4,
@@ -463,11 +506,25 @@ def cmd_optimize(path, control, output=None, in_place=False, force=False, seed=N
 
     before = {tuple(v.path): get_param(p, v.path) for v in s.variables}
     before_choice = {c.uid: p.structure.layer_by_uid(c.uid).material for c in s.choices}
-    work = p.copy()
-    try:
-        res = optimize(work, work.optimization, progress=control.optimize_callback(), throttle_s=0.0)
-    except MODEL_ERRORS as e:
-        raise model_error(e) from None
+    runs, res, n_evals = [], None, 0
+    for k in range(max(1, int(restarts))):
+        if k and control.should_stop():
+            break
+        work = p.copy()
+        work.optimization.seed = s.seed + k
+        try:
+            r = optimize(work, work.optimization, progress=control.optimize_callback({"restart": k + 1}),
+                         throttle_s=0.0)
+        except MODEL_ERRORS as e:
+            raise model_error(e) from None
+        n_evals += r.n_evals
+        runs.append((work.optimization.seed, r))
+        if r.terms is not None and (res is None or res.terms is None or r.terms.objective < res.terms.objective):
+            res = r
+        elif res is None:
+            res = r
+        if r.stopped:
+            break
     if res.terms is None:
         raise CliError("no_valid_design", res.message, 4,
                        {"first_failure": first_failure(p, s), "n_evals": res.n_evals})
@@ -479,20 +536,29 @@ def cmd_optimize(path, control, output=None, in_place=False, force=False, seed=N
         after = res.values[tuple(v.path)]
         values.append({"path": list(v.path), "label": describe_path(p, v.path),
                        "layer": layer_label(p, v.path[1]) if v.path[0] == "layer" else None,
-                       "before": param_value(before[tuple(v.path)], unit), "after": param_value(after, unit),
+                       "before": param_value(before[tuple(v.path)], unit, p, v.path),
+                       "after": param_value(after, unit, p, v.path),
                        "at_bound": _at_bound(v, after)})
     choices = [{"uid": c.uid, "layer": layer_label(p, c.uid), "before": before_choice[c.uid],
                 "after": res.choices.get(c.uid, before_choice[c.uid])} for c in s.choices]
     if output is not None:
         save_project(p, output)
     message = "stopped by timeout" if control.timed_out else res.message
-    result = {"message": message, "n_evals": res.n_evals, "elapsed_s": res.elapsed, "seed_used": s.seed,
+    restart_rows = []
+    for seed_k, r in runs:
+        rr = {"seed": seed_k, "objective": None if r.terms is None else r.terms.objective,
+              "max_margin_db": None if r.terms is None else r.terms.margin_db, "stopped": r.stopped}
+        restart_rows.append(rr)
+    best_seed = next(sd for sd, r in runs if r is res)
+    result = {"message": message, "n_evals": n_evals, "best_seed": best_seed, "restarts": restart_rows,
+              "elapsed_s": sum(r.elapsed for _, r in runs), "seed_used": s.seed,
               "targets": rows, "max_margin_db": max_margin, "terms": _terms_dict(res.terms),
               "values": values, "choices": choices, "history": [list(h) for h in res.history],
               "output_path": None if output is None else str(output)}
     if control.timed_out:
         warnings.append(warning("timeout", "stopped by --timeout"))
-    return CommandResult(result, warnings=warnings, stopped=res.stopped, input_info=inp)
+    stopped = res.stopped or any(r.stopped for _, r in runs) or (len(runs) < max(1, int(restarts)))
+    return CommandResult(result, warnings=warnings, stopped=stopped, input_info=inp)
 
 
 # ---------------------------------------------------------------------------
@@ -504,7 +570,9 @@ def _stats(a):
 
 
 def cmd_tolerance(path, control, seed=None, n_samples=None, target_db=None, angle_deg=None, pol=None,
-                  samples=False, summary_only=False, fmt="json", output=None, force=False):
+                  samples=False, summary_only=False, fmt="json", output=None, force=False, corners=False):
+    if corners:
+        return _tolerance_corners(path, control, seed, n_samples, target_db, samples)
     p, inp = load_project(path)
     s = p.tolerance
     s.seed = resolve_seed(seed if seed is not None else s.seed)
@@ -547,3 +615,164 @@ def cmd_tolerance(path, control, seed=None, n_samples=None, target_db=None, angl
     if control.timed_out:
         warnings.append(warning("timeout", "stopped by --timeout"))
     return CommandResult(result, warnings=warnings, stopped=r.stopped, input_info=inp)
+
+
+def _tolerance_corners(path, control, seed, n_samples, target_db, samples):
+    """Yield at every (angle end x polarisation) corner of every enabled target, plus the joint yield.
+
+    The perturbation samples depend only on the seed and the layers (they are drawn before the solve loop in
+    ``run_tolerance``), so with one seed every corner sees the same samples and the joint yield is exact."""
+    p, inp = load_project(path)
+    s = p.tolerance
+    s.seed = resolve_seed(seed if seed is not None else s.seed)
+    if n_samples is not None:
+        s.n_samples = int(n_samples)
+    targets = p.optimization.enabled_targets()
+    if not targets:
+        raise CliError("invalid_optimization_settings", "--corners needs at least one enabled target", 4)
+    f = tolerance_frequencies(p)
+    plan = []
+    for ti, t in enumerate(targets):
+        for ang in sorted({t.angle_min, t.angle_max}):
+            for pol_ in t.pols:
+                plan.append((ti, t, ang, pol_))
+    rows, passes, stopped = [], [], False
+    for k, (ti, t, ang, pol_) in enumerate(plan):
+        if k and control.should_stop():
+            stopped = True
+            break
+        s.angle, s.pol = float(ang), pol_
+        s.target_db = float(target_db) if target_db is not None else t.goal_db
+        try:
+            r = run_tolerance(p, f, band=[(t.f_min, t.f_max)],
+                              progress=control.tolerance_callback({"corner": k + 1, "n_corners": len(plan)}))
+        except MODEL_ERRORS as e:
+            raise model_error(e) from None
+        stopped = stopped or r.stopped
+        row = {"target": ti, "target_name": t.name, "angle_deg": ang, "pol": pol_, "target_db": s.target_db,
+               "n_samples": r.n_samples, "yield_fraction": r.yield_fraction, "worst_db": _stats(r.worst_db)}
+        if samples:
+            row["samples_worst_db"] = r.worst_db
+        rows.append(row)
+        passes.append(np.asarray(r.worst_db) <= s.target_db)
+        if r.stopped:
+            break
+    n = min(len(x) for x in passes)
+    joint = float(np.mean(np.all([x[:n] for x in passes], axis=0))) if n else None
+    worst = min(rows, key=lambda r_: r_["yield_fraction"])
+    result = {"n_samples": n, "seed_used": s.seed, "corners": rows, "joint_yield_fraction": joint,
+              "min_corner": {k_: worst[k_] for k_ in ("target", "angle_deg", "pol")},
+              "note": "corners only; angles inside each target's range are not sampled"}
+    warnings = [warning("timeout", "stopped by --timeout")] if control.timed_out else []
+    return CommandResult(result, warnings=warnings, stopped=stopped or len(rows) < len(plan), input_info=inp)
+
+
+# ---------------------------------------------------------------------------
+# materials, bound, fit
+
+def cmd_materials(name=None, library=None):
+    mats = builtin_materials()
+    if library:
+        from coating_studio.materials.library import load_library
+        try:
+            mats += load_library(library)
+        except FileNotFoundError:
+            raise CliError("file_not_found", f"{library}: no such file", 3, {"path": str(library)}) from None
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            raise CliError("invalid_value", f"{library}: {e}", 3, {"path": str(library)}) from None
+    p = Project(materials=mats)
+    out = []
+    for m in mats:
+        if name is not None and m.name != name:
+            continue
+        try:
+            mu, _ext = static_permeability(m, p.resolver)
+        except (KeyError, MaterialCycleError):
+            mu = None
+        out.append({"name": m.name, "kind": m.kind, "note": m.note, "is_demo": is_builtin_demo(m),
+                    "dict": m.to_dict(),
+                    "params": [{"path": list(pi.key), "label": pi.label, "unit": pi.unit} for pi in m.params()],
+                    "static_mu": mu})
+    if name is not None and not out:
+        raise CliError("unknown_reference", f"no material {name!r}", 4, {"ref": name})
+    return CommandResult({"materials": out})
+
+
+def cmd_bound(f_lo_ghz, f_hi_ghz, goal_db, mu_s=1.0):
+    if not (0 < f_lo_ghz < f_hi_ghz):
+        raise CliError("usage", "--f-ghz needs 0 < LO < HI", 2)
+    req = rozanov_required_mu_d(f_lo_ghz * 1e9, f_hi_ghz * 1e9, goal_db)
+    return CommandResult({"f_hz": [f_lo_ghz * 1e9, f_hi_ghz * 1e9], "goal_db": goal_db, "required_mu_d_m": req,
+                          "mu_s": mu_s, "min_thickness_m": req / mu_s,
+                          "assumptions": ["normal incidence", "PEC backing", "air incident"]})
+
+
+def cmd_fit(csv_path, name=None, eps_debye=1, eps_lorentz=0, sigma=False, eps_const_loss=False, mu_debye=0,
+            mu_lorentz=0, mu_const_loss=False, density=1000.0):
+    from coating_studio.materials.csvio import CsvFormatError, load_csv
+    from coating_studio.materials.fitting import FitSpec, fit_dispersive
+    try:
+        tab = load_csv(csv_path, name=name or os.path.splitext(os.path.basename(csv_path))[0], density=density)
+    except FileNotFoundError:
+        raise CliError("file_not_found", f"{csv_path}: no such file", 3, {"path": str(csv_path)}) from None
+    except (CsvFormatError, ValueError, OSError) as e:
+        raise CliError("invalid_value", f"{csv_path}: {e}", 3, {"path": str(csv_path), "csv_error": str(e)}) from None
+    f = tab.f
+    eps, mu = tab.eps_mu(f, lambda n: None)
+    mu_spec = FitSpec(n_debye=mu_debye, n_lorentz=mu_lorentz, fit_const_loss=mu_const_loss) \
+        if (mu_debye or mu_lorentz or mu_const_loss) else None
+    try:
+        fr = fit_dispersive(tab.name, f, eps, mu,
+                            FitSpec(n_debye=eps_debye, n_lorentz=eps_lorentz, fit_sigma=sigma,
+                                    fit_const_loss=eps_const_loss), mu_spec, density=density)
+    except (ValueError, RuntimeError) as e:
+        raise CliError("invalid_value", f"fit failed: {e}", 4) from None
+    fr.material.note = f"{FITTED_PREFIX} {os.path.basename(csv_path)}, {f[0] / 1e9:g}-{f[-1] / 1e9:g} GHz"
+    warnings = []
+    if mu_spec is None and np.any(np.abs(mu - 1) > 1e-6):
+        warnings.append(warning("mu_not_fitted", "the data has mu != 1 but no mu terms were fitted (use --mu-debye)"))
+    for side, rms in (("eps", fr.rms_eps), ("mu", fr.rms_mu)):
+        if rms > 0.05:
+            warnings.append(warning("fit_poor", f"{side} residual {rms:.3g} (relative); try more terms"))
+    return CommandResult({"material": fr.material.to_dict(), "rms_eps": fr.rms_eps, "rms_mu": fr.rms_mu,
+                          "data_range_hz": [f[0], f[-1]]}, warnings=warnings)
+
+
+# ---------------------------------------------------------------------------
+# build, spec, journal
+
+def cmd_build(spec_path, output, force=False):
+    import json as _json
+    from coating_studio.cli.spec import SPEC_VERSION, spec_to_project
+    try:
+        with open(spec_path, encoding="utf-8") as fh:
+            spec = _json.load(fh)
+    except FileNotFoundError:
+        raise CliError("file_not_found", f"{spec_path}: no such file", 3, {"path": str(spec_path)}) from None
+    except (OSError, UnicodeDecodeError, ValueError) as e:
+        raise CliError("invalid_spec", f"{spec_path}: not a JSON spec ({e})", 3, {"path": "$"}) from None
+    check_output_path(output, force)
+    p, warnings = spec_to_project(spec, base_dir=os.path.dirname(os.path.abspath(spec_path)))
+    save_project(p, output)
+    return CommandResult({"output_path": str(output), "n_layers": len(p.structure.layers),
+                          "n_variables": len(p.optimization.variables), "n_targets": len(p.optimization.targets)},
+                         warnings=warnings, input_info={"path": str(spec_path), "spec_version": SPEC_VERSION})
+
+
+def cmd_spec(path, output=None, force=False):
+    import json as _json
+    from coating_studio.cli.spec import project_to_spec
+    p, inp = load_project(path)
+    sp = project_to_spec(p)
+    if output is None:
+        return CommandResult({"spec": sp}, input_info=inp)
+    check_output_path(output, force)
+    from coating_studio.cli.output import sanitize
+    write_text(output, _json.dumps(sanitize(sp), indent=2, ensure_ascii=False, allow_nan=False) + "\n")
+    return CommandResult({"output_path": str(output)}, input_info=inp)
+
+
+def cmd_journal(directory):
+    from coating_studio.cli.journal import report
+    result, warnings = report(directory)
+    return CommandResult(result, warnings=warnings, input_info={"path": str(directory)})
