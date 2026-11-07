@@ -135,10 +135,10 @@ KO.update({
     "Magnetic loss μ″": "자성 손실 μ″", "Follow ε′": "ε′ 연동", "Follow μ′": "μ′ 연동",
     "Scale the loss with the same factor as the real part (fixed tan δ) instead of varying it independently.":
         "손실을 독립적으로 바꾸지 않고 실수부와 같은 비율로 바꿉니다(tan δ 고정).",
-    "ε″ and μ″ vary independently of ε′ and μ′, so the loss tangent varies too. A relative tolerance has no "
-    "effect where the nominal loss is zero.":
-        "ε″과 μ″은 ε′, μ′과 독립적으로 변하므로 손실 탄젠트(tan δ)도 함께 변합니다. 공칭 손실이 0이면 상대 "
-        "공차는 효과가 없습니다.",
+    "ε″ and μ″ get their own errors (independent of ε′ and μ′ at ρ = 0), so the loss tangent varies too. A "
+    "relative tolerance has no effect where the nominal loss is zero.":
+        "ε″과 μ″에는 따로 오차를 주므로(ρ = 0이면 ε′, μ′과 독립) 손실 탄젠트(tan δ)도 함께 변합니다. 공칭 손실이 "
+        "0이면 상대 공차는 효과가 없습니다.",
     # RLC sheets
     "Model": "모델", "Constant (R + jX)": "상수 (R + jX)", "Series RLC": "직렬 RLC", "RLC sheet": "RLC 시트",
     "Inductance L": "인덕턴스 L", "Capacitance C": "커패시턴스 C", "none": "없음",

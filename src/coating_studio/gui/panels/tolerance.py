@@ -166,8 +166,8 @@ class TolerancePanel(QWidget):
                                "μ′ with μ″). 0 = independent; positive when both rise together, for example with "
                                "filler content. Used only where the loss does not follow the real part."))
         f.addRow(tr("Real/loss correlation ρ"), self.rho)
-        f.addRow(muted(tr("ε″ and μ″ vary independently of ε′ and μ′, so the loss tangent varies too. A "
-                          "relative tolerance has no effect where the nominal loss is zero.")))
+        f.addRow(muted(tr("ε″ and μ″ get their own errors (independent of ε′ and μ′ at ρ = 0), so the loss tangent "
+                          "varies too. A relative tolerance has no effect where the nominal loss is zero.")))
         ll.addWidget(g)
 
         g = QGroupBox(tr("Per-layer tolerances (%)"))
