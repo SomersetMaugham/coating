@@ -22,6 +22,13 @@ No linter or formatter is configured. CI (`.github/workflows/ci.yml`) runs `pyte
 ubuntu/windows/macos × Python 3.10/3.13 with `QT_QPA_PLATFORM=offscreen`. The version comes from
 `src/coating_studio/__init__.py` (hatch).
 
+## Coating experiments for agents
+
+To improve a design for a user (current composition + target → simulate and optimise until met or shown
+infeasible), use `coating-cli` and follow `docs/AGENT_PLAYBOOK.md`: design specs (`build`/`spec`), the experiment
+journal, the Rozanov feasibility check, yield at target corners and the stop rules. Never invent material
+parameters. Use the CLI, not the GUI, for the search; the design rationale is in `docs/CLI_PLAN.md`.
+
 ## Architecture
 
 Layers are kept strictly separate. Nothing under `core/`, `materials/`, `optimize/`, `project.py` or
