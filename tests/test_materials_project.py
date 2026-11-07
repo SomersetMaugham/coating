@@ -256,3 +256,43 @@ def test_rlc_sheet_file_format_and_parameters():
     with pytest.raises(ValueError):
         Project.from_dict({**q.to_dict(), "structure": {"layers": [{"kind": "sheet", "R": 1, "model": "x"}]}})
     assert SheetLayer(100.0).impedance_at(np.array([1e9, 2e9])).tolist() == [100 + 0j, 100 + 0j]
+
+
+# -- power-law material (Michielssen 1993 database form) --------------------------------------------------------
+
+def test_power_law_values_and_round_trip(tmp_path):
+    import numpy as np
+    from coating_studio.limits import static_permeability
+    from coating_studio.materials.models import PowerLawMaterial, material_from_dict
+    from coating_studio.project import Project
+
+    m = PowerLawMaterial("M3", eps_re=15.0, mu_re=5.0, mu_a=0.974, mu_loss=10.0, mu_b=0.961)
+    f = np.array([1e9, 2e9, 8e9])
+    eps, mu = m.eps_mu(f, None)
+    g = f / 1e9
+    assert np.allclose(eps, 15.0)
+    assert np.allclose(mu.real, 5.0 / g ** 0.974) and np.allclose(-mu.imag, 10.0 / g ** 0.961)
+    assert eps[0] == 15.0 and mu[0] == 5.0 - 10.0j  # exactly the 1 GHz values
+    m2 = material_from_dict(m.to_dict())
+    assert isinstance(m2, PowerLawMaterial) and m2.to_dict() == m.to_dict()
+    m.set(("eps_b",), 0.5)
+    assert m.get(("eps_b",)) == 0.5 and [p.key for p in m.params()][:2] == [("eps_re",), ("eps_a",)]
+    p = Project()
+    p.add_material(m)
+    p.save(tmp_path / "pl.coat")
+    assert Project.load(tmp_path / "pl.coat").materials["M3"].to_dict() == m.to_dict()
+    assert static_permeability(m, p.resolver) == (None, False)  # a curve fit: mu' diverges as f -> 0
+
+
+def test_power_law_through_the_spec():
+    import json
+    from coating_studio.cli.spec import project_to_spec, spec_to_project
+    from coating_studio.materials.models import PowerLawMaterial
+    from coating_studio.project import Project
+    from coating_studio.core.structure import SlabLayer, Structure, Backing
+
+    p = Project()
+    p.add_material(PowerLawMaterial("M6", eps_re=5.0, eps_a=0.861, eps_loss=8.0, eps_b=0.569))
+    p.structure = Structure(layers=[SlabLayer("M6", 1e-3)], backing=Backing("pec"))
+    q, _ = spec_to_project(json.loads(json.dumps(project_to_spec(p))))
+    assert q.materials["M6"].to_dict() == p.materials["M6"].to_dict()
