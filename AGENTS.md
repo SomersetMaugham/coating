@@ -16,6 +16,7 @@ python -m pytest                            # all tests (testpaths=tests, -q)
 python -m pytest tests/test_solver.py::test_name -v   # single test
 QT_QPA_PLATFORM=offscreen python -m pytest tests/test_gui_smoke.py   # GUI smoke, headless
 coating-studio [file.coat]                  # run app (or: python -m coating_studio)
+coating-cli <command> …                     # Qt-free CLI, JSON on stdout (or: python -m coating_studio.cli)
 ```
 
 No linter or formatter is configured. CI (`.github/workflows/ci.yml`) runs `pytest -v` on
@@ -31,8 +32,8 @@ parameters. Use the CLI, not the GUI, for the search; the design rationale is in
 
 ## Architecture
 
-Layers are kept strictly separate. Nothing under `core/`, `materials/`, `optimize/`, `project.py` or
-`tolerance.py` may import Qt. Only `gui/` uses PySide6. `i18n.detect_system_language` is the one
+Layers are kept strictly separate. Nothing under `core/`, `materials/`, `optimize/`, `cli/`, `project.py`,
+`tolerance.py` or `limits.py` may import Qt (or matplotlib, for `cli/`; a test checks this). Only `gui/` uses PySide6. `i18n.detect_system_language` is the one
 exception, and it falls back if Qt is missing.
 
 - **`core/`**: the physics engine. `solve(structure, materials, f, theta_deg)` returns a
@@ -58,7 +59,15 @@ exception, and it falls back if Qt is missing.
   LogSumExp-smoothed worst RL. It reports the true worst value. If there are at most 64
   discrete-material combinations it enumerates them all. Otherwise it treats them as integer
   variables ordered by impedance. A `progress` callback returns True to stop.
-- **`tolerance.py`**: Monte Carlo perturbation that gives percentile bands and yield.
+- **`tolerance.py`**: Monte Carlo perturbation that gives percentile bands and yield. `yield_intervals` and
+  `tolerance_frequencies` define the yield band and grid shared by the GUI and the CLI.
+- **`limits.py`**: Rozanov thickness bound (PEC backing, normal incidence), analytic static permeability, the
+  mixing-model validity warning and measured-data ranges.
+- **`cli/`**: `coating-cli`. `commands.py` holds one plain function per command (result dict or `CliError`);
+  `output.py` the JSON envelope, value sanitising and the exception → error-code table; `progress.py`
+  cancellation (one stop event for Ctrl-C/SIGTERM/`--timeout`; call `optimize` with `throttle_s=0`);
+  `spec.py` the design spec ↔ Project conversion; `journal.py` the experiment journal. Output keys are a
+  contract (docs/CLI_PLAN.md, appendix B) and tests compare CLI numbers with direct engine calls exactly.
 
 ### GUI (`gui/`)
 

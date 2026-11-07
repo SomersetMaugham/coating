@@ -89,6 +89,24 @@ res = solve(p.structure, p.materials, np.linspace(8e9, 12e9, 5), theta_deg=[0, 3
 print(10 * np.log10(res.pol["TE"].R))   # 반사손실 [dB], 배열 크기 (5, 2)
 ```
 
+### 에이전트·스크립트용 명령줄 (`coating-cli`)
+
+`coating-cli`는 Qt 없이 엔진을 실행합니다. 모든 명령은 stdout에 JSON 객체 하나를 씁니다(`--format csv`이면 CSV).
+`--progress`를 주면 진행 상황을 stderr에 씁니다. 종료 코드는 0 성공, 2 사용법 오류, 3 입력·출력 오류, 4 모델 오류,
+5 중단(부분 결과 있음)입니다.
+
+```bash
+coating-cli examples save salisbury -o sal.coat
+coating-cli check sal.coat                                  # 모델·재료 점검, 물리 한계(Rozanov) 판정
+coating-cli solve sal.coat --targets --summary-only         # 목표별 최선 RL과 margin
+coating-cli optimize sal.coat -o sal_opt.coat --restarts 3 --timeout 60
+coating-cli tolerance sal_opt.coat --corners                # 목표의 각도·편광 꼭짓점별 수율
+coating-cli spec sal_opt.coat -o design.json                # 편집용 설계 명세. `build`로 다시 .coat를 만듦
+```
+
+목표에 도달할 때까지 설계를 반복 개선하는 AI 에이전트는 [`docs/AGENT_PLAYBOOK.md`](docs/AGENT_PLAYBOOK.md)를 따릅니다
+(설계 명세, 실험 기록, 멈춤 규칙).
+
 ## 규약
 
 | 항목 | 규약 |

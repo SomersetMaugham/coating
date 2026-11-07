@@ -105,6 +105,24 @@ res = solve(p.structure, p.materials, np.linspace(8e9, 12e9, 5), theta_deg=[0, 3
 print(10 * np.log10(res.pol["TE"].R))   # reflection loss [dB], shape (5, 2)
 ```
 
+### Command line for agents and scripts (`coating-cli`)
+
+`coating-cli` runs the engine without Qt. Every command prints one JSON object on stdout (CSV with
+`--format csv`), and progress goes to stderr with `--progress`. Exit codes: 0 ok, 2 usage, 3 input/output,
+4 model, 5 stopped with a partial result.
+
+```bash
+coating-cli examples save salisbury -o sal.coat
+coating-cli check sal.coat                                  # model, materials, feasibility (Rozanov bound)
+coating-cli solve sal.coat --targets --summary-only         # best RL and margin per target
+coating-cli optimize sal.coat -o sal_opt.coat --restarts 3 --timeout 60
+coating-cli tolerance sal_opt.coat --corners                # yield at each target angle/polarisation
+coating-cli spec sal_opt.coat -o design.json                # editable design spec; `build` turns it back into .coat
+```
+
+AI agents that iterate on a design until a target is met should follow
+[`docs/AGENT_PLAYBOOK.md`](docs/AGENT_PLAYBOOK.md) (design specs, experiment journal, stop rules).
+
 ## Conventions
 
 | Item | Convention |
