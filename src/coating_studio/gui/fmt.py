@@ -53,5 +53,9 @@ def translate_param_name(name: str) -> str:
         "eps_inf": "ε∞", "mu_inf": "μ∞", "eps'' (constant)": tr("ε″ (constant)"),
         "mu'' (constant)": tr("μ″ (constant)"), "sigma": "σ",
         "volume fraction": tr("volume fraction"),
+        "eps' (1 GHz)": "ε′ (1 GHz)", "eps'' (1 GHz)": "ε″ (1 GHz)", "mu' (1 GHz)": "μ′ (1 GHz)",
+        "mu'' (1 GHz)": "μ″ (1 GHz)",
+        "eps' exponent a": f"ε′ {tr('exponent')} a", "eps'' exponent b": f"ε″ {tr('exponent')} b",
+        "mu' exponent a": f"μ′ {tr('exponent')} a", "mu'' exponent b": f"μ″ {tr('exponent')} b",
     }
     return table.get(name, name)

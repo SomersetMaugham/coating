@@ -226,6 +226,10 @@ KO.update({
     "Remove optimisation variable": "최적화 변수 제거",
     "Cannot start optimisation": "최적화를 시작할 수 없습니다", "Unknown material: {n}": "알 수 없는 재료: {n}",
     "This mixture references itself (directly or through other mixtures).": "이 혼합 재료가 자기 자신을 (직접 또는 다른 혼합 재료를 거쳐) 참조합니다.",
+    "Power law": "거듭제곱 법칙", "at 1 GHz": "1 GHz 값", "exponent": "지수",
+    "New power-law material": "새 거듭제곱 법칙 재료",
+    "f in GHz. An empirical curve fit (e.g. the Michielssen 1993 absorber database), not a causal model: use it only inside the band it was fitted on.":
+        "f의 단위는 GHz입니다. 경험적 곡선 맞춤(예: Michielssen 1993 흡수체 재료 데이터베이스)이며 인과적 모델이 아니므로, 맞춘 대역 안에서만 쓰십시오.",
     "Target {target}: the design's mu_s x d is {design_mm:.3g} mm but at least {required_mm:.3g} mm is needed (Rozanov bound, normal incidence).":
         "목표 {target}: 설계의 mu_s x d가 {design_mm:.3g} mm인데 최소 {required_mm:.3g} mm가 필요합니다(Rozanov 한계, 수직 입사).",
     "Target {target}: even the optimisation ranges reach only {max_mm:.3g} mm of mu_s x d; at least {required_mm:.3g} mm is needed (Rozanov bound, normal incidence).":
