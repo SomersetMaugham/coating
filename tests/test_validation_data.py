@@ -51,3 +51,19 @@ def test_kumar2021_peak_frequency(sample):
     if sample != "U8":  # U8's published bandwidth is inconsistent with its neighbours (see README)
         bw = np.ptp(f[rl <= -10]) / 1e9
         assert bw == pytest.approx(mbw, rel=0.12)
+
+
+def test_michielssen_benchmark_reproduces_published_designs():
+    """Asi & Dib (2010) designs on their own 0.5 GHz grid, and the recorded Coating Studio design."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("mb", VAL / "michielssen_benchmark.py")
+    mb = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mb)
+    mats = mb.database()
+    for d in mb.BM["designs"]:
+        if d["source"].startswith("asi_dib_2010"):
+            got = mb.max_reflection(mats, d["layers"], d["grid_step_GHz"])
+            assert abs(got - d["published_dB"]) <= mb.REPRODUCED_DB, d["name"]
+    cs = mb.BM["coating_studio_design"]
+    assert abs(mb.max_reflection(mats, cs["layers"], 0.1) - cs["max_dB_0p1GHz"]) <= 1e-3
+    assert mb.BM["database"]["8"]["eps_loss"] == 6.0

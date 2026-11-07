@@ -25,6 +25,8 @@ can be added later without rewriting it.
   - Constant complex ε and μ.
   - Multi-term **Debye / Lorentz** dispersion, including Snoek-type ferrite relaxation and conductivity σ.
   - **Measured CSV** data.
+  - **Power-law** fits ε′ = ε′(1 GHz)/fᵃ, ε″ = ε″(1 GHz)/fᵇ (and the same for μ), the form of the Michielssen 1993
+    absorber database. They are curve fits, not causal models: use them only inside their fitted band.
   - **Maxwell-Garnett / Bruggeman** effective-medium mixtures.
 - **Material checks.**
   - **CSV → dispersion-model fitting**, which gives a causal model you can extrapolate.

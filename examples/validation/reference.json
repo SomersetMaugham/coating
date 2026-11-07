@@ -257,5 +257,346 @@
    }
   },
   "url": "https://www.ias.ac.in/article/fulltext/boms/033/05/0633-0636"
+ },
+ "michielssen1993": {
+  "source": "E. Michielssen, J.-M. Sajer, S. Ranjithan, R. Mittra, 'Design of lightweight, broad-band microwave absorbers using genetic algorithms', IEEE Trans. Microwave Theory Tech. 41(6/7), 1024-1032 (1993), doi:10.1109/22.238519. Database values transcribed from the reprints in [asi_dib_2010] Table 1 and [kankilic_karpat_2023] Table 1 (identical); the original paper was not accessible.",
+  "note_material_8": "eps''(1 GHz) of material 8 is 6 in both reprints; Zong et al. 2024 (ACES J. 39(8), Table 1) prints 16, which is taken to be a typo.",
+  "database": {
+   "1": {
+    "kind": "constant",
+    "eps_re": 10.0
+   },
+   "2": {
+    "kind": "constant",
+    "eps_re": 50.0
+   },
+   "3": {
+    "kind": "power_law",
+    "eps_re": 15.0,
+    "mu_re": 5.0,
+    "mu_a": 0.974,
+    "mu_loss": 10.0,
+    "mu_b": 0.961
+   },
+   "4": {
+    "kind": "power_law",
+    "eps_re": 15.0,
+    "mu_re": 3.0,
+    "mu_a": 1.0,
+    "mu_loss": 15.0,
+    "mu_b": 0.957
+   },
+   "5": {
+    "kind": "power_law",
+    "eps_re": 15.0,
+    "mu_re": 7.0,
+    "mu_a": 1.0,
+    "mu_loss": 12.0,
+    "mu_b": 1.0
+   },
+   "6": {
+    "kind": "power_law",
+    "eps_re": 5.0,
+    "eps_a": 0.861,
+    "eps_loss": 8.0,
+    "eps_b": 0.569
+   },
+   "7": {
+    "kind": "power_law",
+    "eps_re": 8.0,
+    "eps_a": 0.778,
+    "eps_loss": 10.0,
+    "eps_b": 0.682
+   },
+   "8": {
+    "kind": "power_law",
+    "eps_re": 10.0,
+    "eps_a": 0.778,
+    "eps_loss": 6.0,
+    "eps_b": 0.861
+   },
+   "9": {
+    "kind": "relaxation",
+    "mu_m": 35.0,
+    "f_m_GHz": 0.8
+   },
+   "10": {
+    "kind": "relaxation",
+    "mu_m": 35.0,
+    "f_m_GHz": 0.5
+   },
+   "11": {
+    "kind": "relaxation",
+    "mu_m": 30.0,
+    "f_m_GHz": 1.0
+   },
+   "12": {
+    "kind": "relaxation",
+    "mu_m": 18.0,
+    "f_m_GHz": 0.5
+   },
+   "13": {
+    "kind": "relaxation",
+    "mu_m": 20.0,
+    "f_m_GHz": 1.5
+   },
+   "14": {
+    "kind": "relaxation",
+    "mu_m": 30.0,
+    "f_m_GHz": 2.5
+   },
+   "15": {
+    "kind": "relaxation",
+    "mu_m": 30.0,
+    "f_m_GHz": 2.0
+   },
+   "16": {
+    "kind": "relaxation",
+    "mu_m": 25.0,
+    "f_m_GHz": 3.5
+   }
+  },
+  "relaxation_model": "eps = 15; mu' = mu_m f_m^2/(f_m^2 + f^2), mu'' = mu_m f f_m/(f_m^2 + f^2) (f, f_m in GHz) = mu_m/(1 + j f/f_m): a Debye term with mu_inf = 0",
+  "problem": {
+   "layers": 5,
+   "band_GHz": [
+    2.0,
+    8.0
+   ],
+   "incidence": "normal",
+   "max_total_thickness_mm": 5.0,
+   "objective": "minimise the maximum of 20 log10|Gamma| over the band",
+   "layer_1": "incident side"
+  },
+  "references": {
+   "asi_dib_2010": "M. J. Asi, N. I. Dib, 'Design of multilayer microwave broadband absorbers using central force optimization', Prog. Electromagn. Res. B 26, 101-113 (2010), doi:10.2528/PIERB10090103",
+   "kankilic_karpat_2023": "S. Kankilic, E. Karpat, 'Optimization of multilayer absorbers using the bald eagle optimization algorithm', Appl. Sci. 13, 10301 (2023), doi:10.3390/app131810301",
+   "zong_2024": "Y. M. Zong et al., 'Optimization of multilayer microwave absorbers using multi-strategy improved gold rush optimizer', ACES J. 39(8), 708-717 (2024), doi:10.13052/2024.ACES.J.390806"
+  },
+  "designs": [
+   {
+    "name": "CFO",
+    "source": "asi_dib_2010 Table 2",
+    "grid_step_GHz": 0.5,
+    "published_dB": -25.698,
+    "layers": [
+     [
+      16,
+      0.377
+     ],
+     [
+      6,
+      1.572
+     ],
+     [
+      6,
+      0.991
+     ],
+     [
+      6,
+      0.377
+     ],
+     [
+      15,
+      1.425
+     ]
+    ]
+   },
+   {
+    "name": "CFO (uniform probes, acceleration clipping)",
+    "source": "asi_dib_2010 Table 4",
+    "grid_step_GHz": 0.5,
+    "published_dB": -25.903,
+    "layers": [
+     [
+      16,
+      0.365
+     ],
+     [
+      6,
+      1.843
+     ],
+     [
+      6,
+      1.203
+     ],
+     [
+      14,
+      1.119
+     ],
+     [
+      11,
+      0.441
+     ]
+    ]
+   },
+   {
+    "name": "SADE (DE)",
+    "source": "asi_dib_2010 Table 2 (from Goudos 2009)",
+    "grid_step_GHz": 0.5,
+    "published_dB": -25.485,
+    "layers": [
+     [
+      16,
+      0.384
+     ],
+     [
+      6,
+      0.433
+     ],
+     [
+      6,
+      1.143
+     ],
+     [
+      6,
+      1.446
+     ],
+     [
+      15,
+      1.454
+     ]
+    ]
+   },
+   {
+    "name": "PSO",
+    "source": "asi_dib_2010 Tables 2-3",
+    "grid_step_GHz": 0.5,
+    "published_dB": -23.889,
+    "layers": [
+     [
+      14,
+      0.455
+     ],
+     [
+      6,
+      1.995
+     ],
+     [
+      8,
+      0.322
+     ],
+     [
+      5,
+      0.986
+     ],
+     [
+      11,
+      1.128
+     ]
+    ]
+   },
+   {
+    "name": "GSA",
+    "source": "asi_dib_2010 Tables 2-3",
+    "grid_step_GHz": 0.5,
+    "published_dB": -21.955,
+    "layers": [
+     [
+      16,
+      0.418
+     ],
+     [
+      6,
+      1.593
+     ],
+     [
+      8,
+      0.485
+     ],
+     [
+      13,
+      1.366
+     ],
+     [
+      4,
+      0.986
+     ]
+    ]
+   },
+   {
+    "name": "BESOA",
+    "source": "kankilic_karpat_2023 Table 2",
+    "grid_step_GHz": 0.1,
+    "published_dB": -25.765,
+    "layers": [
+     [
+      16,
+      0.41701
+     ],
+     [
+      6,
+      1.10903
+     ],
+     [
+      6,
+      1.78825
+     ],
+     [
+      3,
+      0.21456
+     ],
+     [
+      15,
+      1.27113
+     ]
+    ]
+   },
+   {
+    "name": "MIGRO",
+    "source": "zong_2024 Table 2",
+    "grid_step_GHz": 0.1,
+    "published_dB": -25.8852,
+    "layers": [
+     [
+      16,
+      0.3771
+     ],
+     [
+      6,
+      0.8308
+     ],
+     [
+      6,
+      1.3524
+     ],
+     [
+      6,
+      1.0659
+     ],
+     [
+      14,
+      1.355
+     ]
+    ]
+   }
+  ],
+  "coating_studio_design": {
+   "how": "coating-cli optimize, 16 candidates per layer, thickness 0.01-5 mm, total <= 5 mm, 0.1 GHz grid, 3 runs of --restarts 3 (2026-11-07)",
+   "max_dB_0p1GHz": -25.927,
+   "total_mm": 4.99572,
+   "layers": [
+    [
+     16,
+     0.37288
+    ],
+    [
+     6,
+     2.96644
+    ],
+    [
+     6,
+     0.20325
+    ],
+    [
+     14,
+     1.24977
+    ],
+    [
+     11,
+     0.20338
+    ]
+   ]
+  }
  }
 }
