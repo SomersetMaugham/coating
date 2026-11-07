@@ -19,6 +19,8 @@ Coating Studio는 평면 다층 코팅을 시뮬레이션하고 최적화하는 
 - **재료**: 네 가지 방식으로 정의합니다.
   - 상수 복소 ε, μ
   - 다항 **Debye·Lorentz** 분산 모델: Snoek형 페라이트 완화와 전도도 σ를 포함합니다.
+  - **거듭제곱 법칙** 맞춤 ε′ = ε′(1 GHz)/fᵃ, ε″ = ε″(1 GHz)/fᵇ (μ도 같은 형태): Michielssen 1993 흡수체 재료
+    데이터베이스의 형식입니다. 인과적 모델이 아닌 곡선 맞춤이라 맞춘 대역 안에서만 씁니다.
   - **측정 CSV** 데이터
   - **Maxwell-Garnett·Bruggeman** 실효 매질 혼합
 - **재료 검사**:
@@ -135,7 +137,7 @@ python -m pip install -e ".[dev]"
 python -m pytest
 ```
 
-테스트는 엔진을 해석해와 비교합니다. 비교 대상은 Salisbury 스크린, Fresnel 반사와 Brewster 각, Dallenbach 입력 임피던스, 에너지 보존, 전반사, 두꺼운 고손실 층의 수치 안정성입니다. 이 밖에 혼합 규칙의 극한값, 피팅, 최적화, 공차 분석, 번역 누락, GUI 오프스크린 스모크 테스트도 포함합니다. CI는 Windows, macOS, Linux에서 이 테스트를 실행합니다.
+테스트는 엔진을 해석해와 비교합니다. 비교 대상은 Salisbury 스크린, Fresnel 반사와 Brewster 각, Dallenbach 입력 임피던스, 에너지 보존, 전반사, 두꺼운 고손실 층의 수치 안정성입니다. 이 밖에 혼합 규칙의 극한값, 피팅, 최적화, 공차 분석, 번역 누락, GUI 오프스크린 스모크 테스트도 포함합니다. CI 워크플로로 Windows, macOS, Linux에서 이 테스트를 실행할 수 있고, 수동으로 시작합니다(Actions → CI → Run workflow).
 
 구현 계획은 [docs/PLAN.md](docs/PLAN.md)에 있습니다.
 

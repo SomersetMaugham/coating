@@ -130,6 +130,43 @@ class ConstantMaterial(Material):
         return d
 
 
+class PowerLawMaterial(Material):
+    """Empirical power-law fit of eps and mu over frequency (f in GHz, values given at 1 GHz)::
+
+        eps'(f) = eps_re / f**eps_a     eps''(f) = eps_loss / f**eps_b
+        mu'(f)  = mu_re  / f**mu_a      mu''(f)  = mu_loss  / f**mu_b
+
+    This is the form of the Michielssen et al. (1993) absorber material database.  It is a curve fit, not a
+    causal model (the real and loss parts are not linked by Kramers-Kronig, and mu' grows without bound as
+    f -> 0), so use it only inside the band it was fitted on; the static permeability is unknown."""
+
+    kind = "power_law"
+
+    def __init__(self, name, eps_re=1.0, eps_a=0.0, eps_loss=0.0, eps_b=0.0,
+                 mu_re=1.0, mu_a=0.0, mu_loss=0.0, mu_b=0.0, **kw):
+        super().__init__(name, **kw)
+        self.eps_re, self.eps_a, self.eps_loss, self.eps_b = map(float, (eps_re, eps_a, eps_loss, eps_b))
+        self.mu_re, self.mu_a, self.mu_loss, self.mu_b = map(float, (mu_re, mu_a, mu_loss, mu_b))
+
+    def eps_mu(self, f, resolver):
+        g = np.asarray(f, dtype=float) / 1e9  # GHz; the solver rejects f <= 0
+        eps = self.eps_re * g ** -self.eps_a - 1j * self.eps_loss * g ** -self.eps_b
+        mu = self.mu_re * g ** -self.mu_a - 1j * self.mu_loss * g ** -self.mu_b
+        return eps, mu
+
+    def params(self):
+        return [ParamInfo(("eps_re",), "eps' (1 GHz)", ""), ParamInfo(("eps_a",), "eps' exponent a", ""),
+                ParamInfo(("eps_loss",), "eps'' (1 GHz)", "", lower=0.0), ParamInfo(("eps_b",), "eps'' exponent b", ""),
+                ParamInfo(("mu_re",), "mu' (1 GHz)", ""), ParamInfo(("mu_a",), "mu' exponent a", ""),
+                ParamInfo(("mu_loss",), "mu'' (1 GHz)", "", lower=0.0), ParamInfo(("mu_b",), "mu'' exponent b", "")]
+
+    def to_dict(self):
+        d = self._base_dict()
+        d.update(eps_re=self.eps_re, eps_a=self.eps_a, eps_loss=self.eps_loss, eps_b=self.eps_b,
+                 mu_re=self.mu_re, mu_a=self.mu_a, mu_loss=self.mu_loss, mu_b=self.mu_b)
+        return d
+
+
 def loss_tangent(real, loss):
     """tan δ = loss / real part (ε″/ε′ or μ″/μ′).  Only defined for a positive real part."""
     if real <= 0:
@@ -379,7 +416,8 @@ def bruggeman(em, ei, phi):
 
 
 # ---------------------------------------------------------------------------
-_KINDS = {c.kind: c for c in (ConstantMaterial, DispersiveMaterial, TabulatedMaterial, MixtureMaterial)}
+_KINDS = {c.kind: c for c in (ConstantMaterial, DispersiveMaterial, TabulatedMaterial, MixtureMaterial,
+                                PowerLawMaterial)}
 
 
 def material_from_dict(d) -> Material:

@@ -21,7 +21,8 @@ from coating_studio.gui.theme import mpl_rc
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
 from coating_studio.i18n import issue_text, tr
 from coating_studio.materials import (
-    ConstantMaterial, DispersiveMaterial, MixtureMaterial, TabulatedMaterial, eps_from_nk, loss_from_tangent,
+    ConstantMaterial, DispersiveMaterial, MixtureMaterial, PowerLawMaterial, TabulatedMaterial, eps_from_nk,
+    loss_from_tangent,
     loss_tangent, make_term, material_from_dict, nk_from_eps_mu,
 )
 from coating_studio.materials.checks import check_material
@@ -30,7 +31,7 @@ from coating_studio.materials.library import load_library, save_library
 from coating_studio.project import ProjectError
 
 KIND_LABEL = {"constant": "Constant", "dispersive": "Dispersive model", "tabulated": "Measured data",
-              "mixture": "Mixture (EMA)"}
+              "mixture": "Mixture (EMA)", "power_law": "Power law"}
 
 
 class _TermsTable(QWidget):
@@ -129,7 +130,7 @@ class MaterialManager(QDialog):
         self.btn_new = QPushButton(tr("New"))
         set_button_icon(self.btn_new, "add")
         menu = QMenu(self)
-        for kind in ("constant", "dispersive", "mixture"):
+        for kind in ("constant", "dispersive", "power_law", "mixture"):
             menu.addAction(tr(KIND_LABEL[kind]), lambda k=kind: self._new(k))
         menu.addSeparator()
         menu.addAction(icon("import"), tr("Import measured CSV…"), self._import_csv)
@@ -179,6 +180,7 @@ class MaterialManager(QDialog):
         self.stack.addWidget(self._build_dispersive())
         self.stack.addWidget(self._build_tabulated())
         self.stack.addWidget(self._build_mixture())
+        self.stack.addWidget(self._build_power_law())
         rl.addWidget(self.stack)
 
         self.lbl_issues = QLabel()
@@ -307,6 +309,26 @@ class MaterialManager(QDialog):
             sp.valueEdited.connect(self._commit)
         lay.addWidget(ge)
         lay.addWidget(gm)
+        return w
+
+    def _build_power_law(self):
+        w = QGroupBox(tr("Power law"))
+        g = QGridLayout(w)
+        g.addWidget(QLabel(tr("at 1 GHz")), 0, 1)
+        g.addWidget(QLabel(tr("exponent")), 0, 2)
+        self.p_spins = {}
+        rows = (("ε′", "eps_re", "eps_a", "a"), ("ε″", "eps_loss", "eps_b", "b"),
+                ("μ′", "mu_re", "mu_a", "a"), ("μ″", "mu_loss", "mu_b", "b"))
+        for r, (sym, k_val, k_exp, letter) in enumerate(rows, start=1):
+            lbl = QLabel(f"{sym}(f) = {sym}(1 GHz) / f^{letter}")
+            g.addWidget(lbl, r, 0)
+            for c, key in ((1, k_val), (2, k_exp)):
+                sp = SciSpinBox(minimum=-1e6, maximum=1e9)
+                sp.valueEdited.connect(self._commit)
+                self.p_spins[key] = sp
+                g.addWidget(sp, r, c)
+        g.addWidget(muted(tr("f in GHz. An empirical curve fit (e.g. the Michielssen 1993 absorber database), not a "
+                             "causal model: use it only inside the band it was fitted on.")), len(rows) + 1, 0, 1, 3)
         return w
 
     def _build_tabulated(self):
@@ -444,6 +466,10 @@ class MaterialManager(QDialog):
                         it = QTableWidgetItem(fmt_num(float(v), 6))
                         it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                         self.t_tbl.setItem(r, c, it)
+            elif isinstance(m, PowerLawMaterial):
+                self.stack.setCurrentIndex(4)
+                for key, sp in self.p_spins.items():
+                    sp.set_value(getattr(m, key))
             elif isinstance(m, MixtureMaterial):
                 self.stack.setCurrentIndex(3)
                 others = [n for n in self.doc.project.materials if n != m.name]
@@ -477,6 +503,8 @@ class MaterialManager(QDialog):
             d.update(eps_inf=self.d_einf.value(), eps_loss=self.d_eloss.value(), sigma=self.d_sigma.value(),
                      eps_terms=self.d_eterms.terms, mu_inf=self.d_minf.value(), mu_loss=self.d_mloss.value(),
                      mu_terms=self.d_mterms.terms)
+        elif m.kind == "power_law":
+            d.update({key: sp.value() for key, sp in self.p_spins.items()})
         elif m.kind == "mixture":
             d.update(matrix=self.m_matrix.currentText(), inclusion=self.m_incl.currentText(),
                      fraction=self.m_frac.value() / 100, model=self.m_model.currentData())
@@ -561,6 +589,9 @@ class MaterialManager(QDialog):
         elif kind == "dispersive":
             m = DispersiveMaterial(p.unique_material_name(tr("New dispersive material")), eps_inf=3.0,
                                    eps_terms=[make_term("debye", 5.0, 5e9)])
+        elif kind == "power_law":
+            m = PowerLawMaterial(p.unique_material_name(tr("New power-law material")), eps_re=5.0, eps_a=0.5,
+                                 eps_loss=2.0, eps_b=0.5)
         else:
             names = [n for n in p.materials if n != p.structure.incident]
             if len(names) < 2:

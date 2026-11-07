@@ -1,8 +1,10 @@
 name: CI
 
+# Manual only (Actions tab -> CI -> Run workflow). The repository is private, so every run is billed against
+# the Actions minutes, with macOS counted 10x and Windows 2x; automatic runs on every push and PR used them up.
+# Before merging, run the suite locally on Python 3.10 and 3.13 instead (see AGENTS.md, "Commands").
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   test:

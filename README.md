@@ -25,6 +25,8 @@ can be added later without rewriting it.
   - Constant complex ε and μ.
   - Multi-term **Debye / Lorentz** dispersion, including Snoek-type ferrite relaxation and conductivity σ.
   - **Measured CSV** data.
+  - **Power-law** fits ε′ = ε′(1 GHz)/fᵃ, ε″ = ε″(1 GHz)/fᵇ (and the same for μ), the form of the Michielssen 1993
+    absorber database. They are curve fits, not causal models: use them only inside their fitted band.
   - **Maxwell-Garnett / Bruggeman** effective-medium mixtures.
 - **Material checks.**
   - **CSV → dispersion-model fitting**, which gives a causal model you can extrapolate.
@@ -163,8 +165,8 @@ python -m pytest
 The tests check the engine against analytic results: a Salisbury screen, Fresnel reflection and the
 Brewster angle, the Dallenbach input impedance, energy conservation, total internal reflection, and
 numerical stability with thick, very lossy layers. They also cover mixing-rule limits, fitting, the
-optimiser and tolerance analysis, translation coverage, and offscreen GUI smoke tests. CI runs them
-on Windows, macOS and Linux.
+optimiser and tolerance analysis, translation coverage, and offscreen GUI smoke tests. The CI workflow can run
+them on Windows, macOS and Linux; it is started by hand (Actions → CI → Run workflow).
 
 The implementation plan is in [docs/PLAN.md](docs/PLAN.md).
 

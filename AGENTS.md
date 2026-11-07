@@ -20,7 +20,19 @@ coating-cli <command> …                     # Qt-free CLI, JSON on stdout (or:
 ```
 
 No linter or formatter is configured. CI (`.github/workflows/ci.yml`) runs `pytest -v` on
-ubuntu/windows/macos × Python 3.10/3.13 with `QT_QPA_PLATFORM=offscreen`. The version comes from
+ubuntu/windows/macos × Python 3.10/3.13 with `QT_QPA_PLATFORM=offscreen`, but **only when started by hand**
+(Actions → CI → Run workflow): the repository is private and automatic runs used up the Actions minutes.
+Do not start it, or push changes that re-enable automatic runs, unless the user asks. Before a merge, run the
+suite locally on both supported Python versions instead (conda environments `coat-py310` and `coat-py313`,
+created with `conda create -n coat-py310 python=3.10` and `pip install -e ".[dev]"`):
+
+```bash
+for e in coat-py310 coat-py313; do QT_QPA_PLATFORM=offscreen conda run -n $e python -m pytest -q; done
+```
+
+Local runs cover macOS only; Windows and Linux are checked only when the user starts CI. On this Mac (macOS 27),
+the pip SciPy wheel for Python 3.10 fails to load (`__thread_bss` zero-fill section error), so `coat-py310` uses
+SciPy from conda-forge (`conda install -n coat-py310 -c conda-forge "scipy<1.16"`). The version comes from
 `src/coating_studio/__init__.py` (hatch).
 
 ## Coating experiments for agents
@@ -44,7 +56,8 @@ exception, and it falls back if Qt is missing.
   when touching the solver. `materials` is any mapping name→Material. Everything is SI internally,
   and `core/units.py` converts to display units (GHz, mm, °, Ω/sq).
 - **`materials/`**: the `Material` subclasses are Constant, Dispersive (Debye/Lorentz/σ), Tabulated
-  (CSV) and Mixture (MG/Bruggeman). `eps_mu(f, resolver)` takes a resolver because mixtures
+  (CSV), Mixture (MG/Bruggeman) and PowerLaw (Michielssen-style ε′(1 GHz)/fᵃ fits; not causal, so its static μ is
+  unknown). `eps_mu(f, resolver)` takes a resolver because mixtures
   reference other materials by **name**. Cycles raise `MaterialCycleError`. Tabulated data raises
   `OutOfRangeError` outside its measured range and never extrapolates. Each material exposes
   `params()`/`get(key)`/`set(key)` so the optimiser can address its numbers. `fitting.py` fits CSV
