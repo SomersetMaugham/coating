@@ -9,7 +9,7 @@ import traceback
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from coating_studio.optimize import optimize
-from coating_studio.tolerance import run_tolerance
+from coating_studio.tolerance import run_tolerance, run_tolerance_corners
 
 
 class OptimizationWorker(QObject):
@@ -45,10 +45,10 @@ class ToleranceWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, project, f, band):
+    def __init__(self, project, f, band, corners=False):
         super().__init__()
         self.project = project.copy()
-        self.f, self.band = f, band
+        self.f, self.band, self.corners = f, band, corners
         self._stop = threading.Event()
 
     def request_stop(self):
@@ -65,7 +65,12 @@ class ToleranceWorker(QObject):
                     self.progress.emit(k, n)
                 return self._stop.is_set()
 
-            self.finished.emit(run_tolerance(self.project, self.f, band=self.band, progress=cb))
+            if self.corners:  # every target corner; emits a tolerance.CornerResult
+                res = run_tolerance_corners(self.project, self.f, progress=lambda k, n, _c, _nc: cb(k, n),
+                                            should_stop=self._stop.is_set)
+            else:
+                res = run_tolerance(self.project, self.f, band=self.band, progress=cb)
+            self.finished.emit(res)
         except Exception as e:  # noqa: BLE001
             self.failed.emit(str(e))
 

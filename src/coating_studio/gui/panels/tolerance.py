@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
+    QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
     QMessageBox, QProgressBar, QPushButton, QScrollArea, QSpinBox, QSplitter, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
@@ -16,10 +16,18 @@ from coating_studio.gui.plots.base import PlotView
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
 from coating_studio.gui.workers import ToleranceWorker, start_worker
 from coating_studio.i18n import tr
-from coating_studio.tolerance import tolerance_frequencies, yield_band, yield_intervals  # noqa: F401 (re-exported)
+from coating_studio.tolerance import (  # noqa: F401 (yield_band re-exported)
+    CornerResult, tolerance_frequencies, yield_band, yield_intervals,
+)
 
 _KEYS = ("thickness", "eps", "eps_loss", "mu", "mu_loss", "sheet")
 _LOSS_BASE = {"eps_loss": "eps", "mu_loss": "mu"}
+
+
+def corner_label(ti, name, angle, pol):
+    """'Target 1 (X) 30° TE' — the angle end and polarisation of one target corner."""
+    head = tr("Target {n}", n=ti + 1) + (f" ({name})" if name else "")
+    return f"{head} {angle:g}° {pol}"
 
 
 class TolerancePlot(PlotView):
@@ -44,19 +52,29 @@ class TolerancePlot(PlotView):
             ax.text(0.5, 0.5, tr("Run the analysis to see the spread of reflection loss."),
                     ha="center", va="center", transform=ax.transAxes, color=c.muted)
             return None
+        title = None
+        target_db, bands = s.target_db, yield_intervals(self.ctx.project)
+        if isinstance(r, CornerResult):
+            # Show the weakest corner's spread; the title carries the joint yield over all corners.
+            ti, name, ang, pol, target_db, worst = r.corners[r.worst]
+            t = self.ctx.project.optimization.enabled_targets()[ti]
+            bands = [(t.f_min, t.f_max)]
+            title = tr("Joint yield {y:.1f}% over {n} corners ({s} samples)",
+                       y=100 * (r.joint_yield_fraction or 0.0), n=len(r.corners), s=r.n_samples)
+            r = worst
         x = r.f / 1e9
         ax.fill_between(x, sgn * r.lower_db, sgn * r.upper_db, color=c.series[0], alpha=0.22,
                         label=tr("{a:g}–{b:g} percentile band", a=s.lower_pct, b=s.upper_pct))
         ax.plot(x, sgn * r.median_db, color=c.series[0], label=tr("Median"))
         ax.plot(x, sgn * r.nominal_db, color=c.series[1], ls="--", label=tr("Nominal design"))
-        ax.axhline(sgn * s.target_db, color=c.muted, lw=1, ls=":", label=tr("Target"))
-        for lo, hi in yield_intervals(self.ctx.project):
+        ax.axhline(sgn * target_db, color=c.muted, lw=1, ls=":", label=tr("Target"))
+        for lo, hi in bands:
             ax.axvspan(lo / 1e9, hi / 1e9, color=c.series[2], alpha=0.07)
         if self.ctx.project.sweep.log_f:
             ax.set_xscale("log")
         ax.set_xlim(x[0], x[-1])
         ax.legend(loc="best")
-        ax.set_title(tr("Yield {y:.1f}% ({n} samples)", y=100 * r.yield_fraction, n=r.n_samples),
+        ax.set_title(title or tr("Yield {y:.1f}% ({n} samples)", y=100 * r.yield_fraction, n=r.n_samples),
                      fontsize=10, loc="left")
         return None
 
@@ -67,6 +85,8 @@ class TolerancePlot(PlotView):
         r = self.result
         if r is None:
             return None
+        if isinstance(r, CornerResult):  # export the weakest corner
+            r = r.corners[r.worst][5]
         pos = self.ctx.rl_positive
         nom, med = rl_display(r.nominal_db, pos), rl_display(r.median_db, pos)
         # A sign flip reverses the order of the percentile band; keep lower <= median <= upper.
@@ -138,8 +158,16 @@ class TolerancePanel(QWidget):
                 f.addRow(lab, row)
             else:
                 f.addRow(lab, sp)
-        f.addRow(muted(tr("ε″ and μ″ vary independently of ε′ and μ′, so the loss tangent varies too. A "
-                          "relative tolerance has no effect where the nominal loss is zero.")))
+        self.rho = QDoubleSpinBox()
+        self.rho.setRange(-1.0, 1.0)
+        self.rho.setDecimals(2)
+        self.rho.setSingleStep(0.1)
+        self.rho.setToolTip(tr("Correlation coefficient between each layer's real-part error and loss error (ε′ with ε″, "
+                               "μ′ with μ″). 0 = independent; positive when both rise together, for example with "
+                               "filler content. Used only where the loss does not follow the real part."))
+        f.addRow(tr("Real/loss correlation ρ"), self.rho)
+        f.addRow(muted(tr("ε″ and μ″ get their own errors (independent of ε′ and μ′ at ρ = 0), so the loss tangent "
+                          "varies too. A relative tolerance has no effect where the nominal loss is zero.")))
         ll.addWidget(g)
 
         g = QGroupBox(tr("Per-layer tolerances (%)"))
@@ -177,10 +205,18 @@ class TolerancePanel(QWidget):
         f.addRow(tr("Incidence angle"), self.angle)
         f.addRow(tr("Polarisation"), self.pol)
         f.addRow("", self.chk_band)
+        self.chk_corners = QCheckBox(tr("Check every target corner"))
+        self.chk_corners.setToolTip(tr("Run the analysis at both ends of each enabled target's angle range and for "
+                                       "each of its polarisations, against that target's band and goal, and report "
+                                       "the joint yield (samples that pass at every corner)."))
         f.addRow(tr("Band from"), self.b_lo)
         f.addRow(tr("to"), self.b_hi)
         f.addRow(muted(tr("Yield = share of samples whose worst RL in the band meets the target. "
                           "Without a custom band, the bands of the enabled optimisation targets are used.")))
+        f.addRow("", self.chk_corners)
+        f.addRow(muted(tr("A single angle can overstate the yield of a target that spans several angles. With "
+                          "every corner checked, each target's own band and goal apply and the angle, "
+                          "polarisation, target and band above are not used.")))
         ll.addWidget(g)
         ll.addStretch(1)
         split.addWidget(scroll)
@@ -204,15 +240,21 @@ class TolerancePanel(QWidget):
         rl.addLayout(bar)
         self.plot = TolerancePlot(ctx)
         rl.addWidget(self.plot, 1)
+        self.lbl_corners = QLabel()
+        self.lbl_corners.setWordWrap(True)
+        self.lbl_corners.setVisible(False)
+        rl.addWidget(self.lbl_corners)
         split.addWidget(right)
         split.setSizes([440, 600])
         scroll.setMinimumWidth(400)
 
         self.n.valueChanged.connect(self._commit)
         self.seed.valueChanged.connect(self._commit)
+        self.rho.valueChanged.connect(self._commit)
         self.dist.currentIndexChanged.connect(self._commit)
         self.pol.currentIndexChanged.connect(self._commit)
         self.chk_band.toggled.connect(self._commit)
+        self.chk_corners.toggled.connect(self._on_corners_toggled)
         for w in list(self.d.values()) + [self.target, self.angle, self.b_lo, self.b_hi]:
             w.valueEdited.connect(self._commit)
         for chk in self.follow.values():
@@ -238,6 +280,8 @@ class TolerancePanel(QWidget):
                     if follows:
                         val = getattr(s, _LOSS_BASE[k])  # shows the factor the loss follows
                 sp.set_value(val * 100)
+            self.rho.setValue(s.loss_correlation)
+            self._update_rho_enabled()
             pos = self.ctx.rl_positive
             self.target.setRange(*((0, 200) if pos else (-200, 0)))
             self.target.set_value(rl_display(s.target_db, pos))
@@ -270,6 +314,11 @@ class TolerancePanel(QWidget):
                     self.tbl.setItem(r, c, cell)
         finally:
             self._loading = False
+        self._apply_corner_state()
+
+    def _update_rho_enabled(self):
+        """rho couples a loss error to its real-part error, so it needs at least one independent loss tolerance."""
+        self.rho.setEnabled(not all(chk.isChecked() for chk in self.follow.values()))
 
     def _commit(self, *_):
         if self._loading:
@@ -277,8 +326,10 @@ class TolerancePanel(QWidget):
         band = self.chk_band.isChecked()
         self.b_lo.setEnabled(band)
         self.b_hi.setEnabled(band)
+        self._apply_corner_state()
         for k, chk in self.follow.items():
             self.d[k].setEnabled(not chk.isChecked())
+        self._update_rho_enabled()
 
         def mut(p):
             s = p.tolerance
@@ -288,6 +339,7 @@ class TolerancePanel(QWidget):
             for k, sp in self.d.items():
                 follows = k in _LOSS_BASE and self.follow[k].isChecked()
                 setattr(s, k, None if follows else sp.value() / 100)
+            s.loss_correlation = round(self.rho.value(), 2)
             s.target_db = rl_display(self.target.value(), self.ctx.rl_positive)
             s.angle = self.angle.value()
             s.pol = self.pol.currentData()
@@ -334,7 +386,12 @@ class TolerancePanel(QWidget):
         f = tolerance_frequencies(p)
         s = p.tolerance
         band = yield_intervals(p)
-        self.worker = ToleranceWorker(p, f, band)
+        corners = self.chk_corners.isChecked()
+        if corners and not p.optimization.enabled_targets():
+            QMessageBox.information(self, tr("Tolerance analysis"),
+                                    tr("Checking every corner needs at least one enabled optimisation target."))
+            return
+        self.worker = ToleranceWorker(p, f, band, corners=corners)
         self.worker.progress.connect(self._on_progress)
         self.worker.finished.connect(self._on_finished)
         self.worker.failed.connect(self._on_failed)
@@ -362,6 +419,17 @@ class TolerancePanel(QWidget):
     def _on_finished(self, res):
         self.plot.result = res
         self.plot.mark_dirty()
+        if isinstance(res, CornerResult):
+            rows = [f"{corner_label(ti, name, ang, pol)}: {100 * r.yield_fraction:.1f}%"
+                    for ti, name, ang, pol, _tdb, r in res.corners]
+            ti, name, ang, pol, _tdb, _r = res.corners[res.worst]
+            self.lbl_corners.setText(tr("Weakest corner (plotted): {c}. Yield per corner: {rows}",
+                                        c=corner_label(ti, name, ang, pol), rows=" · ".join(rows)))
+            self.lbl_corners.setVisible(True)
+            self.statusMessage.emit(tr("Tolerance analysis: joint yield {y:.1f}% over {n} corners",
+                                       y=100 * (res.joint_yield_fraction or 0.0), n=len(res.corners)))
+            return
+        self.lbl_corners.setVisible(False)
         self.statusMessage.emit(tr("Tolerance analysis: yield {y:.1f}% of {n} samples",
                                    y=100 * res.yield_fraction, n=res.n_samples))
 
@@ -374,11 +442,26 @@ class TolerancePanel(QWidget):
         self.btn_run.setEnabled(True)
         self.btn_stop.setEnabled(False)
 
+    def _apply_corner_state(self):
+        # Per-corner runs use each target's own angle, polarisation, band and goal.
+        if self.chk_corners.isChecked():
+            for w in (self.target, self.angle, self.pol, self.chk_band, self.b_lo, self.b_hi):
+                w.setEnabled(False)
+
+    def _on_corners_toggled(self, on):
+        if on:
+            self._apply_corner_state()
+        else:
+            for w in (self.target, self.angle, self.pol, self.chk_band):
+                w.setEnabled(True)
+            self.refresh()  # restores the band fields' own enabled state
+
     def invalidate(self):
         """The design changed: the previous result no longer matches."""
         if self.plot.result is not None:
             self.plot.result = None
             self.plot.mark_dirty()
+            self.lbl_corners.setVisible(False)
 
 
 _ = (QLabel, SlabLayer)

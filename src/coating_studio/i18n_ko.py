@@ -135,10 +135,10 @@ KO.update({
     "Magnetic loss μ″": "자성 손실 μ″", "Follow ε′": "ε′ 연동", "Follow μ′": "μ′ 연동",
     "Scale the loss with the same factor as the real part (fixed tan δ) instead of varying it independently.":
         "손실을 독립적으로 바꾸지 않고 실수부와 같은 비율로 바꿉니다(tan δ 고정).",
-    "ε″ and μ″ vary independently of ε′ and μ′, so the loss tangent varies too. A relative tolerance has no "
-    "effect where the nominal loss is zero.":
-        "ε″과 μ″은 ε′, μ′과 독립적으로 변하므로 손실 탄젠트(tan δ)도 함께 변합니다. 공칭 손실이 0이면 상대 "
-        "공차는 효과가 없습니다.",
+    "ε″ and μ″ get their own errors (independent of ε′ and μ′ at ρ = 0), so the loss tangent varies too. A "
+    "relative tolerance has no effect where the nominal loss is zero.":
+        "ε″과 μ″에는 따로 오차를 주므로(ρ = 0이면 ε′, μ′과 독립) 손실 탄젠트(tan δ)도 함께 변합니다. 공칭 손실이 "
+        "0이면 상대 공차는 효과가 없습니다.",
     # RLC sheets
     "Model": "모델", "Constant (R + jX)": "상수 (R + jX)", "Series RLC": "직렬 RLC", "RLC sheet": "RLC 시트",
     "Inductance L": "인덕턴스 L", "Capacitance C": "커패시턴스 C", "none": "없음",
@@ -228,6 +228,17 @@ KO.update({
     "This mixture references itself (directly or through other mixtures).": "이 혼합 재료가 자기 자신을 (직접 또는 다른 혼합 재료를 거쳐) 참조합니다.",
     "Power law": "거듭제곱 법칙", "at 1 GHz": "1 GHz 값", "exponent": "지수",
     "New power-law material": "새 거듭제곱 법칙 재료",
+    "Tolerance analysis": "공차 분석",
+    "Check every target corner": "목표의 모든 꼭짓점 평가",
+    "Run the analysis at both ends of each enabled target's angle range and for each of its polarisations, against that target's band and goal, and report the joint yield (samples that pass at every corner).":
+        "사용 중인 목표마다 각도 범위의 양 끝과 각 편광에서, 그 목표의 대역과 목표값을 기준으로 분석하고 결합 수율(모든 꼭짓점을 통과한 표본의 비율)을 보고합니다.",
+    "A single angle can overstate the yield of a target that spans several angles. With every corner checked, each target's own band and goal apply and the angle, polarisation, target and band above are not used.":
+        "각도 범위가 있는 목표는 한 각도만 보면 수율이 부풀려질 수 있습니다. 모든 꼭짓점을 평가하면 각 목표의 대역과 목표값이 적용되고, 위의 입사각·편광·목표·대역 설정은 쓰지 않습니다.",
+    "Checking every corner needs at least one enabled optimisation target.": "모든 꼭짓점을 평가하려면 사용 중인 최적화 목표가 하나 이상 있어야 합니다.",
+    "Target {n}": "목표 {n}",
+    "Joint yield {y:.1f}% over {n} corners ({s} samples)": "꼭짓점 {n}개의 결합 수율 {y:.1f}% (표본 {s}개)",
+    "Weakest corner (plotted): {c}. Yield per corner: {rows}": "가장 취약한 꼭짓점(그래프): {c}. 꼭짓점별 수율: {rows}",
+    "Tolerance analysis: joint yield {y:.1f}% over {n} corners": "공차 분석: 꼭짓점 {n}개의 결합 수율 {y:.1f}%",
     "f in GHz. An empirical curve fit (e.g. the Michielssen 1993 absorber database), not a causal model: use it only inside the band it was fitted on.":
         "f의 단위는 GHz입니다. 경험적 곡선 맞춤(예: Michielssen 1993 흡수체 재료 데이터베이스)이며 인과적 모델이 아니므로, 맞춘 대역 안에서만 쓰십시오.",
     "Target {target}: the design's mu_s x d is {design_mm:.3g} mm but at least {required_mm:.3g} mm is needed (Rozanov bound, normal incidence).":
@@ -350,4 +361,46 @@ KO.update({
 KO.update({
     "In use: {u}": "사용처: {u}",
     "Bold: material is used in the current design.": "굵은 글씨: 현재 설계에서 사용 중인 재료입니다.",
+    "Real/loss correlation ρ": "실수부·손실 상관계수 ρ",
+    "Correlation coefficient between each layer's real-part error and loss error (ε′ with ε″, μ′ with μ″). 0 = independent; positive when both rise together, for example with filler content. Used only where the loss does not follow the real part.":
+        "각 층의 실수부 오차와 손실 오차(ε′와 ε″, μ′와 μ″) 사이의 상관계수입니다. 0이면 서로 독립이고, 충전재 함량처럼 둘이 함께 커지는 경우에는 양수입니다. 손실이 실수부를 따르지 않는 곳에만 쓰입니다.",
+    "Show the optimisation targets whose band includes the angle-sweep frequency (goal level over their angle range)":
+        "각도 스윕 주파수가 대역 안에 드는 최적화 목표를 표시합니다(각도 범위에 걸친 요구 수준)",
+    "Outline the enabled optimisation targets (band × angle range) with their goal; green when this polarisation meets the goal on the map grid, red when not":
+        "켜진 최적화 목표를 대역 × 각도 범위의 사각형과 요구 수준으로 표시합니다. 맵 격자에서 이 편광이 요구를 만족하면 초록, 아니면 빨강입니다",
+    # design report
+    "Angles": "각도", "Band": "대역", "Goal": "요구값", "Margin": "마진", "Worst RL": "최악 RL",
+    "Coating Studio {v} design report": "Coating Studio {v} 설계 보고서",
+    "Comparison curves": "비교 곡선",
+    "Joint yield over all target corners: {y} ({n} samples)": "모든 목표 꼭짓점의 결합 수율: {y} (표본 {n}개)",
+    "Layer 1 faces the incident wave.": "1층이 입사파 쪽입니다.",
+    "Margin = worst RL − goal (20·log₁₀|Γ|); ≤ 0 dB means the target is met. Each target is evaluated on its own band, angles and polarisations. The Rozanov bound is a normal-incidence thickness limit for a metal-backed absorber.":
+        "마진 = 최악 RL − 요구값(20·log₁₀|Γ| 기준)이며, 0 dB 이하이면 목표를 만족합니다. 목표마다 자기 대역·각도·편광에서 평가합니다. Rozanov 한계는 금속 뒷판 흡수체의 수직 입사 두께 한계입니다.",
+    "No enabled targets.": "켜진 목표가 없습니다.",
+    "Reflection": "반사",
+    "Reflection loss is 20·log₁₀|Γ| in dB (negative, lower is better).": "반사 손실은 20·log₁₀|Γ| dB입니다(음수, 낮을수록 좋음).",
+    "Reflection loss is shown as positive dB (higher is better).": "반사 손실을 양수 dB로 표시합니다(높을수록 좋음).",
+    "Rozanov bound": "Rozanov 한계",
+    "Summary": "요약",
+    "TE = TM (normal incidence)": "TE = TM (수직 입사)",
+    "Tolerances: thickness {t} %, ε′ {e} %, ε″ {el}, μ′ {m} %, μ″ {ml}, sheet {sh} %, real/loss correlation ρ = {rho}; {d} distribution, seed {seed}. Per-layer overrides are not listed.":
+        "공차: 두께 {t} %, ε′ {e} %, ε″ {el}, μ′ {m} %, μ″ {ml}, 시트 {sh} %, 실수부·손실 상관계수 ρ = {rho}, 분포 {d}, 시드 {seed}. 층별 개별 공차는 싣지 않았습니다.",
+    "Yield {y} at {a}° {pol} ({n} samples), target {t} dB": "수율 {y}, {a}° {pol} (표본 {n}개), 목표 {t} dB",
+    "design snapshot": "설계 스냅샷", "follows the real part": "실수부를 따름", "goal": "요구값", "hidden": "숨김",
+    "infeasible": "불가능", "met": "만족", "no capacitor": "커패시터 없음", "not evaluated": "판정 안 함",
+    "not met": "미달", "satisfied": "만족", "thicker needed": "더 두꺼워야 함",
+    "Export &Touchstone (.s1p)…": "Touchstone 내보내기(.s1p)(&T)…",
+    "Export &report (HTML)…": "보고서 내보내기(HTML)(&R)…",
+    "Export Touchstone": "Touchstone 내보내기", "Export report": "보고서 내보내기",
+    "HTML (*.html);;All files (*)": "HTML (*.html);;모든 파일 (*)",
+    "Measured data (*.csv *.txt *.dat *.s1p);;All files (*)": "측정 데이터 (*.csv *.txt *.dat *.s1p);;모든 파일 (*)",
+    "Polarisation at {a}° (a Touchstone file holds one):": "{a}°에서 내보낼 편광(Touchstone 파일에는 하나만 들어갑니다):",
+    "Save a one-page design report: targets and margins, layer stack, reflection plots, tolerance result and diagnostics":
+        "목표와 마진, 층 구성, 반사 그래프, 공차 결과, 진단을 담은 한 쪽짜리 설계 보고서를 저장합니다",
+    "Save the reflection coefficient S11 of the frequency sweep as a Touchstone file for circuit and network-analyser tools":
+        "주파수 스윕의 반사 계수 S11을 회로 해석·네트워크 분석기 도구용 Touchstone 파일로 저장합니다",
+    "Saved {n} frequencies ({pol}) to {p}": "주파수 {n}개({pol})를 {p}에 저장했습니다",
+    "Show a measured reflection-loss curve (CSV or Touchstone .s1p) on the Frequency tab":
+        "측정한 반사 손실 곡선(CSV 또는 Touchstone .s1p)을 주파수 탭에 표시합니다",
+    "Touchstone (*.s1p);;All files (*)": "Touchstone (*.s1p);;모든 파일 (*)",
 })

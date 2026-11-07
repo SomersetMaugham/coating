@@ -1,3 +1,5 @@
+import dataclasses
+import json
 import math
 
 import numpy as np
@@ -280,3 +282,78 @@ def test_loss_tolerance_defaults_and_copy():
         p.tolerance.eps_loss = val
         assert p.copy().tolerance.eps_loss == val  # workers run on copies
     assert ToleranceSettings.from_dict({}).eps_loss is None  # old files keep the correlated model
+
+
+# ---------------------------------------------------------------- real/loss error correlation (rho)
+def _rho_project(dist="normal", rho=0.0, n=4000):
+    p = EXAMPLES["dallenbach"][1]()
+    s = p.tolerance
+    s.n_samples, s.distribution, s.loss_correlation = n, dist, rho
+    s.thickness, s.eps, s.mu, s.eps_loss, s.mu_loss = 0.03, 0.05, 0.04, 0.2, 0.3
+    return p, p.structure.layers[0].uid
+
+
+def test_rho_zero_keeps_the_independent_draws():
+    """rho = 0 must reproduce the schema-4 draws exactly: thickness, eps, mu, then eps'', mu'' per layer."""
+    from coating_studio.tolerance import _draw, sample_factors
+    p, uid = _rho_project(n=50)
+    s = p.tolerance
+    got = sample_factors(p, s, np.random.default_rng(7), 50)[uid]
+    rng = np.random.default_rng(7)
+    want = {k: np.maximum(_draw(rng, s.distribution, getattr(s, k), 50), 1e-6) for k in ("thickness", "eps", "mu")}
+    want["eps_re"], want["mu_re"] = want.pop("eps"), want.pop("mu")
+    for k in ("eps_loss", "mu_loss"):
+        want[k] = np.maximum(_draw(rng, s.distribution, getattr(s, k), 50), 1e-6)
+    assert got.keys() == want.keys() and all(np.array_equal(got[k], want[k]) for k in want)
+
+
+@pytest.mark.parametrize("rho", [-0.6, 0.5, 0.9])
+def test_rho_normal_correlation_and_marginals(rho):
+    from coating_studio.tolerance import sample_factors
+    p, uid = _rho_project("normal", rho)
+    fac = sample_factors(p, p.tolerance, np.random.default_rng(3), 4000)[uid]
+    for part, tol_re, tol_loss in (("eps", 0.05, 0.2), ("mu", 0.04, 0.3)):
+        re, loss = fac[f"{part}_re"], fac[f"{part}_loss"]
+        assert abs(np.corrcoef(re, loss)[0, 1] - rho) < 0.04
+        assert abs(np.std(loss) - tol_loss) < 0.015 and abs(np.mean(loss) - 1) < 0.015  # loss keeps its own sigma
+        assert abs(np.std(re) - tol_re) < 0.004  # the real part is untouched
+    full = sample_factors(p, dataclasses.replace(p.tolerance, loss_correlation=1.0), np.random.default_rng(3), 4000)[uid]
+    assert np.allclose(full["eps_loss"] - 1, (full["eps_re"] - 1) * 0.2 / 0.05)  # rho = 1: fully coupled
+
+
+def test_rho_uniform_stays_uniform():
+    from coating_studio.tolerance import sample_factors
+    p, uid = _rho_project("uniform", 0.8)
+    fac = sample_factors(p, p.tolerance, np.random.default_rng(5), 4000)[uid]
+    loss = fac["eps_loss"]
+    assert loss.min() >= 0.8 and loss.max() <= 1.2  # still inside +/- 20 %
+    assert np.histogram(loss, bins=4, range=(0.8, 1.2))[0].min() > 850  # flat (1000 expected per bin)
+    assert abs(np.corrcoef(fac["eps_re"], loss)[0, 1] - 6 / np.pi * np.arcsin(0.4)) < 0.04
+
+
+def test_rho_validation_old_files_and_spec():
+    from coating_studio.cli.spec import project_to_spec, spec_to_project
+    from coating_studio.project import ToleranceSettings
+    from coating_studio.cli.output import CliError
+    assert ToleranceSettings.from_dict({}).loss_correlation == 0.0  # schema <= 4 files: independent
+    p, _ = _rho_project(rho=1.5, n=5)
+    with pytest.raises(ValueError):
+        run_tolerance(p, np.linspace(8e9, 12e9, 5))
+    p.tolerance.loss_correlation = 0.4
+    assert Project.from_dict(json.loads(json.dumps(p.to_dict()))).tolerance.loss_correlation == 0.4
+    spec = project_to_spec(p)
+    assert spec["tolerance"]["loss_correlation"] == 0.4
+    assert spec_to_project(spec)[0].tolerance.loss_correlation == 0.4
+    spec["tolerance"]["loss_correlation"] = -2
+    with pytest.raises(CliError):
+        spec_to_project(spec)
+
+
+def test_rho_changes_yield_only_when_set():
+    p, _ = _rho_project(n=60)
+    f = np.linspace(6e9, 14e9, 41)
+    base = run_tolerance(p, f, band=(8e9, 12e9))
+    p.tolerance.loss_correlation = 0.0
+    assert np.array_equal(run_tolerance(p, f, band=(8e9, 12e9)).worst_db, base.worst_db)
+    p.tolerance.loss_correlation = 0.9
+    assert not np.array_equal(run_tolerance(p, f, band=(8e9, 12e9)).worst_db, base.worst_db)

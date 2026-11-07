@@ -337,3 +337,22 @@ def test_negative_seed_means_random_and_is_reported(example):
     for cmd in (["optimize", path, "--maxiter", "2"], ["tolerance", path, "--n-samples", "3"]):
         code, env, *_ = run(*cmd, "--seed", "-1")
         assert code == 0 and isinstance(env["result"]["seed_used"], int) and env["result"]["seed_used"] >= 0
+
+
+def test_solve_writes_touchstone(example, tmp_path):
+    from coating_studio.touchstone import parse_s1p
+    path = example("dallenbach")
+    out = tmp_path / "d.s1p"
+    code, env, _, _ = run("solve", path, "--summary-only", "--touchstone", out)
+    assert code == 0 and env["result"]["touchstone_path"] == str(out) and env["result"]["touchstone_pol"] == "TE"
+    p = Project.load(path)
+    f, s = parse_s1p(out.read_text())
+    want = solve(p.structure, p.materials, p.sweep.freq_grid(), p.sweep.angle).pol["TE"].gamma[:, 0]
+    assert np.allclose(f, p.sweep.freq_grid()) and np.allclose(s, want, atol=1e-11)
+    code, env, _, _ = run("solve", path, "--angle-deg", "30", "--touchstone", tmp_path / "x.s1p")
+    assert code == 2 and env["error"]["code"] == "usage"  # oblique: say which polarisation
+    code, env, _, _ = run("solve", path, "--angle-deg", "30", "--pol", "TM", "--summary-only",
+                          "--touchstone", tmp_path / "x.s1p")
+    assert code == 0 and env["result"]["touchstone_pol"] == "TM"
+    code, env, _, _ = run("solve", path, "--touchstone", out)
+    assert code == 3 and env["error"]["code"] == "file_exists"

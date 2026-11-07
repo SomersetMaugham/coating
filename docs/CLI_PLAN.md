@@ -276,6 +276,9 @@ CLI와 GUI가 같은 숫자를 내도록 GUI 안에 있던 로직을 엔진으�
   - `map`: `freq_grid(map_n_f)` × `angle_grid(map_n_angle)` (주파수 스윕 점 수가 아님)
 - 덮어쓰기 옵션(사람이 치기 쉽게 GHz로 받되 이름에 단위 명시): `--f-min-ghz`, `--f-max-ghz`, `--n-f`, `--log-f/--linear-f`, `--angle-deg`, `--f-at-ghz`,
   `--angle-min-deg`, `--angle-max-deg`, `--n-angle`, `--map-n-f`, `--map-n-angle`.
+- `--touchstone PATH`(주파수 스윕만): S11을 Touchstone `.s1p`로 함께 씁니다. 파일 하나에 편광 하나이므로 `--pol TE|TM`을 쓰고, `avg`는 수직 입사에서만
+  받습니다(TE로 씀). 기준 저항 R은 입사 매질의 모드 파동 임피던스(TE η/cosθ, TM η·cosθ)입니다. 결과에 `touchstone_path`, `touchstone_pol`,
+  `touchstone_ref_ohm`이 붙습니다. 기존 파일은 `--force` 없이는 덮어쓰지 않습니다.
 - JSON `result`:
   - `summary`: 편광 `TE`·`TM`·`avg` 각각의 `best_rl_db`, `best_f_hz`(각도 스윕이면 `best_theta_deg`), `total_thickness_m`, `areal_mass_kg_m2`.
   - `--targets`일 때만 목표별 `worst_rl_db`, `margin_db`(`evaluate_terms` 재사용). `evaluate_terms`는 스윕 격자가 아니라 목표 격자로 따로 계산하고,
@@ -607,6 +610,7 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
 - (v6) **수직 입사 목표**는 `"angle_deg": 0`(스칼라)로 씁니다. `[0, 0]`과 같고 `n_angle`은 필요 없습니다. 사입사 한 각도는 `"angle_deg": 45`.
 - (v6) **공차 값**(`tolerance`의 `thickness`, `eps`, `mu`, `sheet`, `eps_loss`, `mu_loss`, `per_layer` 값)은 **공칭값에 대한 상대값**입니다(0.05 = 5%).
   `distribution: "normal"`이면 1σ, `"uniform"`이면 ± 반폭입니다(`ToleranceSettings`). 무차원이라 접미사가 없습니다.
+  `loss_correlation`(−1…1, 기본 0)은 같은 층의 실수부 오차와 손실 오차(ε′–ε″, μ′–μ″)의 상관계수 ρ입니다. 손실 공차가 있는 곳에만 쓰입니다(스키마 5).
 - **목표**: `angle_deg`의 상한이 하한보다 크면 `n_angle`이 필수이고 2 이상이어야 합니다. 빠지면 `invalid_spec` —
   `BandTarget.n_angle` 기본값이 1이라 그대로 두면 `grid()`가 하한 각도만 평가합니다(`project.py:102-110`).
 - **재료 dict는 `.coat`와 같은 형식(SI, 접미사 없음)**이라는 예외를 명시합니다. `Material.to_dict()` 그대로이며(`density` kg/m³, `sigma` S/m, 분산 항의 `f0`·`gamma` Hz),

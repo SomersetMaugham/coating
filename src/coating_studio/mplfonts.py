@@ -1,4 +1,4 @@
-"""Matplotlib font set-up so Korean text renders on Windows, macOS and Linux."""
+"""Matplotlib font set-up so Korean text renders on Windows, macOS and Linux (GUI plots and the report; no Qt)."""
 
 from __future__ import annotations
 

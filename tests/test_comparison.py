@@ -76,3 +76,31 @@ def test_measured_csv_sign_units_and_errors():
         parse_measured_text("f [GHz], RL\n1, -10\n2, 12\n")  # ambiguous sign
     with pytest.raises(CsvFormatError):
         parse_measured_text("f [GHz], a, b\n1, -10, 1\n2, -12, 1\n")  # which column?
+
+
+def test_references_round_trip_through_the_project_file(tmp_path):
+    import json
+
+    import pytest
+
+    from coating_studio.comparison import MAX_REFERENCES, ReferenceTrace, snapshot_design
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.project import Project
+
+    p = EXAMPLES["jaumann2"][1]()
+    d = snapshot_design(p, "A", slot=2)
+    m = ReferenceTrace(name="m", kind="measured", slot=2, visible=False,
+                       f_meas=np.array([1e9, 2e9]), rl_meas_db=np.array([-3.0, -12.5]))
+    p.references = [d, m]
+    q = Project.from_dict(json.loads(json.dumps(p.to_dict())))
+    assert [r.name for r in q.references] == ["A", "m"]
+    assert q.references[0].model == d.model and q.references[1].slot != q.references[0].slot  # slots made unique
+    assert not q.references[1].visible and np.array_equal(q.references[1].f_meas, m.f_meas)
+    # the restored design re-solves like the original
+    sw = p.sweep
+    assert np.array_equal(q.references[0].results(sw)["freq"].pol["TE"].gamma, d.results(sw)["freq"].pol["TE"].gamma)
+    assert Project.from_dict({k: v for k, v in p.to_dict().items() if k != "references"}).references == []  # schema 4
+    many = {**p.to_dict(), "references": [d.to_dict()] * (MAX_REFERENCES + 2)}
+    assert len(Project.from_dict(many).references) == MAX_REFERENCES
+    with pytest.raises(ValueError):
+        ReferenceTrace.from_dict({"name": "x", "kind": "measured", "f_hz": [1e9], "rl_db": [1.0, 2.0]})

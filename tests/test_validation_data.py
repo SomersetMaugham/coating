@@ -54,19 +54,44 @@ def test_kumar2021_peak_frequency(sample):
 
 
 def test_michielssen_benchmark_reproduces_published_designs():
-    """Asi & Dib (2010) designs on their own 0.5 GHz grid, and the recorded Coating Studio design."""
+    """Asi & Dib (2010) designs on their own 0.5 GHz grid, Goudos's own designs, and the recorded Coating Studio design."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("mb", VAL / "michielssen_benchmark.py")
     mb = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mb)
     mats = mb.database()
     for d in mb.BM["designs"]:
-        if d["source"].startswith("asi_dib_2010"):
+        if d["source"].startswith("asi_dib_2010") or d.get("must_reproduce"):
             got = mb.max_reflection(mats, d["layers"], d["grid_step_GHz"])
             assert abs(got - d["published_dB"]) <= mb.REPRODUCED_DB, d["name"]
     for d in mb.BM["designs_3layer"]:  # Amaya & Correa (2013): 3 layers, 0.85-5.4 GHz
         got = mb.max_reflection(mats, d["layers"], 0.01, band=(0.85, 5.4))
         assert abs(got - d["published_dB"]) <= mb.REPRODUCED_DB, d["name"]
-    cs = mb.BM["coating_studio_design"]
-    assert abs(mb.max_reflection(mats, cs["layers"], 0.1) - cs["max_dB_0p1GHz"]) <= 1e-3
+    for d in mb.BM["designs_7layer"]:
+        if d.get("must_reproduce"):
+            got = mb.max_reflection(mats, d["layers"], 0.1, band=(0.1, 20.0))
+            assert abs(got - d["published_dB"]) <= mb.REPRODUCED_DB, d["name"]
+    for name, cs in mb.BM["coating_studio_designs"].items():
+        got = mb.max_reflection(mats, cs["layers"], cs["grid_step_GHz"], band=tuple(cs["band_GHz"]))
+        assert abs(got - cs["max_dB"]) <= 1e-3, name
     assert mb.BM["database"]["8"]["eps_loss"] == 6.0
+
+
+def test_restart_from_a_good_design_never_gets_worse_with_many_material_combinations():
+    """With > MAX_ENUMERATED_COMBOS material combinations the optimiser encodes materials as integers; the
+    starting design (materials and thicknesses) must still seed the search, so a short run cannot end worse."""
+    import importlib.util
+    from coating_studio.cli.spec import spec_to_project
+    from coating_studio.optimize import evaluate_terms, optimize
+    spec = importlib.util.spec_from_file_location("mb", VAL / "michielssen_benchmark.py")
+    mb = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mb)
+    s = mb.search_spec("A")
+    good = [d for d in mb.BM["designs"] if d["name"] == "CFO"][0]["layers"]
+    for layer, (m, t) in zip(s["layers"], good):
+        layer["material"], layer["thickness_mm"] = f"M{m}", t
+    p, _ = spec_to_project(s)
+    start = evaluate_terms(p).objective
+    p.optimization.maxiter, p.optimization.popsize, p.optimization.seed, p.optimization.polish = 2, 5, 1, False
+    res = optimize(p, throttle_s=0.0)
+    assert res.terms.objective <= start + 1e-12

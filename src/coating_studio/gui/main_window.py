@@ -33,8 +33,8 @@ from coating_studio.gui.theme import apply_qt_theme, resolve
 from coating_studio.gui.widgets.layer_stack import LayerStackWidget
 from coating_studio.gui.widgets.properties import PropertiesPanel
 from coating_studio.gui.widgets.sweep_panel import SweepPanel
-from coating_studio.i18n import issue_text, tr
-from coating_studio.materials.checks import check_material
+from coating_studio import diagnostics
+from coating_studio.i18n import tr
 from coating_studio.materials.csvio import CsvFormatError
 from coating_studio.materials.models import MaterialCycleError, OutOfRangeError
 from coating_studio.project import FILE_EXTENSION, Project, ProjectError, new_project_with_example_stack
@@ -51,7 +51,9 @@ class MainWindow(QMainWindow):
         self.doc = Document(new_project_with_example_stack(tr("Untitled")))
         self.results = {}
         self.result_error = None
-        # Pinned reference traces live for the session, across New/Open (not saved, not undoable).
+        # Pinned reference traces (comparison curves).  They are saved with the project; a project opened
+        # without saved curves keeps the ones on screen, so designs from different files can be compared.
+        # Not undoable.
         self.references = []
         self._ref_counter = 0
         self.setWindowIcon(QApplication.windowIcon())
@@ -64,7 +66,7 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._build_toolbar()
         self._build_status()
-        self._references_changed()
+        self._references_changed(user=False)
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -165,6 +167,12 @@ class MainWindow(QMainWindow):
         self.a_export_fig = self._action(tr("Export &figure…"), self.export_figure, "Ctrl+E", "export",
                                          tr("Export the current plot (PNG/SVG/PDF)"))
         self.a_export_data = self._action(tr("Export &data (CSV)…"), self.export_data, "Ctrl+Shift+E")
+        self.a_export_s1p = self._action(tr("Export &Touchstone (.s1p)…"), lambda: self.export_touchstone(), None,
+                                         None, tr("Save the reflection coefficient S11 of the frequency sweep as a "
+                                                  "Touchstone file for circuit and network-analyser tools"))
+        self.a_export_report = self._action(tr("Export &report (HTML)…"), lambda: self.export_report(), None, None,
+                                            tr("Save a one-page design report: targets and margins, layer stack, "
+                                               "reflection plots, tolerance result and diagnostics"))
         self.a_quit = self._action(tr("&Quit"), self.close, QKeySequence.Quit)
         self.a_undo = self.doc.undo_stack.createUndoAction(self, tr("&Undo"))
         self.a_undo.setShortcut(QKeySequence.Undo)
@@ -185,7 +193,8 @@ class MainWindow(QMainWindow):
                                   tr("Pin the current design as a reference curve on the Frequency, Angle "
                                      "and Smith chart tabs"))
         self.a_import_meas = self._action(tr("Import measured curve…"), self.import_measured, None, "import",
-                                          tr("Show a measured reflection-loss curve (CSV) on the Frequency tab"))
+                                          tr("Show a measured reflection-loss curve (CSV or Touchstone .s1p) on "
+                                             "the Frequency tab"))
         self.a_clear_refs = self._action(tr("Remove all references"), self.clear_references)
         self.m_refs = QMenu(self)
         self.m_refs.aboutToShow.connect(self._fill_references_menu)
@@ -211,6 +220,8 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         m.addAction(self.a_export_fig)
         m.addAction(self.a_export_data)
+        m.addAction(self.a_export_s1p)
+        m.addAction(self.a_export_report)
         m.addSeparator()
         m.addAction(self.a_quit)
 
@@ -357,6 +368,11 @@ class MainWindow(QMainWindow):
         return self.doc.project
 
     def _on_reset(self):
+        if self.project.references:  # a file with saved comparison curves shows those
+            self.references = list(self.project.references)
+            self._ref_counter = len(self.references)
+        self.project.references = self.references
+        self._references_changed(user=False)
         self.w_layers.refresh(self.colors)
         layers = self.project.structure.layers
         if layers:
@@ -383,7 +399,8 @@ class MainWindow(QMainWindow):
             self.w_props.refresh()  # RLC info shows Zs at the angle-sweep frequency
             self.p_tol.plot.mark_dirty()
             self._sync_sweep_editors()
-            self.v_freq.mark_dirty()  # target mask
+            for v in (self.v_freq, self.v_angle, self.v_map):
+                v.mark_dirty()  # target masks
         self._timer.start()
 
     def _sync_sweep_editors(self):
@@ -456,16 +473,10 @@ class MainWindow(QMainWindow):
             it = QListWidgetItem(icon("error"), self.result_error)
             self.w_msgs.addItem(it)
             n_issues += 1
-        names = sorted(n for n in p.structure.referenced_materials() if n in p.materials)
-        notes = []
-        for n in names:
-            for iss in check_material(p.materials[n], f, p.resolver):
-                text = f"{n}: {issue_text(iss)}"
-                if iss.level == "info":
-                    notes.append(text)
-                    continue
-                self.w_msgs.addItem(QListWidgetItem(icon("error" if iss.level == "error" else "warning"), text))
-                n_issues += 1
+        problems, notes = diagnostics.collect(p, f)
+        for level, text in problems:
+            self.w_msgs.addItem(QListWidgetItem(icon(level), text))
+            n_issues += 1
         if not n_issues:
             self.w_msgs.addItem(QListWidgetItem(icon("info"), tr("No problems found in the materials used.")))
         for text in notes:  # informational only (e.g. built-in demo values); not counted as problems
@@ -562,6 +573,7 @@ class MainWindow(QMainWindow):
     def _open_project_object(self, proj):
         if not self._confirm_discard():
             return
+        proj.references = self.references  # the curves on screen, including the "Before optimisation" just pinned
         self.doc.set_project(proj)
         self.doc._settings_dirty = True
         self._update_title()
@@ -603,6 +615,57 @@ class MainWindow(QMainWindow):
         if v:
             v.export_data(self)
 
+    def _export_path(self, title, suffix, file_filter):
+        start = os.path.join(self.settings.last_dir, self.project.name + suffix)
+        path, _ = QFileDialog.getSaveFileName(self, title, start, file_filter)
+        if path and not path.lower().endswith(suffix):
+            path += suffix
+        return path
+
+    def export_touchstone(self, path=None, pol=None):
+        """S11 of the frequency sweep as .s1p.  One polarisation per file: asked for at oblique incidence."""
+        from coating_studio.touchstone import write_design_s1p
+
+        if pol is None:
+            if abs(self.project.sweep.angle) < 1e-12:
+                pol = "TE"  # TE = TM at normal incidence
+            else:
+                pol, ok = QInputDialog.getItem(
+                    self, tr("Export Touchstone"),
+                    tr("Polarisation at {a}° (a Touchstone file holds one):", a=f"{self.project.sweep.angle:g}"),
+                    ["TE", "TM"], 0, False)
+                if not ok:
+                    return None
+        if path is None:
+            path = self._export_path(tr("Export Touchstone"), ".s1p", tr("Touchstone (*.s1p);;All files (*)"))
+            if not path:
+                return None
+        try:
+            n = write_design_s1p(path, self.project, pol)
+        except (OSError, SolverError, OutOfRangeError, MaterialCycleError, KeyError, ValueError) as e:
+            QMessageBox.critical(self, tr("Export failed"), str(e))
+            return None
+        self.settings.last_dir = os.path.dirname(path) or self.settings.last_dir
+        self.statusBar().showMessage(tr("Saved {n} frequencies ({pol}) to {p}", n=n, pol=pol, p=path), 6000)
+        return path
+
+    def export_report(self, path=None):
+        from coating_studio.report import write_report
+
+        if path is None:
+            path = self._export_path(tr("Export report"), ".html", tr("HTML (*.html);;All files (*)"))
+            if not path:
+                return None
+        try:
+            write_report(path, self.project, rl_positive=self.rl_positive, references=list(self.references),
+                         tolerance=self.p_tol.plot.result, source=self.doc.path)
+        except OSError as e:
+            QMessageBox.critical(self, tr("Export failed"), str(e))
+            return None
+        self.settings.last_dir = os.path.dirname(path) or self.settings.last_dir
+        self.statusBar().showMessage(tr("Saved {p}", p=path), 6000)
+        return path
+
     def open_materials(self, select=None):
         dlg = MaterialManager(self.doc, self, select=select or None, parent=self)
         dlg.exec()
@@ -626,7 +689,12 @@ class MainWindow(QMainWindow):
         self.references.append(ref)
         self._references_changed()
 
-    def _references_changed(self):
+    def _set_references(self, refs):
+        self.references[:] = refs  # in place: the project holds the same list and saves it
+
+    def _references_changed(self, user=True):
+        if user:
+            self.doc.mark_dirty()  # comparison curves are saved with the file
         n = len(self.references)
         self.a_refs.setText(tr("References ({n})", n=n) if n else tr("References"))
         self.a_clear_refs.setEnabled(bool(n))
@@ -651,7 +719,7 @@ class MainWindow(QMainWindow):
     def pin_before_optimisation(self):
         """Called by the optimiser just before a result replaces the design."""
         name = tr(BEFORE_OPTIMISATION)
-        self.references = [r for r in self.references if not (r.kind == "design" and r.name == name)]
+        self._set_references([r for r in self.references if not (r.kind == "design" and r.name == name)])
         if self.pin_reference(name) is None:
             self._references_changed()
             self.statusBar().showMessage(
@@ -661,7 +729,7 @@ class MainWindow(QMainWindow):
     def import_measured(self, path=None):
         if path is None:
             path, _ = QFileDialog.getOpenFileName(self, tr("Import measured curve"), "",
-                                                  tr("CSV files (*.csv *.txt *.dat);;All files (*)"))
+                                                  tr("Measured data (*.csv *.txt *.dat *.s1p);;All files (*)"))
             if not path:
                 return None
         slot = free_slot(self.references)
@@ -682,11 +750,11 @@ class MainWindow(QMainWindow):
         return ref
 
     def remove_reference(self, ref):
-        self.references = [r for r in self.references if r is not ref]
+        self._set_references([r for r in self.references if r is not ref])
         self._references_changed()
 
     def clear_references(self):
-        self.references = []
+        self._set_references([])
         self._references_changed()
 
     def set_reference_visible(self, ref, visible):

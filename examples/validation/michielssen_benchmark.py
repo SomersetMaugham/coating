@@ -2,6 +2,7 @@
 
 Benchmark A: 5 layers, 2-8 GHz, <= 5 mm (GA, PSO, DE, CFO, BESOA, MIGRO, ...).
 Benchmark B: 3 layers, 0.85-5.4 GHz (PSO, UPSO; Amaya & Correa 2013).
+Benchmark C: 7 layers, 0.1-20 GHz, <= 10 mm (CFO, MLPSO, DE, MIGRO, ...).
 
 This script
   1. builds the database (power-law and relaxation-type materials) from reference.json,
@@ -52,27 +53,39 @@ def max_reflection(mats, layers, step_ghz, band=(2.0, 8.0)):
     return float(power_to_db(solve(s, mats, f, 0.0, pols=("TE",)).quantity("R", "TE"))[:, 0].max())
 
 
-def search_spec():
-    """A coating-cli spec of the benchmark search (all layers free among the 16 materials)."""
+PROBLEMS = {  # name -> (layers, band GHz, total thickness limit mm or None, max thickness per layer mm, grid GHz, goal dB)
+    "A": (5, (2.0, 8.0), 5.0, 5.0, 0.1, -25.885),
+    "B": (3, (0.85, 5.4), None, 2.0, 0.01, -21.46),
+    "C": (7, (0.1, 20.0), 10.0, 10.0, 0.1, -18.709),
+}
+
+
+def search_spec(problem="A"):
+    """A coating-cli spec of a benchmark search (every layer free among the 16 materials)."""
+    n, (lo, hi), tmax, dmax, step, goal = PROBLEMS[problem]
     mats = [m.to_dict() for m in database().values()]
     names = [m["name"] for m in mats]
-    layers = [{"name": f"L{i}", "material": "M6", "thickness_mm": 1.0} for i in range(1, 6)]
-    return {"spec_version": 1, "name": "Michielssen 1993 benchmark, 5 layers 2-8 GHz",
+    n_f = int(round((hi - lo) / step)) + 1
+    opt = {"w_worst": 1, "w_mean": 0, "w_thickness": 0, "w_mass": 0, "rl_ref_db": goal}
+    if tmax is not None:
+        opt["thickness_max_mm"] = tmax
+    return {"spec_version": 1, "name": f"Michielssen 1993 benchmark {problem}: {n} layers {lo:g}-{hi:g} GHz",
             "notes": "Benchmark materials, not real products (materials 14-16 exceed the Snoek limit).",
-            "backing": "pec", "materials": mats, "layers": layers,
-            "sweep": {"f_ghz": [2, 8], "n_f": 61, "f_at_ghz": 5},
-            "targets": [{"name": "2-8 GHz normal", "f_ghz": [2, 8], "n_f": 61, "angle_deg": 0, "pols": ["TE"],
-                         "goal_db": -25.885}],
-            "variables": [{"layer": f"L{i}", "param": "thickness", "range": [0.01, 5.0], "unit": "mm"}
-                          for i in range(1, 6)],
-            "choices": [{"layer": f"L{i}", "candidates": names} for i in range(1, 6)],
-            "optimization": {"w_worst": 1, "w_mean": 0, "w_thickness": 0, "w_mass": 0, "rl_ref_db": -25.885,
-                             "thickness_max_mm": 5.0}}
+            "backing": "pec", "materials": mats,
+            "layers": [{"name": f"L{i}", "material": "M6", "thickness_mm": min(1.0, dmax / 2)} for i in range(1, n + 1)],
+            "sweep": {"f_ghz": [lo, hi], "n_f": n_f, "f_at_ghz": (lo + hi) / 2},
+            "targets": [{"name": f"{lo:g}-{hi:g} GHz normal", "f_ghz": [lo, hi], "n_f": n_f, "angle_deg": 0,
+                         "pols": ["TE"], "goal_db": goal}],
+            "variables": [{"layer": f"L{i}", "param": "thickness", "range": [0.01, dmax], "unit": "mm"}
+                          for i in range(1, n + 1)],
+            "choices": [{"layer": f"L{i}", "candidates": names} for i in range(1, n + 1)],
+            "optimization": opt}
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--write-spec", metavar="PATH")
+    ap.add_argument("--problem", choices=sorted(PROBLEMS), default="A", help="which search --write-spec writes")
     ap.add_argument("--optimize", action="store_true")
     args = ap.parse_args()
     mats = database()
@@ -83,8 +96,8 @@ def main():
         got = max_reflection(mats, d["layers"], d["grid_step_GHz"])
         diff = got - d["published_dB"]
         ok = abs(diff) <= REPRODUCED_DB
-        if d["source"].startswith("asi_dib_2010"):
-            ok_all.append(ok)  # the reference set: these must reproduce
+        if d.get("must_reproduce"):
+            ok_all.append(ok)  # a paper's own designs; reprints in other papers are only reported
         verdict = "reproduced" if ok else "NOT reproduced"
         print(f"  {d['name'] + ' [' + d['source'] + ']':64s} {d['grid_step_GHz']:5.1f} {d['published_dB']:10.3f} "
               f"{got:9.3f} {diff:+7.3f}  {verdict}")
@@ -96,17 +109,27 @@ def main():
         ok_all.append(ok)
         print(f"  {d['name'] + ' [' + d['source'] + ']':64s} {d['published_dB']:10.3f} {got:9.3f} {diff:+7.3f}  "
               f"{'reproduced' if ok else 'NOT reproduced'}")
-    cs = BM["coating_studio_design"]
-    got = max_reflection(mats, cs["layers"], 0.1)
-    fine = max_reflection(mats, cs["layers"], 0.01)
-    total = sum(t for _, t in cs["layers"])
-    ok_all.append(abs(got - cs["max_dB_0p1GHz"]) <= 1e-3 and total <= 5.0)
-    print(f"\nCoating Studio design: {got:.3f} dB on the 0.1 GHz grid ({fine:.3f} dB on 0.01 GHz), "
-          f"{total:.3f} mm thick")
+    print("\nBenchmark C (7 layers, 0.1-20 GHz, <= 10 mm; 0.1 GHz grid):")
+    for d in BM["designs_7layer"]:
+        got = max_reflection(mats, d["layers"], 0.1, band=(0.1, 20.0))
+        diff = got - d["published_dB"]
+        ok = abs(diff) <= REPRODUCED_DB
+        if d.get("must_reproduce"):
+            ok_all.append(ok)
+        print(f"  {d['name'] + ' [' + d['source'] + ']':64s} {d['published_dB']:10.3f} {got:9.3f} {diff:+7.3f}  "
+              f"{'reproduced' if ok else 'NOT reproduced'}")
+    print("\nCoating Studio's own searches (coating-cli optimize):")
+    best_published = {"A": -25.884, "B": -21.4538, "C": -18.709}  # best published designs that reproduce, recomputed
+    for name, cs in BM["coating_studio_designs"].items():
+        got = max_reflection(mats, cs["layers"], cs["grid_step_GHz"], band=tuple(cs["band_GHz"]))
+        total = sum(t for _, t in cs["layers"])
+        ok_all.append(abs(got - cs["max_dB"]) <= 1e-3)
+        print(f"  {name}: {got:.3f} dB, {total:.3f} mm ({len(cs['layers'])} layers); best reproducible published "
+              f"design {best_published[name]:.3f} dB")
     print(f"\n{sum(ok_all)}/{len(ok_all)} checks pass "
-          "(Asi & Dib and Amaya & Correa designs within {:.2f} dB; recorded Coating Studio result)".format(REPRODUCED_DB))
+          "(the papers' own designs within {:.2f} dB; recorded Coating Studio results)".format(REPRODUCED_DB))
     if args.write_spec:
-        Path(args.write_spec).write_text(json.dumps(search_spec(), indent=1))
+        Path(args.write_spec).write_text(json.dumps(search_spec(args.problem), indent=1))
         print(f"wrote {args.write_spec}: coating-cli build {args.write_spec} -o bench.coat, then "
               "coating-cli optimize bench.coat -o best.coat --restarts 3")
     if args.optimize:

@@ -74,6 +74,9 @@ def build_parser():
     so.add_argument("--targets", action="store_true", help="add worst RL and margin per enabled target")
     so.add_argument("--summary-only", action="store_true", help="omit the data arrays")
     so.add_argument("--layer-absorption", action="store_true")
+    so.add_argument("--touchstone", metavar="PATH",
+                    help="also write the frequency sweep's S11 as a Touchstone .s1p (one polarisation: --pol TE or "
+                         "TM; avg is accepted only at normal incidence, where TE = TM)")
     for name in ("--f-min-ghz", "--f-max-ghz", "--f-at-ghz", "--angle-deg", "--angle-min-deg", "--angle-max-deg"):
         so.add_argument(name, type=float)
     for name in ("--n-f", "--n-angle", "--map-n-f", "--map-n-angle"):
@@ -161,7 +164,8 @@ def _run(args, control):
                                                     "angle_max_deg", "n_f", "n_angle", "map_n_f", "map_n_angle", "log_f")}
         return C.cmd_solve(args.file, args.sweep, args.quantity, args.pol, args.targets or bool(args.journal),
                            args.summary_only,
-                           args.layer_absorption, args.format, args.output, args.force, overrides)
+                           args.layer_absorption, args.format, args.output, args.force, overrides,
+                           touchstone=args.touchstone)
     if c == "optimize":
         return C.cmd_optimize(args.file, control, args.output, args.in_place, args.force, args.seed, args.maxiter,
                               args.popsize, args.polish, args.strict, args.restarts)

@@ -8,7 +8,7 @@ measurements. Run them from the repository root after `pip install -e ".[dev]"`.
 | `analytic_benchmarks.py` | Textbook formulas, independent TMM | MgF₂ AR on BK7, Brewster angle, TIR, TiO₂/SiO₂ Bragg mirror, water (Debye), Salisbury screen, thin film ≡ sheet, NiZn ferrite tile, 300 random stacks against a separately written characteristic-matrix solver, R+T+ΣA=1, optimiser rediscovering the Salisbury design | 12/12 pass, agreement to ~1e-16 |
 | `datasheet_laird.py` | Laird Eccosorb MF datasheet (8 grades, 1–18 GHz) | Imports the published ε, μ as CSV and recomputes the vendor's attenuation (dB/cm) and \|Z\|/Z₀ | Attenuation median 0.4 % (max 5.7 %, from rounding); \|Z\|/Z₀ median 0.003 |
 | `measured_kumar2021.py` | Kumar et al. 2021, U-type hexaferrite/PVA | ε, μ digitised from Fig. 4 → metal-backed RL at t_m, compared with the **measured** short-circuit S11 in Table II, with a Monte Carlo for digitising error | Peak frequency within ~1 % for all 5 samples; −10 dB bandwidth matches measurement for 4 of 5 (U8 is the exception, see below) |
-| `michielssen_benchmark.py` | Michielssen et al. 1993 absorber database (16 materials); designs from Asi & Dib 2010, Kankılıç & Karpat 2023, Zong et al. 2024 (5 layers, 2–8 GHz) and Amaya & Correa 2013 (3 layers, 0.85–5.4 GHz) | Recomputes every published design on its paper's own frequency grid, and the design Coating Studio's optimiser found; `--write-spec` writes the 5-layer search as a `coating-cli` spec | 5 Asi & Dib and 3 Amaya & Correa designs reproduced within 0.05 dB (9/9 checks); BESOA and MIGRO **not reproduced** (0.12–0.19 dB worse than published); Coating Studio −25.927 dB, 4.996 mm |
+| `michielssen_benchmark.py` | Michielssen et al. 1993 absorber database (16 materials); three problems: A = 5 layers 2–8 GHz ≤ 5 mm, B = 3 layers 0.85–5.4 GHz, C = 7 layers 0.1–20 GHz ≤ 10 mm; designs from Asi & Dib 2010, Amaya & Correa 2013, Kankılıç & Karpat 2023, Zong et al. 2024, Chamaani et al. 2008 | Recomputes every published design on its paper's own frequency grid, and the designs Coating Studio's optimiser found; `--write-spec --problem A/B/C` writes each search as a `coating-cli` spec | The papers' own designs reproduce within 0.05 dB (12/12 checks); several reprints do not (see below). Coating Studio: A −25.956 dB (best reproducible published −25.884), B −21.460 (−21.454), C −18.843 (−18.709) |
 | `measured_duan2010.py` | Duan et al. 2010, carbonyl iron/silicone rubber | Same idea, but the paper's ε, μ were measured on the powder, not on the sheets whose RL was measured | **Negative result**: the data set is not self-consistent, so it cannot validate a solver |
 
 `measured_kumar2021.py --plot out.png` draws the comparison (`kumar2021_rl.png` is a copy).
@@ -36,8 +36,16 @@ measurements. Run them from the repository root after `pip install -e ".[dev]"`.
   design and the BESOA design (Kankılıç & Karpat 2023) come out 0.12 and 0.19 dB worse than published on any grid,
   although their thicknesses are given to 4–5 decimals; we report them as not reproduced rather than as wrong.
   The best published design that reproduces is Asi & Dib's Table 4 CFO design (−25.884 dB). Coating Studio's
-  own search (`coating-cli optimize`, 3 × `--restarts 3`) found −25.927 dB at 4.996 mm, 0.04 dB better. The worst
-  point is at the 8 GHz band edge, so the value does not depend on the grid.
+  own search found −25.956 dB at 4.999 mm (−25.953 dB on a 0.01 GHz grid).
+- **Third benchmark** (7 layers, 0.1–20 GHz, ≤ 10 mm): Asi & Dib's CFO design and the MIGRO, GRO and DE designs
+  reproduce within 0.05 dB; BLSA-SA (0.064 dB) and CAS (0.73 dB) do not. The DE design is printed twice with
+  layers 1 and 3 swapped: Kankılıç & Karpat's 16/…/14 reproduces, Zong et al.'s 14/…/16 gives −15.5 dB (a
+  transcription error). Chamaani et al.'s 9.6 mm design recomputes to −18.709 dB, better than its published
+  −18.5 (apparently rounded). Coating Studio's search reached −18.843 dB at 9.603 mm, the same on a 0.01 GHz grid.
+- **Restarting the optimiser**: the first 7-layer runs stalled at 5.8 mm (−17.94 dB), and one restart from a
+  −18.29 dB design ended *worse* (−17.85 dB). With more than 64 material combinations the optimiser did not seed
+  its search with the starting design. Fixed in the same change (`optimize.optimizer`): the best results above
+  come from restarts after the fix.
 - **Second benchmark** (Amaya & Correa 2013, 3 layers, 0.85–5.4 GHz): its three designs reproduce within
   0.01 dB on any grid (the paper does not state one). They use materials 3 and 4, which the 5-layer designs do
   not, so they also check those power-law exponents, which that paper itself does not print. Its Table 1 lists

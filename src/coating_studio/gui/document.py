@@ -98,6 +98,13 @@ class Document(QObject):
             self.dirty_changed.emit(True)
         self.changed.emit("settings")
 
+    def mark_dirty(self):
+        """Something saved with the file but outside the model and settings changed (comparison curves)."""
+        was = self.is_dirty
+        self._settings_dirty = True
+        if not was:
+            self.dirty_changed.emit(True)
+
     def _restore(self, state):
         self.project.restore_model_state(state)
         self.changed.emit("model")

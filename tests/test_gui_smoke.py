@@ -21,7 +21,7 @@ def app(tmp_path_factory):
     QCoreApplication.setOrganizationName("CoatingStudioTest")
     QCoreApplication.setApplicationName("CoatingStudioTest")
     a = QApplication.instance() or QApplication([])
-    from coating_studio.gui.fonts import configure_matplotlib_fonts
+    from coating_studio.mplfonts import configure_matplotlib_fonts
 
     configure_matplotlib_fonts()
     yield a
@@ -520,11 +520,184 @@ def test_loss_tolerance_panel(app):
     d["tolerance"].pop("mu_loss")
     w.doc.set_project(Project.from_dict(d))
     assert pt.follow["eps_loss"].isChecked() and pt.follow["mu_loss"].isChecked()
+    assert not pt.rho.isEnabled()  # rho needs an independent loss tolerance
+    pt.follow["mu_loss"].setChecked(False)
+    assert pt.rho.isEnabled() and w.project.tolerance.loss_correlation == 0.0
+    pt.rho.setValue(0.6)
+    assert w.project.tolerance.loss_correlation == pytest.approx(0.6) and w.doc.is_dirty
     # 7-column per-layer table; a loss cell overrides one layer
     assert pt.tbl.columnCount() == 7 and pt.tbl.horizontalHeaderItem(3).text() == "ε″"
     pt.tbl.item(0, 3).setText("25")
     uid = w.project.structure.layers[0].uid
     assert w.project.tolerance.per_layer[uid]["eps_loss"] == pytest.approx(0.25)
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()
+
+
+def test_tolerance_corners_and_extended_diagnostics(app):
+    """GUI parity with coating-cli: per-corner joint yield, and the same diagnostics as `check`."""
+    from coating_studio.core.structure import Backing, SlabLayer, Structure
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.materials.models import MixtureMaterial
+    from coating_studio.project import ContinuousVariable
+    from coating_studio.tolerance import CornerResult, run_tolerance_corners, tolerance_frequencies
+
+    w = MainWindow()
+    p = EXAMPLES["dualband"][1]()
+    p.tolerance.n_samples = 20
+    w.doc.set_project(p)
+    tol = w.p_tol
+    tol.chk_corners.setChecked(True)
+    assert not tol.angle.isEnabled() and not tol.pol.isEnabled() and not tol.target.isEnabled()
+    tol.run()
+    for _ in range(800):
+        _pump(app, 25)
+        if tol.thread is None:
+            break
+    res = tol.plot.result
+    assert isinstance(res, CornerResult) and not tol.lbl_corners.isHidden()
+    direct = run_tolerance_corners(w.project, tolerance_frequencies(w.project))
+    assert [c[5].yield_fraction for c in res.corners] == [c[5].yield_fraction for c in direct.corners]
+    assert res.joint_yield_fraction <= min(c[5].yield_fraction for c in res.corners)
+    assert tol.plot.data_table() is not None
+    tol.chk_corners.setChecked(False)
+    assert tol.angle.isEnabled() and tol.pol.isEnabled()
+
+    # Diagnostics: a thin layer that cannot meet its target (Rozanov), and a mixture whose fraction range
+    # reaches the percolation region (constituents checked too).
+    q = EXAMPLES["dallenbach"][1]()
+    q.add_material(MixtureMaterial("CB mix", "Epoxy", "Carbon black", 0.10, "bruggeman"))
+    q.structure = Structure(layers=[SlabLayer("CB mix", 0.5e-3)], backing=Backing("pec"))
+    q.optimization.variables = [ContinuousVariable(("material", "CB mix", "fraction"), 0.05, 0.30)]
+    q.optimization.choices = []
+    w.doc.set_project(q)
+    w.recompute()
+    texts = [w.w_msgs.item(i).text() for i in range(w.w_msgs.count())]
+    assert any("CB mix:" in t and "bruggeman" in t for t in texts)          # mixture_fraction_range
+    assert any(t.startswith("Target 1") for t in texts)                       # rozanov_limit / _infeasible
+    assert any(t.startswith("Carbon black:") for t in texts)                  # constituent's demo-values note
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()
+
+
+def test_target_masks_on_angle_and_map_tabs(app):
+    """Angle tab: the targets whose band holds the sweep frequency; map tab: one box (or line) per target."""
+    from matplotlib.patches import Rectangle
+
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["dualband"][1]())  # X 8-12 GHz at 0 deg (-20 dB), Ku 12-18 GHz 0-45 deg (-10 dB)
+
+    def draw(view):
+        w.tabs.setCurrentWidget(view)
+        view.redraw()
+        return view.fig.axes[0]
+
+    def mask_segments(ax):
+        segs = [s for c in ax.collections if c.get_label() == "Targets" for s in c.get_segments()]
+        marks = [ln for ln in ax.get_lines() if ln.get_label() == "Targets"]
+        return segs, marks
+
+    w.doc.edit_settings(lambda p: setattr(p.sweep, "f_at", 15e9))
+    w.recompute()
+    segs, marks = mask_segments(draw(w.v_angle))
+    assert len(segs) == 1 and not marks  # only Ku holds 15 GHz: its goal over 0-45 deg
+    (x0, y0), (x1, y1) = segs[0]
+    assert (x0, x1) == (0.0, 45.0) and y0 == y1 == -10.0
+    w.doc.edit_settings(lambda p: setattr(p.sweep, "f_at", 10e9))
+    w.recompute()
+    segs, marks = mask_segments(draw(w.v_angle))
+    assert not segs and len(marks) == 1 and marks[0].get_ydata()[0] == -20.0  # X: a single angle -> marker
+    w.v_angle.chk_mask.setChecked(False)
+    assert mask_segments(draw(w.v_angle)) == ([], [])
+
+    ax = draw(w.v_map)
+    boxes = [p for p in ax.patches if isinstance(p, Rectangle)]
+    assert len(boxes) == 1 and boxes[0].get_xy() == (12.0, 0.0) and boxes[0].get_height() == 45.0  # Ku box
+    assert any(c.get_segments() and c.get_segments()[0][0][0] == 8.0 for c in ax.collections
+               if hasattr(c, "get_segments"))  # X: a line at 0 deg from 8 GHz
+    texts = sorted(t.get_text() for t in ax.texts if t.get_text().startswith("T"))
+    assert texts == ["T1 -20 dB", "T2 -10 dB"]
+    w.v_map.chk_mask.setChecked(False)
+    assert not draw(w.v_map).patches
+    w.doc._settings_dirty = False  # no save prompt on close
+    w.close()
+
+
+def test_comparison_curves_are_saved_with_the_project(app, tmp_path):
+    """Curves on screen go into the .coat; a file with curves shows them, one without keeps the screen's."""
+    import numpy as np
+
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.project import Project
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["jaumann2"][1]())
+    assert not w.doc.is_dirty
+    ref = w.pin_reference("A")
+    assert w.doc.is_dirty  # curves are part of the file now
+    csv = tmp_path / "meas.csv"
+    csv.write_text("f [GHz], RL [dB]\n2, -0.5\n10, -25\n18, -4\n", encoding="utf-8")
+    meas = w.import_measured(str(csv))
+    w.set_reference_visible(meas, False)
+    path = tmp_path / "with_refs.coat"
+    assert w._save_to(str(path)) and not w.doc.is_dirty
+    saved = Project.load(str(path)).references
+    assert [(r.name, r.kind, r.slot, r.visible) for r in saved] == [("A", "design", ref.slot, True),
+                                                                     ("meas", "measured", meas.slot, False)]
+    assert saved[0].model == ref.model and np.array_equal(saved[1].rl_meas_db, meas.rl_meas_db)
+    # a project without curves keeps the ones on screen (cross-file comparison) ...
+    w.doc.set_project(EXAMPLES["dallenbach"][1]())
+    assert [r.name for r in w.references] == ["A", "meas"] and not w.doc.is_dirty
+    w.clear_references()
+    assert w.project.references == [] and w.doc.is_dirty
+    w.doc._settings_dirty = False
+    # ... a project with curves shows its own, and they are drawn
+    assert w.load_path(str(path), confirm=False)
+    assert [r.name for r in w.references] == ["A", "meas"] and w.project.references is w.references
+    w.tabs.setCurrentWidget(w.v_freq)
+    w.recompute()
+    w.v_freq.redraw()
+    assert "A" in [ln.get_label() for ln in w.v_freq.fig.axes[0].get_lines()]
+    # opening the optimiser's result as a new project keeps "Before optimisation" alongside the others
+    w.pin_before_optimisation()
+    q = w.project.copy()
+    q.references = q.references[:2]  # the copy was taken before the pin
+    w.doc._settings_dirty = False  # no save prompt
+    w._open_project_object(q)
+    assert [r.name for r in w.references] == ["A", "meas", "Before optimisation"]
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()
+
+
+def test_export_touchstone_and_report(app, tmp_path):
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.touchstone import parse_s1p
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["dallenbach"][1]())
+    s1p = w.export_touchstone(str(tmp_path / "d.s1p"))
+    f, _ = parse_s1p(open(s1p).read())
+    assert len(f) == w.project.sweep.n_f
+    ref = w.import_measured(s1p)  # the .s1p comes back as a measured curve
+    assert ref is not None and ref.kind == "measured"
+    w.doc.edit_settings(lambda p: setattr(p.sweep, "angle", 30.0))
+    tm = w.export_touchstone(str(tmp_path / "tm.s1p"), pol="TM")
+    assert "TM, incidence 30 deg" in open(tm).read()
+    out = w.export_report(str(tmp_path / "r.html"))
+    text = open(out, encoding="utf-8").read()
+    assert "data:image/png;base64," in text and "<li>d <span class=muted>(measured)" in text
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()
