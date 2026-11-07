@@ -368,4 +368,39 @@ KO.update({
         "각도 스윕 주파수가 대역 안에 드는 최적화 목표를 표시합니다(각도 범위에 걸친 요구 수준)",
     "Outline the enabled optimisation targets (band × angle range) with their goal; green when this polarisation meets the goal on the map grid, red when not":
         "켜진 최적화 목표를 대역 × 각도 범위의 사각형과 요구 수준으로 표시합니다. 맵 격자에서 이 편광이 요구를 만족하면 초록, 아니면 빨강입니다",
+    # design report
+    "Angles": "각도", "Band": "대역", "Goal": "요구값", "Margin": "마진", "Worst RL": "최악 RL",
+    "Coating Studio {v} design report": "Coating Studio {v} 설계 보고서",
+    "Comparison curves": "비교 곡선",
+    "Joint yield over all target corners: {y} ({n} samples)": "모든 목표 꼭짓점의 결합 수율: {y} (표본 {n}개)",
+    "Layer 1 faces the incident wave.": "1층이 입사파 쪽입니다.",
+    "Margin = worst RL − goal (20·log₁₀|Γ|); ≤ 0 dB means the target is met. Each target is evaluated on its own band, angles and polarisations. The Rozanov bound is a normal-incidence thickness limit for a metal-backed absorber.":
+        "마진 = 최악 RL − 요구값(20·log₁₀|Γ| 기준)이며, 0 dB 이하이면 목표를 만족합니다. 목표마다 자기 대역·각도·편광에서 평가합니다. Rozanov 한계는 금속 뒷판 흡수체의 수직 입사 두께 한계입니다.",
+    "No enabled targets.": "켜진 목표가 없습니다.",
+    "Reflection": "반사",
+    "Reflection loss is 20·log₁₀|Γ| in dB (negative, lower is better).": "반사 손실은 20·log₁₀|Γ| dB입니다(음수, 낮을수록 좋음).",
+    "Reflection loss is shown as positive dB (higher is better).": "반사 손실을 양수 dB로 표시합니다(높을수록 좋음).",
+    "Rozanov bound": "Rozanov 한계",
+    "Summary": "요약",
+    "TE = TM (normal incidence)": "TE = TM (수직 입사)",
+    "Tolerances: thickness {t} %, ε′ {e} %, ε″ {el}, μ′ {m} %, μ″ {ml}, sheet {sh} %, real/loss correlation ρ = {rho}; {d} distribution, seed {seed}. Per-layer overrides are not listed.":
+        "공차: 두께 {t} %, ε′ {e} %, ε″ {el}, μ′ {m} %, μ″ {ml}, 시트 {sh} %, 실수부·손실 상관계수 ρ = {rho}, 분포 {d}, 시드 {seed}. 층별 개별 공차는 싣지 않았습니다.",
+    "Yield {y} at {a}° {pol} ({n} samples), target {t} dB": "수율 {y}, {a}° {pol} (표본 {n}개), 목표 {t} dB",
+    "design snapshot": "설계 스냅샷", "follows the real part": "실수부를 따름", "goal": "요구값", "hidden": "숨김",
+    "infeasible": "불가능", "met": "만족", "no capacitor": "커패시터 없음", "not evaluated": "판정 안 함",
+    "not met": "미달", "satisfied": "만족", "thicker needed": "더 두꺼워야 함",
+    "Export &Touchstone (.s1p)…": "Touchstone 내보내기(.s1p)(&T)…",
+    "Export &report (HTML)…": "보고서 내보내기(HTML)(&R)…",
+    "Export Touchstone": "Touchstone 내보내기", "Export report": "보고서 내보내기",
+    "HTML (*.html);;All files (*)": "HTML (*.html);;모든 파일 (*)",
+    "Measured data (*.csv *.txt *.dat *.s1p);;All files (*)": "측정 데이터 (*.csv *.txt *.dat *.s1p);;모든 파일 (*)",
+    "Polarisation at {a}° (a Touchstone file holds one):": "{a}°에서 내보낼 편광(Touchstone 파일에는 하나만 들어갑니다):",
+    "Save a one-page design report: targets and margins, layer stack, reflection plots, tolerance result and diagnostics":
+        "목표와 마진, 층 구성, 반사 그래프, 공차 결과, 진단을 담은 한 쪽짜리 설계 보고서를 저장합니다",
+    "Save the reflection coefficient S11 of the frequency sweep as a Touchstone file for circuit and network-analyser tools":
+        "주파수 스윕의 반사 계수 S11을 회로 해석·네트워크 분석기 도구용 Touchstone 파일로 저장합니다",
+    "Saved {n} frequencies ({pol}) to {p}": "주파수 {n}개({pol})를 {p}에 저장했습니다",
+    "Show a measured reflection-loss curve (CSV or Touchstone .s1p) on the Frequency tab":
+        "측정한 반사 손실 곡선(CSV 또는 Touchstone .s1p)을 주파수 탭에 표시합니다",
+    "Touchstone (*.s1p);;All files (*)": "Touchstone (*.s1p);;모든 파일 (*)",
 })

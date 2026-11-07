@@ -1,0 +1,299 @@
+"""Design report: one self-contained HTML file (tables + embedded PNG plots) for sharing or printing.
+
+No Qt here.  matplotlib is used through its Agg canvas, so the report also renders without a display; the CLI
+does not import this module (it stays matplotlib-free).
+"""
+
+from __future__ import annotations
+
+import base64
+import datetime
+import html
+import io
+import math
+
+import numpy as np
+
+from coating_studio import __version__, diagnostics
+from coating_studio.core.solver import solve
+from coating_studio.core.structure import SheetLayer, SlabLayer
+from coating_studio.i18n import tr
+from coating_studio.limits import target_limits
+from coating_studio.optimize import evaluate_terms
+from coating_studio.tolerance import CornerResult, ToleranceResult
+
+_COLORS = {"TE": "#2563eb", "TM": "#dc2626", "avg": "#111827", "target": "#c0262d"}
+_REF_COLORS = ("#0d9488", "#9333ea", "#ca8a04", "#db2777", "#4b5563", "#65a30d")
+_CSS = """
+body { font-family: -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; color: #111827;
+       max-width: 960px; margin: 24px auto; padding: 0 16px; line-height: 1.45; }
+h1 { font-size: 1.6em; margin-bottom: 0.1em; } h2 { font-size: 1.2em; margin-top: 1.6em;
+     border-bottom: 1px solid #d5d9e0; padding-bottom: 0.2em; }
+.meta { color: #5f6b7a; font-size: 0.9em; }
+table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.92em; }
+th, td { border: 1px solid #d5d9e0; padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: #f3f4f6; } td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: #15803d; font-weight: 600; } .fail { color: #c0262d; font-weight: 600; } .muted { color: #5f6b7a; }
+img { max-width: 100%; } ul { padding-left: 1.3em; }
+@media print { body { margin: 0; } h2 { break-after: avoid; } img, table { break-inside: avoid; } }
+"""
+
+
+def _e(x):
+    return html.escape(str(x))
+
+
+def _num(x, digits=4):
+    if x is None or (isinstance(x, float) and not math.isfinite(x)):
+        return "—"
+    return f"{x:.{digits}g}"
+
+
+def _rl(db, positive):
+    return -db if positive else db
+
+
+def _png(fig):
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    FigureCanvasAgg(fig)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=110)
+    return '<img alt="" src="data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode("ascii") + '">'
+
+
+def _rl_label(positive):
+    return tr("Reflection loss [dB] (higher is better)") if positive else tr("Reflection loss [dB] (lower is better)")
+
+
+def _pol_curves(ax, x, res, cut, normal, positive):
+    pols = ("TE",) if normal else ("TE", "TM")
+    for pol in pols:
+        r = cut(res.quantity("R", pol))
+        y = _rl(10 * np.log10(np.maximum(r, 1e-30)), positive)
+        label = tr("TE = TM (normal incidence)") if normal else pol
+        ax.plot(x, y, color=_COLORS[pol], ls="-" if pol == "TE" else "--", lw=1.6, label=label)
+
+
+def _freq_figure(project, positive, references):
+    from matplotlib.figure import Figure
+
+    sw = project.sweep
+    res = solve(project.structure, project.materials, sw.freq_grid(), sw.angle)
+    fig = Figure(figsize=(8, 3.8), layout="constrained")
+    ax = fig.add_subplot(111)
+    x = res.f / 1e9
+    _pol_curves(ax, x, res, lambda a: a[:, 0], abs(sw.angle) < 1e-9, positive)
+    first = True
+    for t in project.optimization.enabled_targets():
+        if t.angle_min - 1e-9 <= sw.angle <= t.angle_max + 1e-9:
+            y = _rl(t.goal_db, positive)
+            ax.hlines(y, t.f_min / 1e9, max(t.f_max, t.f_min) / 1e9, colors=_COLORS["target"], lw=2.4, alpha=0.75,
+                      label=tr("Targets") if first else None)
+            first = False
+    for ref in references:
+        style = dict(color=_REF_COLORS[ref.slot % len(_REF_COLORS)], lw=1.2, ls=":")
+        if ref.kind == "measured":
+            ax.plot(ref.f_meas / 1e9, _rl(ref.rl_meas_db, positive), label=f"{ref.name} {tr('(measured)')}", **style)
+            continue
+        r = ref.results(sw).get("freq")
+        if isinstance(r, Exception) or r is None:
+            continue
+        rr = r.quantity("R", "TE" if abs(sw.angle) < 1e-9 else "avg")[:, 0]
+        ax.plot(r.f / 1e9, _rl(10 * np.log10(np.maximum(rr, 1e-30)), positive), label=ref.name, **style)
+    if sw.log_f:
+        ax.set_xscale("log")
+    ax.set_xlim(x[0], x[-1])
+    ax.set_xlabel(tr("Frequency [GHz]"))
+    ax.set_ylabel(_rl_label(positive))
+    ax.set_title(tr("Incidence {a}°", a=f"{sw.angle:g}"), fontsize=10, loc="left")
+    ax.grid(True, color="#e3e6eb")
+    ax.legend(loc="best", fontsize=8)
+    return _png(fig), res
+
+
+def _angle_figure(project, positive):
+    from matplotlib.figure import Figure
+
+    sw = project.sweep
+    res = solve(project.structure, project.materials, [sw.f_at], sw.angle_grid())
+    fig = Figure(figsize=(8, 3.4), layout="constrained")
+    ax = fig.add_subplot(111)
+    _pol_curves(ax, res.theta, res, lambda a: a[0, :], False, positive)
+    first = True
+    for t in project.optimization.enabled_targets():
+        if t.f_min * (1 - 1e-9) <= sw.f_at <= t.f_max * (1 + 1e-9):
+            y = _rl(t.goal_db, positive)
+            if t.angle_max > t.angle_min:
+                ax.hlines(y, t.angle_min, t.angle_max, colors=_COLORS["target"], lw=2.4, alpha=0.75,
+                          label=tr("Targets") if first else None)
+            else:
+                ax.plot([t.angle_min], [y], marker="_", ms=14, mew=2.4, color=_COLORS["target"], ls="",
+                        label=tr("Targets") if first else None)
+            first = False
+    ax.set_xlim(res.theta[0], res.theta[-1])
+    ax.set_xlabel(tr("Incidence angle [°]"))
+    ax.set_ylabel(_rl_label(positive))
+    ax.set_title(tr("f = {f} GHz", f=f"{sw.f_at / 1e9:.5g}"), fontsize=10, loc="left")
+    ax.grid(True, color="#e3e6eb")
+    ax.legend(loc="best", fontsize=8)
+    return _png(fig)
+
+
+def _layer_rows(project):
+    rows = []
+    for i, ly in enumerate(project.structure.layers, start=1):
+        if isinstance(ly, SlabLayer):
+            mat = project.materials.get(ly.material)
+            kind = mat.to_dict().get("kind", "") if mat is not None else "?"
+            rows.append((i, ly.name, f"{ly.material} <span class=muted>({_e(kind)})</span>",
+                         f"{ly.thickness * 1e3:.4g} mm"))
+        elif isinstance(ly, SheetLayer):
+            if ly.model == "rlc":
+                spec = f"R = {ly.R:.4g} Ω/sq, L = {ly.L * 1e9:.4g} nH, " + (
+                    f"C = {ly.C * 1e12:.4g} pF" if ly.C is not None else tr("no capacitor"))
+            else:
+                spec = f"Zs = {ly.R:.4g} {'+' if ly.X >= 0 else '−'} j{abs(ly.X):.4g} Ω/sq"
+            rows.append((i, ly.name, _e(tr("Resistive sheet")) + f" <span class=muted>({_e(spec)})</span>", "—"))
+    return rows
+
+
+def build_report(project, rl_positive=False, references=(), tolerance=None, source=""):
+    """HTML text of the design report.  ``references``: visible comparison curves to draw; ``tolerance``: the last
+    ToleranceResult / CornerResult (or None); ``source``: the file path to show."""
+    from coating_studio.mplfonts import configure_matplotlib_fonts
+
+    configure_matplotlib_fonts()  # Korean axis labels
+    p = project
+    pos = bool(rl_positive)
+    sign = tr("Reflection loss is shown as positive dB (higher is better).") if pos else \
+        tr("Reflection loss is 20·log₁₀|Γ| in dB (negative, lower is better).")
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    out = [f"<!doctype html><html><head><meta charset='utf-8'><title>{_e(p.name)}</title>"
+           f"<style>{_CSS}</style></head><body>",
+           f"<h1>{_e(p.name)}</h1>",
+           f"<p class=meta>{_e(tr('Coating Studio {v} design report', v=__version__))} · {_e(now)}"
+           + (f" · {_e(source)}" if source else "") + "</p>"]
+    if p.notes:
+        out.append(f"<p>{_e(p.notes)}</p>")
+
+    # summary
+    try:
+        mass = p.areal_mass()
+    except Exception:  # noqa: BLE001 - an unresolved material only hides the mass
+        mass = float("nan")
+    out.append(f"<h2>{_e(tr('Summary'))}</h2><table>")
+    out.append(f"<tr><th>{_e(tr('Total thickness'))}</th><td class=num>{p.structure.total_thickness() * 1e3:.4g} mm</td></tr>")
+    out.append(f"<tr><th>{_e(tr('Areal mass'))}</th><td class=num>{_num(mass)} kg/m²</td></tr>")
+    backing = tr("Metal plate (PEC)") if p.structure.backing.kind == "pec" else p.structure.backing.material
+    out.append(f"<tr><th>{_e(tr('Backing'))}</th><td>{_e(backing)}</td></tr>")
+    out.append(f"<tr><th>{_e(tr('Incident medium'))}</th><td>{_e(p.structure.incident)}</td></tr></table>")
+    out.append(f"<p class=muted>{_e(sign)}</p>")
+
+    # targets
+    targets = p.optimization.enabled_targets()
+    out.append(f"<h2>{_e(tr('Targets'))}</h2>")
+    if not targets:
+        out.append(f"<p class=muted>{_e(tr('No enabled targets.'))}</p>")
+    else:
+        try:
+            per_target = evaluate_terms(p).per_target
+        except Exception as e:  # noqa: BLE001 - reported in the table
+            per_target = [(None, None)] * len(targets)
+            out.append(f"<p class=fail>{_e(tr('Cannot compute: {e}', e=e))}</p>")
+        try:
+            limits = {r["target"]: r for r in target_limits(p)}
+        except Exception:  # noqa: BLE001 - the bound is a hint only
+            limits = {}
+        out.append("<table><tr>" + "".join(f"<th>{_e(h)}</th>" for h in (
+            tr("Target"), tr("Band"), tr("Angles"), tr("Polarisation"), tr("Goal"), tr("Worst RL"), tr("Margin"),
+            tr("Rozanov bound"))) + "</tr>")
+        for i, (t, (worst, margin)) in enumerate(zip(targets, per_target)):
+            met = margin is not None and math.isfinite(margin) and margin <= 0
+            verdict = (f"<span class=ok>{_e(tr('met'))}</span>" if met else f"<span class=fail>{_e(tr('not met'))}</span>"
+                       ) if margin is not None and math.isfinite(margin) else "—"
+            band = (f"{t.f_min / 1e9:.4g}–{t.f_max / 1e9:.4g} GHz" if t.f_max > t.f_min else f"{t.f_min / 1e9:.4g} GHz")
+            ang = f"{t.angle_min:g}–{t.angle_max:g}°" if t.angle_max > t.angle_min else f"{t.angle_min:g}°"
+            lim = limits.get(i, {})
+            status = {"ok": tr("satisfied"), "violated": tr("thicker needed"), "infeasible": tr("infeasible"),
+                      "unknown": tr("not evaluated")}.get(lim.get("status"), "—")
+            name = f"{i + 1}" + (f" ({t.name})" if t.name else "")
+            margin_txt = "—" if margin is None or not math.isfinite(margin) else f"{margin:+.2f} dB"
+            out.append(f"<tr><td>{_e(name)}</td><td>{band}</td><td>{ang}</td><td>{_e(', '.join(t.pols))}</td>"
+                       f"<td class=num>{_rl(t.goal_db, pos):g} dB</td>"
+                       f"<td class=num>{'—' if worst is None else f'{_rl(worst, pos):.2f} dB'}</td>"
+                       f"<td class=num>{margin_txt} {verdict}</td><td>{_e(status)}</td></tr>")
+        out.append("</table>")
+        out.append(f"<p class=muted>{_e(tr('Margin = worst RL − goal (20·log₁₀|Γ|); ≤ 0 dB means the target is met. Each target is evaluated on its own band, angles and polarisations. The Rozanov bound is a normal-incidence thickness limit for a metal-backed absorber.'))}</p>")
+
+    # layers
+    out.append(f"<h2>{_e(tr('Layer stack'))}</h2>")
+    out.append(f"<p class=muted>{_e(tr('Layer 1 faces the incident wave.'))}</p><table><tr>"
+               + "".join(f"<th>{_e(h)}</th>" for h in ("#", tr("Layer"), tr("Material / sheet"), tr("Thickness")))
+               + "</tr>")
+    for i, name, what, thick in _layer_rows(p):
+        out.append(f"<tr><td class=num>{i}</td><td>{_e(name)}</td><td>{what}</td><td class=num>{thick}</td></tr>")
+    out.append("</table>")
+
+    # plots
+    out.append(f"<h2>{_e(tr('Reflection'))}</h2>")
+    try:
+        img, res = _freq_figure(p, pos, [r for r in references if r.visible])
+        out.append(img)
+        out.append(_angle_figure(p, pos))
+    except Exception as e:  # noqa: BLE001 - the rest of the report is still useful
+        out.append(f"<p class=fail>{_e(tr('Cannot compute: {e}', e=e))}</p>")
+        res = None
+    if res is not None:
+        r = res.quantity("R", "avg")[:, 0]
+        db = 10 * np.log10(np.maximum(r, 1e-30))
+        k = int(np.argmin(db))
+        out.append(f"<p>{_e(tr('Best RL {v} dB at {f} GHz', v=f'{_rl(db[k], pos):.1f}', f=f'{res.f[k] / 1e9:.4g}'))}</p>")
+
+    # tolerance
+    if tolerance is not None:
+        out.append(f"<h2>{_e(tr('Tolerance analysis'))}</h2>")
+        s = p.tolerance
+        if isinstance(tolerance, CornerResult):
+            out.append(f"<p>{_e(tr('Joint yield over all target corners: {y} ({n} samples)', y=_pct(tolerance.joint_yield_fraction), n=tolerance.n_samples))}</p><ul>")
+            for ti, name, ang, pol, goal, r in tolerance.corners:
+                head = tr("Target {n}", n=ti + 1) + (f" ({name})" if name else "")
+                out.append(f"<li>{_e(head)} {ang:g}° {pol}: {_e(_pct(r.yield_fraction))}"
+                           f" ({_e(tr('goal'))} {_rl(goal, pos):g} dB)</li>")
+            out.append("</ul>")
+        elif isinstance(tolerance, ToleranceResult):
+            out.append(f"<p>{_e(tr('Yield {y} at {a}° {pol} ({n} samples), target {t} dB', y=_pct(tolerance.yield_fraction), a=f'{s.angle:g}', pol=s.pol, n=tolerance.n_samples, t=f'{_rl(s.target_db, pos):g}'))}</p>")
+        loss = lambda v: tr("follows the real part") if v is None else f"{v * 100:g} %"  # noqa: E731
+        out.append(f"<p class=muted>{_e(tr('Tolerances: thickness {t} %, ε′ {e} %, ε″ {el}, μ′ {m} %, μ″ {ml}, sheet {sh} %, real/loss correlation ρ = {rho}; {d} distribution, seed {seed}. Per-layer overrides are not listed.', t=f'{s.thickness * 100:g}', e=f'{s.eps * 100:g}', el=loss(s.eps_loss), m=f'{s.mu * 100:g}', ml=loss(s.mu_loss), sh=f'{s.sheet * 100:g}', rho=f'{s.loss_correlation:g}', d=s.distribution, seed=s.seed))}</p>")
+
+    # diagnostics
+    out.append(f"<h2>{_e(tr('Diagnostics'))}</h2>")
+    try:
+        sw = p.sweep
+        problems, notes = diagnostics.collect(p, sw.freq_grid(min(sw.n_f, 200)))
+    except Exception as e:  # noqa: BLE001
+        problems, notes = [("error", str(e))], []
+    if not problems and not notes:
+        out.append(f"<p>{_e(tr('No problems found in the materials used.'))}</p>")
+    else:
+        out.append("<ul>" + "".join(f"<li class={'fail' if lv == 'error' else ''}>{_e(t)}</li>" for lv, t in problems)
+                   + "".join(f"<li class=muted>{_e(t)}</li>" for t in notes) + "</ul>")
+
+    if references:
+        out.append(f"<h2>{_e(tr('Comparison curves'))}</h2><ul>")
+        for ref in references:
+            kind = tr("(measured)") if ref.kind == "measured" else tr("design snapshot")
+            hidden = "" if ref.visible else " · " + tr("hidden")
+            out.append(f"<li>{_e(ref.name)} <span class=muted>{_e(kind)}{_e(hidden)}</span></li>")
+        out.append("</ul>")
+    out.append("</body></html>\n")
+    return "\n".join(out)
+
+
+def _pct(x):
+    return "—" if x is None else f"{x * 100:.1f} %"
+
+
+def write_report(path, project, **kw):
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(build_report(project, **kw))

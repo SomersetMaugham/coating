@@ -168,9 +168,19 @@ def parse_measured_text(text):
 
 
 def load_measured(path, name=None) -> tuple[ReferenceTrace, bool]:
+    """A measured curve from a CSV (see ``parse_measured_text``) or a Touchstone one-port file (.s1p)."""
     import os
 
     with open(path, encoding="utf-8-sig") as fh:
-        f, rl, positive = parse_measured_text(fh.read())
+        text = fh.read()
+    if path.lower().endswith(".s1p"):
+        from coating_studio.touchstone import TouchstoneError, parse_s1p
+        try:
+            f, s11 = parse_s1p(text)
+        except TouchstoneError as e:
+            raise CsvFormatError(str(e)) from None
+        rl, positive = 20 * np.log10(np.maximum(np.abs(s11), 1e-15)), False
+    else:
+        f, rl, positive = parse_measured_text(text)
     name = name or os.path.splitext(os.path.basename(path))[0]
     return ReferenceTrace(name=name, kind="measured", f_meas=f, rl_meas_db=rl), positive

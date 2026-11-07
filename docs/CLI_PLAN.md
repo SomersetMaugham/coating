@@ -276,6 +276,9 @@ CLI와 GUI가 같은 숫자를 내도록 GUI 안에 있던 로직을 엔진으�
   - `map`: `freq_grid(map_n_f)` × `angle_grid(map_n_angle)` (주파수 스윕 점 수가 아님)
 - 덮어쓰기 옵션(사람이 치기 쉽게 GHz로 받되 이름에 단위 명시): `--f-min-ghz`, `--f-max-ghz`, `--n-f`, `--log-f/--linear-f`, `--angle-deg`, `--f-at-ghz`,
   `--angle-min-deg`, `--angle-max-deg`, `--n-angle`, `--map-n-f`, `--map-n-angle`.
+- `--touchstone PATH`(주파수 스윕만): S11을 Touchstone `.s1p`로 함께 씁니다. 파일 하나에 편광 하나이므로 `--pol TE|TM`을 쓰고, `avg`는 수직 입사에서만
+  받습니다(TE로 씀). 기준 저항 R은 입사 매질의 모드 파동 임피던스(TE η/cosθ, TM η·cosθ)입니다. 결과에 `touchstone_path`, `touchstone_pol`,
+  `touchstone_ref_ohm`이 붙습니다. 기존 파일은 `--force` 없이는 덮어쓰지 않습니다.
 - JSON `result`:
   - `summary`: 편광 `TE`·`TM`·`avg` 각각의 `best_rl_db`, `best_f_hz`(각도 스윕이면 `best_theta_deg`), `total_thickness_m`, `areal_mass_kg_m2`.
   - `--targets`일 때만 목표별 `worst_rl_db`, `margin_db`(`evaluate_terms` 재사용). `evaluate_terms`는 스윕 격자가 아니라 목표 격자로 따로 계산하고,

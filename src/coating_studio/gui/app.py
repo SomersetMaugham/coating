@@ -17,7 +17,7 @@ def main(argv=None):
     from PySide6.QtWidgets import QApplication
 
     from coating_studio import APP_NAME, __version__
-    from coating_studio.gui.fonts import configure_matplotlib_fonts
+    from coating_studio.mplfonts import configure_matplotlib_fonts
     from coating_studio.gui.icons import app_icon
     from coating_studio.gui.settings import AppSettings
     from coating_studio.i18n import detect_system_language, set_language

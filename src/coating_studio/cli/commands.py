@@ -367,10 +367,19 @@ def _best(db, f, th, sweep):
 
 
 def cmd_solve(path, sweep="freq", quantity_name="RL", pol="avg", targets=False, summary_only=False,
-              layer_absorption=False, fmt="json", output=None, force=False, overrides=None):
+              layer_absorption=False, fmt="json", output=None, force=False, overrides=None, touchstone=None):
     p, inp = load_project(path)
     sw = p.sweep
     _apply_sweep_overrides(sw, overrides or {})
+    ts_pol = None
+    if touchstone is not None:
+        if sweep != "freq":
+            raise CliError("usage", "--touchstone needs the frequency sweep (--sweep freq)", 2)
+        ts_pol = pol if pol != "avg" else ("TE" if abs(sw.angle) < 1e-12 else None)
+        if ts_pol is None:
+            raise CliError("usage", "--touchstone at oblique incidence needs --pol TE or TM (a file holds one "
+                                    "polarisation)", 2)
+        check_output_path(touchstone, force, input_path=path)
     if sweep == "freq":
         f, th = sw.freq_grid(), np.array([sw.angle])
     elif sweep == "angle":
@@ -385,13 +394,21 @@ def cmd_solve(path, sweep="freq", quantity_name="RL", pol="avg", targets=False, 
     def cut(a):
         return a[:, 0] if sweep == "freq" else a[0, :] if sweep == "angle" else a
 
+    ts_info = None
+    if ts_pol is not None:
+        from coating_studio.touchstone import design_s11, format_s1p
+        tf, s11, ref, notes = design_s11(p, ts_pol, f=res.f, theta_deg=sw.angle)
+        write_text(touchstone, format_s1p(tf, s11, ref, notes))
+        ts_info = {"touchstone_path": str(touchstone), "touchstone_pol": ts_pol, "touchstone_ref_ohm": ref}
+
     if fmt == "csv":
         text = _solve_csv(res, sweep, quantity_name, pol)
         if output is None:
             return CommandResult({}, input_info=inp, text=text)
         check_output_path(output, force)
         write_text(output, text)
-        return CommandResult({"output_path": str(output), "rows": text.count("\n") - 1}, input_info=inp)
+        return CommandResult({"output_path": str(output), "rows": text.count("\n") - 1, **(ts_info or {})},
+                             input_info=inp)
 
     warnings = []
     try:
@@ -430,6 +447,7 @@ def cmd_solve(path, sweep="freq", quantity_name="RL", pol="avg", targets=False, 
         write_text(output, dumps(result) + "\n")
         result = {"output_path": str(output), "sweep": sweep, "summary": result["summary"],
                   **({"targets": result["targets"], "max_margin_db": result["max_margin_db"]} if targets else {})}
+    result.update(ts_info or {})
     return CommandResult(result, warnings=warnings, input_info=inp)
 
 

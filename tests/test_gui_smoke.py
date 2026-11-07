@@ -21,7 +21,7 @@ def app(tmp_path_factory):
     QCoreApplication.setOrganizationName("CoatingStudioTest")
     QCoreApplication.setApplicationName("CoatingStudioTest")
     a = QApplication.instance() or QApplication([])
-    from coating_studio.gui.fonts import configure_matplotlib_fonts
+    from coating_studio.mplfonts import configure_matplotlib_fonts
 
     configure_matplotlib_fonts()
     yield a
@@ -674,6 +674,30 @@ def test_comparison_curves_are_saved_with_the_project(app, tmp_path):
     w.doc._settings_dirty = False  # no save prompt
     w._open_project_object(q)
     assert [r.name for r in w.references] == ["A", "meas", "Before optimisation"]
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()
+
+
+def test_export_touchstone_and_report(app, tmp_path):
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.touchstone import parse_s1p
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["dallenbach"][1]())
+    s1p = w.export_touchstone(str(tmp_path / "d.s1p"))
+    f, _ = parse_s1p(open(s1p).read())
+    assert len(f) == w.project.sweep.n_f
+    ref = w.import_measured(s1p)  # the .s1p comes back as a measured curve
+    assert ref is not None and ref.kind == "measured"
+    w.doc.edit_settings(lambda p: setattr(p.sweep, "angle", 30.0))
+    tm = w.export_touchstone(str(tmp_path / "tm.s1p"), pol="TM")
+    assert "TM, incidence 30 deg" in open(tm).read()
+    out = w.export_report(str(tmp_path / "r.html"))
+    text = open(out, encoding="utf-8").read()
+    assert "data:image/png;base64," in text and "<li>d <span class=muted>(measured)" in text
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()

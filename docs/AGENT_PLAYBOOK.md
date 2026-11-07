@@ -98,6 +98,7 @@ this format, with their parameter paths and static permeability.
      μs = `mu_inf` + Σ `delta` of the fitted μ terms, and run `coating-cli bound … --mu-s μs`. Treat the result
      as an estimate (extrapolated), not as proof.
 3. **Baseline.** `coating-cli solve design.coat --targets --summary-only --journal DIR --note "baseline"`.
+   (`--touchstone out.s1p --pol TE` also writes S11 for circuit or network-analyser tools, if the user asks for it.)
 4. **Optimise.** Set variables and ranges in the spec (the ranges must be what the user can manufacture; ask),
    build, then
    `coating-cli optimize design.coat -o next.coat --restarts 3 --journal DIR --note "..."`.

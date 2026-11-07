@@ -33,9 +33,8 @@ from coating_studio.gui.theme import apply_qt_theme, resolve
 from coating_studio.gui.widgets.layer_stack import LayerStackWidget
 from coating_studio.gui.widgets.properties import PropertiesPanel
 from coating_studio.gui.widgets.sweep_panel import SweepPanel
-from coating_studio.i18n import issue_text, tr
-from coating_studio.materials.checks import check_material
-from coating_studio.limits import limit_issues, mixture_range_issues, target_limits
+from coating_studio import diagnostics
+from coating_studio.i18n import tr
 from coating_studio.materials.csvio import CsvFormatError
 from coating_studio.materials.models import MaterialCycleError, OutOfRangeError
 from coating_studio.project import FILE_EXTENSION, Project, ProjectError, new_project_with_example_stack
@@ -168,6 +167,12 @@ class MainWindow(QMainWindow):
         self.a_export_fig = self._action(tr("Export &figure…"), self.export_figure, "Ctrl+E", "export",
                                          tr("Export the current plot (PNG/SVG/PDF)"))
         self.a_export_data = self._action(tr("Export &data (CSV)…"), self.export_data, "Ctrl+Shift+E")
+        self.a_export_s1p = self._action(tr("Export &Touchstone (.s1p)…"), lambda: self.export_touchstone(), None,
+                                         None, tr("Save the reflection coefficient S11 of the frequency sweep as a "
+                                                  "Touchstone file for circuit and network-analyser tools"))
+        self.a_export_report = self._action(tr("Export &report (HTML)…"), lambda: self.export_report(), None, None,
+                                            tr("Save a one-page design report: targets and margins, layer stack, "
+                                               "reflection plots, tolerance result and diagnostics"))
         self.a_quit = self._action(tr("&Quit"), self.close, QKeySequence.Quit)
         self.a_undo = self.doc.undo_stack.createUndoAction(self, tr("&Undo"))
         self.a_undo.setShortcut(QKeySequence.Undo)
@@ -188,7 +193,8 @@ class MainWindow(QMainWindow):
                                   tr("Pin the current design as a reference curve on the Frequency, Angle "
                                      "and Smith chart tabs"))
         self.a_import_meas = self._action(tr("Import measured curve…"), self.import_measured, None, "import",
-                                          tr("Show a measured reflection-loss curve (CSV) on the Frequency tab"))
+                                          tr("Show a measured reflection-loss curve (CSV or Touchstone .s1p) on "
+                                             "the Frequency tab"))
         self.a_clear_refs = self._action(tr("Remove all references"), self.clear_references)
         self.m_refs = QMenu(self)
         self.m_refs.aboutToShow.connect(self._fill_references_menu)
@@ -214,6 +220,8 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         m.addAction(self.a_export_fig)
         m.addAction(self.a_export_data)
+        m.addAction(self.a_export_s1p)
+        m.addAction(self.a_export_report)
         m.addSeparator()
         m.addAction(self.a_quit)
 
@@ -465,25 +473,9 @@ class MainWindow(QMainWindow):
             it = QListWidgetItem(icon("error"), self.result_error)
             self.w_msgs.addItem(it)
             n_issues += 1
-        # Same coverage as `coating-cli check`: optimisation candidates and mixture constituents too.
-        names = [n for n in p.used_materials() if n in p.materials]
-        notes = []
-        for n in names:
-            for iss in check_material(p.materials[n], f, p.resolver):
-                text = f"{n}: {issue_text(iss)}"
-                if iss.level == "info":
-                    notes.append(text)
-                    continue
-                self.w_msgs.addItem(QListWidgetItem(icon("error" if iss.level == "error" else "warning"), text))
-                n_issues += 1
-        extra = mixture_range_issues(p, float(np.sqrt(s.f_min * s.f_max)), names=set(names))
-        try:
-            extra += [iss for _ti, iss in limit_issues(target_limits(p))]
-        except Exception:  # noqa: BLE001 - the feasibility hint must never break the diagnostics
-            pass
-        for iss in extra:
-            text = f"{iss.material}: {issue_text(iss)}" if iss.material else issue_text(iss)
-            self.w_msgs.addItem(QListWidgetItem(icon("warning"), text))
+        problems, notes = diagnostics.collect(p, f)
+        for level, text in problems:
+            self.w_msgs.addItem(QListWidgetItem(icon(level), text))
             n_issues += 1
         if not n_issues:
             self.w_msgs.addItem(QListWidgetItem(icon("info"), tr("No problems found in the materials used.")))
@@ -623,6 +615,57 @@ class MainWindow(QMainWindow):
         if v:
             v.export_data(self)
 
+    def _export_path(self, title, suffix, file_filter):
+        start = os.path.join(self.settings.last_dir, self.project.name + suffix)
+        path, _ = QFileDialog.getSaveFileName(self, title, start, file_filter)
+        if path and not path.lower().endswith(suffix):
+            path += suffix
+        return path
+
+    def export_touchstone(self, path=None, pol=None):
+        """S11 of the frequency sweep as .s1p.  One polarisation per file: asked for at oblique incidence."""
+        from coating_studio.touchstone import write_design_s1p
+
+        if pol is None:
+            if abs(self.project.sweep.angle) < 1e-12:
+                pol = "TE"  # TE = TM at normal incidence
+            else:
+                pol, ok = QInputDialog.getItem(
+                    self, tr("Export Touchstone"),
+                    tr("Polarisation at {a}° (a Touchstone file holds one):", a=f"{self.project.sweep.angle:g}"),
+                    ["TE", "TM"], 0, False)
+                if not ok:
+                    return None
+        if path is None:
+            path = self._export_path(tr("Export Touchstone"), ".s1p", tr("Touchstone (*.s1p);;All files (*)"))
+            if not path:
+                return None
+        try:
+            n = write_design_s1p(path, self.project, pol)
+        except (OSError, SolverError, OutOfRangeError, MaterialCycleError, KeyError, ValueError) as e:
+            QMessageBox.critical(self, tr("Export failed"), str(e))
+            return None
+        self.settings.last_dir = os.path.dirname(path) or self.settings.last_dir
+        self.statusBar().showMessage(tr("Saved {n} frequencies ({pol}) to {p}", n=n, pol=pol, p=path), 6000)
+        return path
+
+    def export_report(self, path=None):
+        from coating_studio.report import write_report
+
+        if path is None:
+            path = self._export_path(tr("Export report"), ".html", tr("HTML (*.html);;All files (*)"))
+            if not path:
+                return None
+        try:
+            write_report(path, self.project, rl_positive=self.rl_positive, references=list(self.references),
+                         tolerance=self.p_tol.plot.result, source=self.doc.path)
+        except OSError as e:
+            QMessageBox.critical(self, tr("Export failed"), str(e))
+            return None
+        self.settings.last_dir = os.path.dirname(path) or self.settings.last_dir
+        self.statusBar().showMessage(tr("Saved {p}", p=path), 6000)
+        return path
+
     def open_materials(self, select=None):
         dlg = MaterialManager(self.doc, self, select=select or None, parent=self)
         dlg.exec()
@@ -686,7 +729,7 @@ class MainWindow(QMainWindow):
     def import_measured(self, path=None):
         if path is None:
             path, _ = QFileDialog.getOpenFileName(self, tr("Import measured curve"), "",
-                                                  tr("CSV files (*.csv *.txt *.dat);;All files (*)"))
+                                                  tr("Measured data (*.csv *.txt *.dat *.s1p);;All files (*)"))
             if not path:
                 return None
         slot = free_slot(self.references)
