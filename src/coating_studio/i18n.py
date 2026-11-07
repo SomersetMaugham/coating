@@ -53,6 +53,8 @@ _ISSUES_EN = {
     "eps_huge": "eps' up to {value:.3g} is unusually large.",
     "demo_values": "Built-in demonstration values (representative, not a datasheet). "
                    "Use measured data for a real design.",
+    "unknown_material": "Unknown material: {n}",
+    "material_cycle": "This mixture references itself (directly or through other mixtures).",
 }
 
 

@@ -225,6 +225,7 @@ KO.update({
     "Change variable bound": "변수 범위 변경", "Add optimisation variable": "최적화 변수 추가",
     "Remove optimisation variable": "최적화 변수 제거",
     "Cannot start optimisation": "최적화를 시작할 수 없습니다", "Unknown material: {n}": "알 수 없는 재료: {n}",
+    "This mixture references itself (directly or through other mixtures).": "이 혼합 재료가 자기 자신을 (직접 또는 다른 혼합 재료를 거쳐) 참조합니다.",
     "Pre-flight check failed": "사전 검증 실패", "Pre-flight check": "사전 검증",
     "The following warnings were found:": "다음 경고가 발견되었습니다:", "Run anyway?": "그래도 실행할까요?",
     "Starting…": "시작하는 중…", "Stopping…": "중지하는 중…", "global search": "전역 탐색",
