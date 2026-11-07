@@ -384,7 +384,8 @@ class MainWindow(QMainWindow):
             self.w_props.refresh()  # RLC info shows Zs at the angle-sweep frequency
             self.p_tol.plot.mark_dirty()
             self._sync_sweep_editors()
-            self.v_freq.mark_dirty()  # target mask
+            for v in (self.v_freq, self.v_angle, self.v_map):
+                v.mark_dirty()  # target masks
         self._timer.start()
 
     def _sync_sweep_editors(self):

@@ -581,3 +581,50 @@ def test_tolerance_corners_and_extended_diagnostics(app):
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()
+
+
+def test_target_masks_on_angle_and_map_tabs(app):
+    """Angle tab: the targets whose band holds the sweep frequency; map tab: one box (or line) per target."""
+    from matplotlib.patches import Rectangle
+
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["dualband"][1]())  # X 8-12 GHz at 0 deg (-20 dB), Ku 12-18 GHz 0-45 deg (-10 dB)
+
+    def draw(view):
+        w.tabs.setCurrentWidget(view)
+        view.redraw()
+        return view.fig.axes[0]
+
+    def mask_segments(ax):
+        segs = [s for c in ax.collections if c.get_label() == "Targets" for s in c.get_segments()]
+        marks = [ln for ln in ax.get_lines() if ln.get_label() == "Targets"]
+        return segs, marks
+
+    w.doc.edit_settings(lambda p: setattr(p.sweep, "f_at", 15e9))
+    w.recompute()
+    segs, marks = mask_segments(draw(w.v_angle))
+    assert len(segs) == 1 and not marks  # only Ku holds 15 GHz: its goal over 0-45 deg
+    (x0, y0), (x1, y1) = segs[0]
+    assert (x0, x1) == (0.0, 45.0) and y0 == y1 == -10.0
+    w.doc.edit_settings(lambda p: setattr(p.sweep, "f_at", 10e9))
+    w.recompute()
+    segs, marks = mask_segments(draw(w.v_angle))
+    assert not segs and len(marks) == 1 and marks[0].get_ydata()[0] == -20.0  # X: a single angle -> marker
+    w.v_angle.chk_mask.setChecked(False)
+    assert mask_segments(draw(w.v_angle)) == ([], [])
+
+    ax = draw(w.v_map)
+    boxes = [p for p in ax.patches if isinstance(p, Rectangle)]
+    assert len(boxes) == 1 and boxes[0].get_xy() == (12.0, 0.0) and boxes[0].get_height() == 45.0  # Ku box
+    assert any(c.get_segments() and c.get_segments()[0][0][0] == 8.0 for c in ax.collections
+               if hasattr(c, "get_segments"))  # X: a line at 0 deg from 8 GHz
+    texts = sorted(t.get_text() for t in ax.texts if t.get_text().startswith("T"))
+    assert texts == ["T1 -20 dB", "T2 -10 dB"]
+    w.v_map.chk_mask.setChecked(False)
+    assert not draw(w.v_map).patches
+    w.doc._settings_dirty = False  # no save prompt on close
+    w.close()

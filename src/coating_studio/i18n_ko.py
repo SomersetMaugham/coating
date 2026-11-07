@@ -364,4 +364,8 @@ KO.update({
     "Real/loss correlation ρ": "실수부·손실 상관계수 ρ",
     "Correlation coefficient between each layer's real-part error and loss error (ε′ with ε″, μ′ with μ″). 0 = independent; positive when both rise together, for example with filler content. Used only where the loss does not follow the real part.":
         "각 층의 실수부 오차와 손실 오차(ε′와 ε″, μ′와 μ″) 사이의 상관계수입니다. 0이면 서로 독립이고, 충전재 함량처럼 둘이 함께 커지는 경우에는 양수입니다. 손실이 실수부를 따르지 않는 곳에만 쓰입니다.",
+    "Show the optimisation targets whose band includes the angle-sweep frequency (goal level over their angle range)":
+        "각도 스윕 주파수가 대역 안에 드는 최적화 목표를 표시합니다(각도 범위에 걸친 요구 수준)",
+    "Outline the enabled optimisation targets (band × angle range) with their goal; green when this polarisation meets the goal on the map grid, red when not":
+        "켜진 최적화 목표를 대역 × 각도 범위의 사각형과 요구 수준으로 표시합니다. 맵 격자에서 이 편광이 요구를 만족하면 초록, 아니면 빨강입니다",
 })

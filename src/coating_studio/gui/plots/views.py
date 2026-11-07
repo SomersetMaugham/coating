@@ -253,6 +253,12 @@ class AngleView(_SweepSpinMixin, _QuantityMixin, PlotView):
     def __init__(self, ctx, parent=None):
         super().__init__(ctx, parent)
         self._add_quantity_controls()
+        self.chk_mask = QCheckBox(tr("Targets"))
+        self.chk_mask.setChecked(True)
+        self.chk_mask.setToolTip(tr("Show the optimisation targets whose band includes the angle-sweep frequency "
+                                    "(goal level over their angle range)"))
+        self.chk_mask.toggled.connect(lambda _: self.mark_dirty())
+        self.controls.insertWidget(self.controls.count() - 1, self.chk_mask)
         self._add_sweep_spin(tr("Frequency"), "f_at", 1e9, 1e-6, 1e6, "GHz",
                              tr("Frequency of the angle sweep."))
 
@@ -269,6 +275,8 @@ class AngleView(_SweepSpinMixin, _QuantityMixin, PlotView):
         series, problems = self._reference_series(q, pos)
         for ref, _pol, label, x, y in series:
             ax.plot(x, y, label=label, **_ref_style(ref, self.ctx.colors))
+        if q == "RL" and self.chk_mask.isChecked():
+            self._draw_target_mask(ax, pos, float(res.f[0]))
         ax.set_xlim(res.theta[0], res.theta[-1])
         ax.set_xlabel(tr("Incidence angle [°]"))
         ax.set_ylabel(quantity_label(q, pos))
@@ -277,6 +285,22 @@ class AngleView(_SweepSpinMixin, _QuantityMixin, PlotView):
         ax.set_title(tr("f = {f} GHz", f=f"{res.f[0] / 1e9:.5g}"), fontsize=10, loc="left")
         _legend_if_any(ax, loc="best")
         return (_ref_warning(problems), "warn") if problems else None
+
+    def _draw_target_mask(self, ax, pos, f_at):
+        """Spec mask: each enabled target whose band includes the sweep frequency, as its goal level over its
+        angle range (a marker for a single-angle target)."""
+        c = self.ctx.colors.error
+        first = True
+        for t in self.ctx.project.optimization.enabled_targets():
+            if not (t.f_min * (1 - 1e-9) <= f_at <= t.f_max * (1 + 1e-9)):
+                continue
+            y = rl_display(t.goal_db, pos)
+            label = tr("Targets") if first else None
+            if t.angle_max > t.angle_min:
+                ax.hlines(y, t.angle_min, t.angle_max, colors=c, lw=2.2, alpha=0.75, label=label)
+            else:
+                ax.plot([t.angle_min], [y], marker="_", ms=14, mew=2.2, color=c, alpha=0.75, ls="", label=label)
+            first = False
 
     def _reference_series(self, q, pos):
         """Design references only (a measured S11 has no angle dependence)."""
@@ -327,6 +351,12 @@ class MapView(PlotView):
         self.chk_contour.setChecked(True)
         self.chk_contour.toggled.connect(lambda _: self.mark_dirty())
         self.controls.addWidget(self.chk_contour)
+        self.chk_mask = QCheckBox(tr("Targets"))
+        self.chk_mask.setChecked(True)
+        self.chk_mask.setToolTip(tr("Outline the enabled optimisation targets (band × angle range) with their goal; "
+                                    "green when this polarisation meets the goal on the map grid, red when not"))
+        self.chk_mask.toggled.connect(lambda _: self.mark_dirty())
+        self.controls.addWidget(self.chk_mask)
         self.controls.addStretch(1)
         self.on_rl_sign_changed()
 
@@ -356,13 +386,46 @@ class MapView(PlotView):
                 ax.clabel(cs, fmt="%g dB", fontsize=8)
             except ValueError:
                 pass
+        if self.chk_mask.isChecked():
+            self._draw_target_boxes(ax, res, quantity_values(res, "RL", pol, False), pos)
         if self.ctx.project.sweep.log_f:
             ax.set_xscale("log")
+        ax.set_xlim(res.f[0] / 1e9, res.f[-1] / 1e9)
+        ax.set_ylim(res.theta[0], res.theta[-1])
         ax.set_xlabel(tr("Frequency [GHz]"))
         ax.set_ylabel(tr("Incidence angle [°]"))
         ax.grid(False)
         self._z = z
         return None
+
+    def _draw_target_boxes(self, ax, res, rl_internal, pos):
+        """Each enabled target as its band x angle box (a line when one side is a single value), labelled with
+        its goal.  The outline is green when every map cell inside meets the goal, red when one does not, and
+        neutral when no map cell falls inside (the map grid is coarser than the target's own grid)."""
+        from matplotlib.patches import Rectangle
+
+        c = self.ctx.colors
+        for i, t in enumerate(self.ctx.project.optimization.enabled_targets(), start=1):
+            f_lo, f_hi = t.f_min / 1e9, t.f_max / 1e9
+            a_lo, a_hi = float(t.angle_min), float(t.angle_max)
+            fi = (res.f / 1e9 >= f_lo * (1 - 1e-9)) & (res.f / 1e9 <= f_hi * (1 + 1e-9))
+            ai = (res.theta >= a_lo - 1e-9) & (res.theta <= a_hi + 1e-9)
+            cells = rl_internal[np.ix_(fi, ai)]
+            color = c.muted if cells.size == 0 else (c.ok if float(np.nanmax(cells)) <= t.goal_db else c.error)
+            style = dict(color=color, lw=2.0, alpha=0.95)
+            if f_hi > f_lo and a_hi > a_lo:
+                ax.add_patch(Rectangle((f_lo, a_lo), f_hi - f_lo, a_hi - a_lo, fill=False, ls="--", **style))
+            elif f_hi > f_lo:
+                ax.hlines(a_lo, f_lo, f_hi, **style)
+            elif a_hi > a_lo:
+                ax.vlines(f_lo, a_lo, a_hi, **style)
+            else:
+                ax.plot([f_lo], [a_lo], marker="s", mfc="none", ms=8, ls="", **{k: v for k, v in style.items() if k != "lw"})
+            goal = rl_display(t.goal_db, pos)
+            box = a_hi > a_lo  # label inside the box's top-left corner; above a line or point target
+            ax.annotate(f"T{i} {goal:g} dB", (f_lo, a_hi), xytext=(3, -3 if box else 4), textcoords="offset points",
+                        ha="left", va="top" if box else "bottom", fontsize=8, color="white",
+                        bbox=dict(boxstyle="round,pad=0.15", fc=color, ec="none", alpha=0.85))
 
     def format_cursor(self, ax, x, y):
         res = self.ctx.results.get("map")
