@@ -1,6 +1,6 @@
-# 계획 v5 — Agent Friendly CLI 어댑터
+# 계획 v6 — Agent Friendly CLI 어댑터
 
-작성: 2026-11-07 · 브랜치 `agent-cli` · 상태: **v5 (실험 루프 시뮬레이션 반영, 블라인드 테스트 전)**
+작성: 2026-11-07 · 브랜치 `agent-cli` · 상태: **v6 (블라인드 테스트 반영, 구현 전)**
 - v1 → v2: 1차 Argon 리뷰 반영(12.1·12.2절).
 - v2 → v3: 목표 워크플로우를 "에이전트가 사용자의 현재 조성에서 출발해 목표에 도달할 때까지 스스로 실험한다"로 정하고,
   설계 명세(`build`/`spec`), 실험 기록(`--journal`), 물리 한계 검사(Rozanov), 에이전트 플레이북, 연결 방식 비교를 추가(13절).
@@ -8,7 +8,9 @@
   실험 기록의 비교 기준·시드 기록 추가, 연결 방식을 **CLI + Skill/플레이북**으로 결정.
 - v4 → v5: 엔진을 직접 돌려 실험 루프를 모의 실행한 결과 반영(12.5절). `materials` 명령, 재료 형식 부록(부록 A),
   공차 분석의 목표 꼭짓점 평가(`--corners`)와 결합 수율, 혼합 모델 유효 범위 경고, 다중 시작(`--restarts`), 플레이북 보강.
-  바뀐 곳에는 "(v3)"·"(v4)"·"(v5)"를 붙였습니다.
+- v5 → v6: 블라인드 테스트(문서만 읽은 Claude·agy 두 테스터, 시나리오 2개) 반영(12.6절). 명령별 출력 JSON(부록 B)과 `margin_db` 정의,
+  플레이북 명령 정정, 수직 입사 Rozanov 판정 규칙 수정, 측정 재료 규칙(측정 범위, `fit`, wt% 분율, 파라미터 지어내기 금지), 표기 규칙 정리.
+  바뀐 곳에는 "(v3)"~"(v6)"을 붙였습니다.
 
 ## 1. 문제
 
@@ -36,6 +38,7 @@ Coating Studio의 기능은 지금 GUI로만 쓸 수 있습니다. 코딩 에이
 | `bound` (v3) | 파일 없이 목표만으로 Rozanov 최소 두께 계산 | 13.4절 |
 | `journal` (v3) | 실험 기록 폴더 요약(시도 목록, 최선 설계) | 13.3절 |
 | `materials` (v5) | 내장 재료 목록: 이름, 종류, note, 명세에 그대로 쓸 수 있는 재료 dict, 최적화 가능한 파라미터와 단위 | 13.7절 |
+| `fit` (v6) | 측정 CSV를 Debye/Lorentz 분산 모델로 맞춰 재료 dict와 잔차를 냄 | 13.8절 |
 
 (v3) `check`는 활성 목표마다 Rozanov 한계 판정(`result.limits`)을 함께 냅니다. `solve`·`optimize`·`tolerance`·`check`는 공통 옵션 `--journal DIR --note TEXT`를 받습니다.
 
@@ -361,6 +364,11 @@ src/coating_studio/cli/
 10b. (v5) `optimize --restarts 3`: 시작별 결과가 `--seed`를 각각 준 단일 실행과 같고, 최선이 선택됨.
 10c. (v5) `mixture_fraction_range` 이슈: Bruggeman 전도성 충전재 분율 0.30 근처, MG 분율 0.35에서 경고, 변수 범위가 위험 구간을 포함해도 경고.
 10d. (v5) `materials`의 재료 dict를 그대로 명세에 넣어 `build`하면 내장 재료와 같은 `to_dict()`.
+10e. (v6) 측정 재료: 목표가 측정 범위 밖이면 `invalid_spec`, sweep 생략 시 `sweep_clamped`로 측정 범위 안에 들어감, 명시한 sweep이 밖이면 `invalid_spec`.
+10f. (v6) `fraction_wt`: 알려진 밀도로 손계산한 부피 분율과 같음, `unit: "wt"` 범위 변환, `value_wt` 출력.
+10g. (v6) `fit`: 알려진 Debye 재료에서 만든 합성 CSV를 맞추면 계수가 복원되고 잔차가 작음(`fitting.py` 기존 테스트와 같은 기준).
+10h. (v6) Rozanov: 0–30° 목표에서 수직 입사로 불가능한 설계가 `infeasible`(v5에서는 `unknown`이었음). 30–60° 목표는 `unknown`.
+10i. (v6) 부록 B의 모든 예시 JSON이 실제 출력과 키 구조가 같음(예시를 테스트 픽스처로 삼아 키 집합 비교).
 11. **리팩터링 회귀**: 기존 `test_optimize_tolerance.py`, `test_gui_smoke.py`, `test_i18n.py` 그대로 통과. `preflight`가 GUI 대화상자와 같은 오류·경고 목록을 냄.
     새 `_ISSUES_EN` 문구(`material_cycle`)의 KO 항목 존재.
 
@@ -372,7 +380,8 @@ src/coating_studio/cli/
    단위 환산표, i18n 문구(+KO). GUI는 새 위치를 import. 엔진 단위 테스트 추가. 기존 테스트 통과.
 2. **CLI 추가** (`cli/`, `pyproject.toml`, `tests/test_cli.py`) — 1~7절의 명령.
 3. (v3) **에이전트 실험 루프** — `limits.py`(+단위 테스트), `cli/spec.py`·`build`·`spec`, `cli/journal.py`·`--journal`·`journal`, `bound`, `check`의 `limits`,
-   (v5) `materials`, `tolerance --corners`, `optimize --restarts`, `mixture_fraction_range` 이슈(+KO).
+   (v5) `materials`, `tolerance --corners`, `optimize --restarts`, `mixture_fraction_range` 이슈(+KO),
+   (v6) `fit`, `fraction_wt`, 측정 범위 검사(`sweep_clamped`, `sweep_outside_data` +KO), `spec -o`, 부록 B 키 구조 테스트.
 4. (v4) **플레이북과 연결** — `docs/AGENT_PLAYBOOK.md`, `.claude/skills/coating-experiment/SKILL.md`, `AGENTS.md` 단락(13.6절). MCP 코드는 넣지 않음.
 5. **문서**: README(영·한)에 CLI 절, AGENTS.md "Commands"에 `coating-cli` 추가, `DEVELOPMENT_HISTORY.md`에 기록.
 
@@ -388,6 +397,8 @@ v1의 Q1~Q7은 모두 결정했습니다(12.2절). 새로 남은 질문입니다
 - N3~N6은 v4에서 결정했습니다(12.4절).
 - (v5) **N7** 혼합 모델 위험 구간의 기준값(13.7절의 0.25~0.40, MG 0.30)이 적절한지. 문헌값(구형 입자 Bruggeman 임계 1/3)에 기댄 경험적 경계입니다.
 - (v5) **N8** `tolerance --corners`의 비용: 꼭짓점 수 × 표본 수만큼 계산합니다(목표 1개·2편광·2각도면 4배). 기본 표본 수를 줄일지.
+- (v6) **N9** 측정 복합재 CSV에서 충전재 고유 물성을 역산(유효 매질 역변환)해 함량을 연속으로 바꾸는 기능. 물리적으로 가능하지만(MG는 해석적 역변환) 모델 오차가 커서 v1 범위 밖으로 둡니다.
+- (v6) **N10** `fit` 결과로 정적 투자율(Rozanov)을 계산하는 것은 측정 범위 밖 외삽입니다. `static_mu`를 "추정"으로 표시하는 안이 충분한지.
 
 ## 12. Argon 리뷰 반영 기록
 
@@ -448,7 +459,7 @@ Argon은 코드를 실행할 수 없으므로, 실행으로만 확인되는 주�
 | 질문 | 결정 | 근거 |
 |---|---|---|
 | N3 연결 방식 | CLI + Skill/플레이북. MCP는 조건이 생기면 | 13.6절. Argon 권고와 제 잠정안이 일치 |
-| N4 사입사 목표 | 수직 입사 값은 참고로만, 판정은 `unknown`, 실패 없음 | 한계식이 수직 입사·PEC에서 유도됨 |
+| N4 사입사 목표 | 수직 입사 값은 참고로만, 판정은 `unknown`, 실패 없음 — **(v6) 수정: 0°를 포함하는 목표는 수직 입사 판정을 그대로 받음**(13.4절) | 한계식이 수직 입사·PEC에서 유도됨 |
 | N5 기록 스냅숏 | 내용 해시 이름의 전체 사본(`snapshots/<sha>.coat`) | 재구성 로직 없이 GUI로 바로 열림, 같은 내용은 한 번만 저장 |
 | N6 단위 표기 | 키 접미사, 필드당 하나로 고정. 변수 범위는 `range` + `unit`(확인용) | 숫자를 문자열 파싱 없이 다룸, 스키마가 하나 |
 
@@ -479,6 +490,31 @@ CLI 구현 전에, 계획 문서만 아는 에이전트라고 가정하고 실�
 6. Rozanov `ok`인데 목표 미달 — 설계대로("필요조건일 뿐")지만, 목표 미달 시 절충안 보고가 플레이북에 없었음 → 13.5절 7단계.
 7. 실행 시간은 한 번에 1~10초(변수 2~6개). v4의 "탐색은 `--maxiter 40 --timeout 60`" 권고는 이 규모에서 불필요 → `estimated_max_evals` 기준으로 바꿈.
 한계: 시뮬레이션한 사람이 코드를 알고 있어 문서의 빈틈을 과소평가했을 수 있음 → v5에 대해 블라인드 테스트(문서만 주고 시나리오 수행)를 진행.
+
+### 12.6 블라인드 테스트 (v5 → v6)
+v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브에이전트, agy/Gemini Argon — 문서 폴더만 읽기 권한)에게 같은 과제를 동시에 줬습니다.
+과제: 두 시나리오에서 사용자 질문, 명세 JSON, 명령 순서와 분기, 짐작·모호·막힘 지점 표, 판정을 쓰기.
+- S1: 12.5절과 같은 카본블랙/에폭시 시나리오(v5 수정이 통하는지).
+- S2: 처음 보는 시나리오 — 측정 CSV(카보닐철/실리콘, 1–8 GHz), 2–6 GHz 수직 입사 −10 dB, 두께 ≤ 2 mm, "철 함량 50~70 wt%에서 변경 가능".
+
+| | Claude 테스터 | agy 테스터 |
+|---|---|---|
+| S1 | 조건부 가능(출력 필드 추측) | 대체로 가능(출력 키 추측) |
+| S2 | **불가**(blocker 2) | **불가**(blocker 2) |
+| 1순위 수정 요청 | 명령별 출력 JSON 예시 + `margin_db` 정의 | 명령별 출력 JSON 예시 + 플레이북 명령 정정 |
+
+공통 발견과 반영:
+1. 측정 CSV 재료의 함량을 바꿀 수단이 없음(blocker) → 13.5절 1a, 13.8절(`choices`, `fraction_wt`, `fit`), N9.
+2. 기본 sweep(2–18 GHz)이 측정 범위(1–8 GHz)를 벗어나 `material_out_of_range`로 실패(blocker) → 13.2절 측정 범위 검사·`sweep_clamped`.
+3. 명령별 출력 JSON 구조가 없음 → 부록 B.
+4. 0°를 포함한 목표에서 Rozanov 판정이 항상 `unknown`이라 플레이북의 멈춤 규칙이 발동하지 않음(모순) → **판정 규칙 자체가 틀렸음**: 0°를 포함하는 목표는 수직 입사 판정을 그대로 받음(13.4절).
+5. 혼합 분율 경고 구간의 경계 → 닫힌 구간 명시, 이슈 `args`에 구간 포함(13.7절).
+한쪽만 발견: 플레이북에 `solve --targets`·`optimize -o` 누락(agy), `param` 자료형 규칙(agy), 수직 입사 목표 표기(agy),
+`margin_db` 정의(Claude), 공차 값의 의미(Claude), 수율 기준값(Claude), `spec` 출력 위치(Claude) → 13.2·13.5절, 부록 B.
+
+**행동에서 드러난 위험**: agy 테스터는 "빈틈을 메우지 말고 기록하라"는 지시에도 S2에서 문서에 없는 카보닐철 분산 모델(Δμ = 18, f₀ = 3.5 GHz, "CSV에 맞춘 값")을
+지어내 함량 최적화를 진행했습니다. Claude 테스터는 같은 지점을 "수행 불가"로 보고했습니다. 실제 에이전트도 막히면 그럴듯한 가정으로 진행해 근거 없는 결과를 낼 수 있으므로,
+플레이북에 "재료 파라미터를 지어내지 말 것, `fit`과 사용자 확인을 거칠 것, 문서에 없는 방법이 필요하면 멈출 것"을 넣었습니다(13.5절 1단계).
 
 ## 13. (v3) 에이전트 실험 루프
 
@@ -555,10 +591,16 @@ CLI 구현 전에, 계획 문서만 아는 에이전트라고 가정하고 실�
   재료 이름은 항상 유일해야 합니다.
 - **단위는 필드마다 하나로 고정**하고 키 접미사로 표시합니다(N6). 같은 양에 다른 접미사를 허용하지 않습니다.
   고정 단위는 GUI 표시 단위와 같습니다: 두께 `_mm`, 주파수 `_ghz`, 각도 `_deg`, 시트 `R_ohm`·`X_ohm`·`L_nh`·`C_pf`(`null` = 커패시터 없음), 질량 `_kg_m2`.
+- (v6) **변수의 `param`**: 층 변수는 층 속성 이름 문자열(`"thickness"`, `"R"`, `"X"`, `"L"`, `"C"`). 재료 변수는 **경로 리스트**입니다 —
+  재료 파라미터는 중첩될 수 있기 때문입니다(예: `["fraction"]`, `["mu_terms", 0, "delta"]`). 한 단계짜리는 문자열도 받습니다(`"fraction"` = `["fraction"]`).
+  쓸 수 있는 경로와 단위는 `materials`·`info`의 `params[]`에 그대로 나옵니다.
 - **변수 범위**는 `{"range": [lo, hi], "unit": "<표시 단위>"}`입니다. `unit`은 그 파라미터의 `param_unit()`(`mm`, `ohm`, `nH`, `pF`, `GHz`, `S/m`, `frac`, `""`)과
   **같아야 하며**, 다르면 `invalid_spec`입니다(에이전트가 단위를 잘못 짐작하는 것을 잡기 위한 확인용 필드).
 - **시트 층**: `{"model": "constant", "R_ohm", "X_ohm"}` 또는 `{"model": "rlc", "R_ohm", "L_nh", "C_pf"}`. `model`은 필수(`constant`와 `L=0, C=None`인 `rlc`를 구분하기 위해).
 - **뒷판**: `"pec"` 또는 `{"kind": "halfspace", "material": "<이름>"}`.
+- (v6) **수직 입사 목표**는 `"angle_deg": 0`(스칼라)로 씁니다. `[0, 0]`과 같고 `n_angle`은 필요 없습니다. 사입사 한 각도는 `"angle_deg": 45`.
+- (v6) **공차 값**(`tolerance`의 `thickness`, `eps`, `mu`, `sheet`, `eps_loss`, `mu_loss`, `per_layer` 값)은 **공칭값에 대한 상대값**입니다(0.05 = 5%).
+  `distribution: "normal"`이면 1σ, `"uniform"`이면 ± 반폭입니다(`ToleranceSettings`). 무차원이라 접미사가 없습니다.
 - **목표**: `angle_deg`의 상한이 하한보다 크면 `n_angle`이 필수이고 2 이상이어야 합니다. 빠지면 `invalid_spec` —
   `BandTarget.n_angle` 기본값이 1이라 그대로 두면 `grid()`가 하한 각도만 평가합니다(`project.py:102-110`).
 - **재료 dict는 `.coat`와 같은 형식(SI, 접미사 없음)**이라는 예외를 명시합니다. `Material.to_dict()` 그대로이며(`density` kg/m³, `sigma` S/m, 분산 항의 `f0`·`gamma` Hz),
@@ -570,9 +612,19 @@ CLI 구현 전에, 계획 문서만 아는 에이전트라고 가정하고 실�
 - (v5) **재료 이름에 배합비를 넣지 않습니다**(예: "CB 20%" 대신 "CB mix A"). 분율을 최적화하면 이름이 거짓이 되기 때문입니다.
 - **혼합 재료는 2성분**(매트릭스 + 충전재 하나)입니다. 3성분 이상은 혼합 재료를 중첩해 표현하며, 플레이북에 분율의 의미(바깥 혼합 기준)를 적습니다.
   내장 `"Carbonyl iron / epoxy"`는 이미 복합재이므로 다시 에폭시에 섞으면 "희석"이라는 점도 플레이북에 적습니다.
+- (v6) **측정 재료와 주파수 범위**: Tabulated 재료(측정 CSV)는 측정 범위 밖을 계산하지 않습니다. `build`는 다음을 검사합니다.
+  - 활성 목표·`tolerance.band_ghz`가 사용 중인 측정 재료의 범위(끝점 포함)를 벗어나면 `invalid_spec`(`details`: 재료, 측정 범위, 요청 범위).
+  - `sweep`을 **생략했으면** 기본값(2–18 GHz) 대신 사용 중인 측정 재료 범위의 교집합으로 정하고, 결과 `warnings`에 `sweep_clamped`로 알립니다.
+  - `sweep`을 **명시했는데** 범위를 벗어나면 `invalid_spec`. (`check`도 같은 검사를 `sweep_outside_data` 이슈로 냅니다.)
+- (v6) **무게 분율**: 혼합 재료는 `fraction`(부피) 대신 `fraction_wt`(무게, 0~1)를 받을 수 있습니다. `build`는 성분 밀도로 부피 분율로 바꿉니다:
+  `φ = (w/ρ_inc) / (w/ρ_inc + (1−w)/ρ_mat)`. 두 성분 모두 `density`가 있어야 하고(내장 재료의 밀도는 데모 값), 결과 `warnings`에 환산값을 적습니다.
+  변수도 `{"material", "param": ["fraction"], "range": [0.5, 0.7], "unit": "wt"}`로 쓸 수 있고, `build`가 범위를 부피 분율로 바꿉니다(단조 변환).
+  `info`·`optimize`는 해당 변수에 `value_wt`를 함께 냅니다. **측정 CSV 재료의 함량은 바꿀 수 없습니다**(13.8절).
 - 생략한 섹션은 `Project` 기본값을 씁니다. 단 **`targets`를 생략하면 목표 없음**으로 둡니다(기본 8–12 GHz 목표를 쓰지 않음) —
   의도하지 않은 목표로 최적화하는 일을 막기 위해서입니다(`optimize`는 `invalid_optimization_settings`로 거부).
 - `build SPEC -o OUT.coat`: 검증 → `Project` 조립 → 저장. 명세 오류는 `invalid_spec`(종료 3, `details.path`에 JSON 경로, 예: `layers[1].thickness_mm`).
+- (v6) `spec FILE.coat [-o OUT.json]`: `-o`가 없으면 명세를 봉투의 `result.spec`에, 있으면 **봉투 없는 순수 명세**를 파일에 쓰고 봉투에는 `result.output_path`만 둡니다
+  (`build`에 그대로 넘길 수 있게). 에이전트가 손으로 값을 옮기지 않아도 됩니다.
 - `spec FILE.coat`: `Project` → 명세. 층을 이름으로 참조할 수 없으면(빈 이름·중복) 번호로 참조합니다. Tabulated 재료는 측정값 배열을 dict 안에 그대로 넣습니다.
 - **왕복 보장**: 내장 예제 7개 모두에서 `build(spec(p))`의 `to_dict()`가 `p`와 같습니다. uid는 제외하고, 실수는 `rtol=1e-12`로 비교합니다
   (표시 단위 ↔ SI 환산에서 생길 수 있는 마지막 자리 오차 때문. `0.08e-12` 같은 값은 실제로는 정확히 돌아오는 것을 확인했지만 일반적으로 보장되지 않음).
@@ -616,8 +668,10 @@ CLI 구현 전에, 계획 문서만 아는 에이전트라고 가정하고 실�
   - `ok`는 "가능하다"가 아니라 "이 필요조건에 걸리지 않는다"는 뜻입니다(문서와 `note`에 명시).
   - 이슈는 **둘 다 경고 수준**입니다: `rozanov_limit`(violated), `rozanov_infeasible`(infeasible). 오류로 두면 의욕적인 목표만으로 `check`가 실패(종료 4)하는데,
     도달할 수 없는 목표도 "최선의 RL을 찾는" 정상 사용입니다(예: `cara` 예제는 −20 dB 기본 목표에 −14.6 dB까지). 판단은 플레이북의 멈춤 규칙이 합니다.
-  - **사입사(N4)**: 목표의 각도 범위가 0°를 포함하면 수직 입사 값을 계산하되 `note`에 "수직 입사 기준 참고값"이라 적고, `violated`/`infeasible`이어도 `unknown`으로 낮춥니다.
-    0°를 포함하지 않는 목표는 `unknown`입니다. 사입사 목표로 `check`가 실패하는 일은 없습니다.
+  - **사입사(N4) — (v6) 수정**: 목표의 각도 범위가 **0°를 포함하면** 그 목표는 0°에서도 만족해야 하므로, 수직 입사 판정(`violated`/`infeasible`)이 **그대로 적용됩니다**
+    (한계는 수직 입사에서 엄밀한 필요조건). v4·v5에서 `unknown`으로 낮추던 규칙은 틀렸습니다 — 이 때문에 플레이북의 "`rozanov_infeasible`이면 멈춤"이
+    0–30° 같은 흔한 목표에서 절대 발동하지 않는 모순이 있었습니다(12.6절). `note`에는 "수직 입사 조건만 검사, 사입사 조건은 더 엄격할 수 있음"을 적습니다.
+    0°를 포함하지 않는 목표(예: 30–60°)만 `unknown`입니다.
   - 중복 제거 키는 `(code, material, target index, message)`입니다 — 목표가 여럿이면 `rozanov_*` 이슈가 하나로 합쳐지지 않게.
 - `bound --f-ghz LO HI --goal-db G [--mu-s M]`: 파일 없이 필요한 `μs·d`와 `μs = M`일 때 최소 두께를 냅니다(공기 입사, PEC 전제를 결과에 명시). `"input": null`.
 - 테스트: 위 수치(1.457 mm), 재료 종류별 `static_permeability`(상수 손실·Tabulated → `None`, Debye·Lorentz → `mu_inf + Σ delta`, MG/Bruggeman 혼합),
@@ -628,9 +682,18 @@ CLI 구현 전에, 계획 문서만 아는 에이전트라고 가정하고 실�
 툴 사용법과 별개로 **실험 루프의 절차와 멈춤 규칙**을 문서로 둡니다: `docs/AGENT_PLAYBOOK.md`(영어, 에이전트가 읽는 문서).
 1. 입력 확인: 사용자 설명에서 층·재료·배합비·두께·목표를 뽑고, 빠진 값은 **추측하지 말고 묻습니다**.
    재료가 내장 데모 값(`demo_values` 이슈)이면 "실측 데이터가 아니므로 결과는 참고용"이라고 반드시 알립니다.
-2. `bound`로 목표의 현실성 확인 → `build` → `check`. 오류면 고칩니다. `rozanov_infeasible`이면 사용자에게 목표·두께 상한 조정이나 고투자율 재료 추가를 제안하고 멈춥니다.
-3. `solve --summary-only --journal DIR`로 기준선을 기록합니다(목표가 있으면 margin이 함께 기록됨).
-4. 변수·범위 설정 → `optimize --restarts 3 --journal DIR`. 목표별 `margin_db`를 보고 다음 수를 정합니다.
+   (v6) **재료 파라미터를 지어내지 않습니다.** 측정 CSV에 맞춘 분산 모델이 필요하면 `fit`을 쓰고 잔차(`rms_eps`, `rms_mu`)와 함께 사용자 확인을 받습니다.
+   문서에 없는 방법으로 진행해야 할 것 같으면 멈추고 사용자에게 알립니다.
+   (v6) 수율 기준(결합 수율 몇 % 이상)을 묻습니다. 답이 없으면 기본 80%로 두고 보고에 명시합니다.
+1a. (v6) **측정 재료(CSV)가 있으면**: sweep과 목표를 측정 범위 안에 둡니다(`build`가 검사). 사용자가 함량(배합비)을 바꾸고 싶어 하면
+    측정 CSV는 그 함량 하나의 데이터라 함량을 바꿀 수 없다고 설명하고, 다음 중에서 고르게 합니다(13.8절):
+    (a) 함량별로 측정한 CSV 여러 개 → 재료 후보(`choices`)로 이산 탐색, (b) 성분 재료(매트릭스·충전재)의 데이터가 있으면 혼합 재료 + `fraction_wt`,
+    (c) 둘 다 없으면 두께만 최적화하고, 함량 탐색에는 추가 측정이 필요하다고 보고.
+2. `bound`로 목표의 현실성 확인 → `build` → `check`. 오류면 고칩니다. `result.limits[].status`가 `infeasible`(`rozanov_infeasible`)이면
+   사용자에게 목표·두께 상한 조정이나 고투자율 재료 추가를 제안하고 멈춥니다. (v6) 0°를 포함하는 목표에도 이 판정이 그대로 적용됩니다(13.4절).
+3. (v6) `solve --targets --summary-only --journal DIR`로 기준선을 기록합니다. `--targets`가 있어야 stdout에 목표별 margin이 나옵니다(부록 B).
+4. 변수·범위 설정 → (v6) `optimize -o <다음 파일>.coat --restarts 3 --journal DIR`. `-o` 없이는 결과가 저장되지 않습니다.
+   `result.targets[].margin_db`(부록 B)를 보고 다음 수를 정합니다. **`margin_db = worst_rl_db − goal_db`, 0 이하면 충족, 양수면 그만큼 미달**입니다.
    - (v5) **변수 범위는 사용자와 합의한 제조 가능 범위**로 정합니다. 사용자가 범위를 말하지 않았으면 묻습니다(예: "배합비는 몇 vol%까지 가능합니까?").
      특히 혼합 분율은 `check`의 `mixture_fraction_range` 경고 구간을 넘지 않게 둡니다. 최적화기는 모델이 믿기 어려운 영역(퍼콜레이션 근처)을 파고듭니다.
    - (v5) 실행 시간은 `info`·`check`의 `estimated_max_evals`로 가늠합니다(모의 실행: 변수 2~6개에서 수천~2만 번 평가, 1~10초).
@@ -642,7 +705,7 @@ CLI 구현 전에, 계획 문서만 아는 에이전트라고 가정하고 실�
    - (v5) 층을 늘렸는데 결과가 나빠지면 국소 최적을 의심합니다(모의 실행에서 3층이 2층보다 나빴음). 이전 최선 설계를 출발점으로 두고 다시 돌립니다.
 5. (v5) `tolerance --corners --target-db <목표 goal_db> --journal DIR`로 **목표의 각도 끝 × 편광마다** 수율을 확인하고, 결합 수율을 보고합니다.
    단일 각도 수율만 보고하면 안 됩니다(모의 실행: 0° 평균 17%, 30° TE 1%). 낮으면 결과에 위험을 명시합니다.
-6. 멈춤 규칙: 목표 충족 + 수율 기준 충족 / 시도 예산(기본 20회 또는 사용자가 정한 값) 소진 /
+6. 멈춤 규칙: 목표 충족 + 수율 기준(1단계에서 정한 값, 기본 결합 수율 80%) 충족 / 시도 예산(기본 20회 또는 사용자가 정한 값) 소진 /
    같은 목표에서 **다중 시작(`--restarts 3`) 기준으로** 연속 3회 개선 없음 / `rozanov_infeasible`.
 7. 보고: `journal DIR` 요약 + 최종 설계의 명세(`spec`) + `seed_used`(재현용) + 남은 위험(데모 재료, 수율, 사입사 근사, 혼합 모델 범위).
    (v5) **목표에 못 미쳤으면** 최선 margin과 함께 절충안을 계산해 제시합니다: 목표를 최선값 근처로 완화했을 때, 두께 상한을 늘렸을 때,
@@ -688,7 +751,23 @@ CLI 구현 전에, 계획 문서만 아는 에이전트라고 가정하고 실�
   - Bruggeman이고 충전재가 전도성(분산 재료의 `sigma > 0` 또는 대상 대역에서 ε″/ε′ > 1)이면 분율 0.25~0.40(퍼콜레이션 임계 1/3 주변, N7).
   - Maxwell–Garnett이면 분율 > 0.30(희박 구형 입자 가정).
   - 현재 분율뿐 아니라 **`fraction` 변수의 범위가 이 구간과 겹쳐도** 냅니다. `_ISSUES_EN` 문구 + KO 항목 추가.
+  - (v6) **경계는 닫힌 구간**입니다: Bruggeman 전도성은 `0.25 ≤ φ ≤ 0.40`, MG는 `φ > 0.30`. 범위 상한이 0.25면 경고가 납니다.
+    경고 없이 탐색하려면 상한을 0.25 미만(예: 0.24)으로 둡니다. 사용자가 그 이상을 허용하면 경고는 정상이며, 보고에 "모델 신뢰 범위 밖 포함"을 적습니다.
+    (12.5절 모의 실행의 상한 0.30은 경고 구간 안을 일부러 탐색한 것입니다.)
+  - 이슈 `args`에 경고 구간(`lo`, `hi`)과 모델을 넣어, 에이전트가 경계를 문서에서 찾지 않아도 되게 합니다.
 - **`optimize --restarts N`**: 7절 참고.
+
+### 13.8 (v6) 측정 재료로 실험하기: `fit`, 함량 변경
+- **측정 CSV(Tabulated)는 그 시편 하나의 데이터**입니다. 두께는 바꿀 수 있지만 함량(배합비)은 바꿀 수 없습니다. 함량을 탐색하려면:
+  1. **함량별 측정 CSV가 여러 개** → 각각 재료로 등록하고 층의 재료 후보(`choices`)로 둡니다. 이 경우 재료 이름에 함량을 넣어도 됩니다(값이 고정이므로, 13.2절 이름 규칙의 예외).
+  2. **성분 재료 데이터가 있음**(매트릭스, 충전재 각각의 ε·μ) → 혼합 재료 + `fraction_wt`/`fraction` 변수. 혼합 모델 오차가 있으므로 결과는 실제 시편을 만들어 다시 측정해 확인해야 한다고 보고합니다.
+  3. **둘 다 없음** → 두께만 최적화하고, 함량 탐색에는 추가 측정(또는 N9의 역산 기능)이 필요하다고 보고합니다. **성분 물성을 짐작해 만들지 않습니다.**
+- **`coating-cli fit CSV [--name N] [--eps-debye K] [--eps-lorentz K] [--sigma] [--eps-const-loss] [--mu-debye K] [--mu-lorentz K] [--mu-const-loss] [--density RHO]`**
+  - `materials/fitting.fit_dispersive`를 부릅니다(Debye·Lorentz 항은 인과적이라 측정 범위 밖에서도 계산은 됨).
+  - 결과: `material`(부록 A의 `dispersive` dict, 명세에 그대로 사용), `rms_eps`, `rms_mu`(최대 |ε|·|μ| 대비 상대 잔차), `data_range_hz`, `warnings`.
+  - 잔차가 크면(예: 0.05 초과) 경고 `fit_poor`를 냅니다. 항 수를 늘려 보라는 안내를 함께 냅니다.
+  - 용도: 측정 범위 밖(예: 더 넓은 sweep)을 계산하거나, 정적 투자율을 추정할 때(Rozanov). 이때 `static_mu`는 **외삽 추정**이므로 `limits[].note`에 "fitted model, extrapolated"를 적습니다(N10).
+  - `fit`은 측정 데이터를 대체하지 않습니다. 플레이북은 맞춘 모델을 쓸 때 사용자 확인을 받게 합니다(13.5절 1단계).
 
 ## 부록 A. (v5) 재료 dict 형식 (`.coat`·명세 공통, SI, 접미사 없음)
 모든 종류 공통: `kind`, `name`, `density`(kg/m³, 혼합 재료에는 없음 — 성분에서 계산), `note`.
@@ -701,3 +780,97 @@ CLI 구현 전에, 계획 문서만 아는 에이전트라고 가정하고 실�
 | `mixture` | `matrix`, `inclusion`(재료 이름), `fraction`(0~1, 부피 분율), `model`(`"maxwell_garnett"` 또는 `"bruggeman"`) | 2성분 유효 매질. 성분은 다른 혼합 재료여도 됨(순환 금지) |
 
 측정 CSV는 재료 dict 대신 명세에서 `{"name", "csv", "density"?, "note"?}`로 씁니다(13.2절).
+
+(v6) **측정 CSV 형식**(`materials/csvio.py`): 쉼표·세미콜론·탭·공백 구분, `#`으로 시작하는 줄은 주석.
+- 열: `x, eps', eps'', [mu', mu'']`(기본) 또는 헤더에 loss tangent를 쓰면 `x, eps', tan d, [mu', tan d]`. 손실은 양수(공학 규약). μ 열이 없으면 μ = 1.
+- 첫 열(`x`)의 단위는 첫 헤더 칸으로 정합니다: `Hz`/`kHz`/`MHz`/`GHz`/`THz`(헤더가 없으면 GHz), 파장(`nm`, `um`, `mm` …), 파수(`cm-1`).
+- 굴절률 형식 `x, n, k`도 읽습니다(μ = 1, 헤더에 `n`, `k` 필요). 형식 오류는 `invalid_spec`(`details.csv_error`).
+
+## 부록 B. (v6) 명령별 출력 예시 (`result` 부분)
+모든 명령은 4.1절의 봉투(`ok`, `command`, `cli_schema`, `app_version`, `input`, `result`, `warnings`, `stopped`, 실패 시 `error`) 안에 아래 `result`를 넣습니다.
+숫자는 예시입니다. **키 이름과 구조는 규약**이며, 테스트가 실제 출력과 키 구조를 비교합니다(9절 10i).
+
+**공통 정의**
+- `worst_rl_db`: 목표의 주파수 × 각도 × 편광 격자에서 가장 나쁜(가장 큰) RL [dB, 내부 부호, 음수가 좋음].
+- **`margin_db = worst_rl_db − goal_db`.** 0 이하면 목표 충족, 양수면 그만큼(dB) 미달. 여러 목표의 최댓값이 `max_margin_db`입니다.
+- 파라미터 값 객체(`ParamValue`): `{"value": 0.00195, "unit": "m", "display_value": 1.95, "display_unit": "mm"}` (+ 무게 분율이면 `"value_wt"`).
+
+`bound`
+```json
+{"f_hz": [8e9, 12e9], "goal_db": -15, "required_mu_d_m": 0.001093,
+ "mu_s": 1.0, "min_thickness_m": 0.001093, "assumptions": ["normal incidence", "PEC backing", "air incident"]}
+```
+
+`materials`
+```json
+{"materials": [{"name": "Epoxy", "kind": "constant", "note": "representative resin", "is_demo": true,
+                "dict": {"kind": "constant", "name": "Epoxy", "density": 1200.0, "note": "representative resin",
+                         "eps_re": 3.6, "eps_loss": 0.07, "mu_re": 1.0, "mu_loss": 0.0},
+                "params": [{"path": ["eps_re"], "label": "eps'", "unit": ""}], "static_mu": 1.0}]}
+```
+
+`check`
+```json
+{"valid": true, "counts": {"error": 0, "warning": 1, "info": 2},
+ "issues": [{"level": "info", "code": "demo_values", "material": "Epoxy", "target": null, "args": {}, "message": "..."}],
+ "limits": [{"target": 0, "target_name": "X 0-30", "required_mu_d_m": 0.001093, "design_mu_d_m": 0.003,
+             "max_achievable_mu_d_m": 0.004, "status": "ok", "note": "normal-incidence condition only"}],
+ "optimization": {"n_vars": 2, "n_combos": 1, "estimated_max_evals": 4530}}
+```
+
+`solve --targets --summary-only`
+```json
+{"sweep": "freq",
+ "summary": {"best": {"TE": {"rl_db": -4.2, "f_hz": 8.96e9}, "TM": {"rl_db": -4.2, "f_hz": 8.96e9}, "avg": {"rl_db": -4.2, "f_hz": 8.96e9}},
+             "total_thickness_m": 0.003, "areal_mass_kg_m2": 4.1},
+ "targets": [{"index": 0, "name": "X 0-30", "goal_db": -15, "worst_rl_db": -2.06, "margin_db": 12.94}],
+ "max_margin_db": 12.94}
+```
+
+`optimize -o OUT.coat --restarts 3`
+```json
+{"message": "converged", "n_evals": 4086, "elapsed_s": 2.4, "seed_used": 1234567,
+ "targets": [{"index": 0, "name": "X 0-30", "goal_db": -15, "worst_rl_db": -6.37, "margin_db": 8.63}],
+ "max_margin_db": 8.63,
+ "terms": {"objective": 0.42, "worst_db": -6.37, "margin_db": 8.63, "mean_r": 0.05, "thickness_m": 0.00195, "mass_kg_m2": 2.6},
+ "values": [{"path": ["layer", "<uid>", "thickness"], "label": "L1 Absorber: thickness", "layer": "Absorber",
+             "before": {"value": 0.003, "unit": "m", "display_value": 3.0, "display_unit": "mm"},
+             "after": {"value": 0.00195, "unit": "m", "display_value": 1.95, "display_unit": "mm"},
+             "at_bound": null}],
+ "choices": [],
+ "restarts": [{"seed": 1234567, "objective": 0.42, "max_margin_db": 8.63}, {"seed": 1234568, "objective": 0.47, "max_margin_db": 9.1}],
+ "history": [[150, 3.1], [900, 0.6]], "output_path": "s1_opt.coat"}
+```
+`at_bound`는 `"lower"`/`"upper"`/`null` — 변수가 범위 끝에 붙었는지(플레이북 4단계의 판단 근거).
+
+`tolerance --corners --target-db -15`
+```json
+{"n_samples": 200, "seed_used": 1, "target_db": -15,
+ "corners": [{"target": 0, "angle_deg": 0, "pol": "TE", "yield_fraction": 0.17, "worst_db": {"min": -16.0, "median": -13.5, "max": -10.2}},
+             {"target": 0, "angle_deg": 30, "pol": "TE", "yield_fraction": 0.01, "worst_db": {"min": -15.1, "median": -11.9, "max": -9.0}}],
+ "joint_yield_fraction": 0.01, "min_corner": {"target": 0, "angle_deg": 30, "pol": "TE"},
+ "note": "corners only; angles inside the range are not sampled"}
+```
+`--corners` 없이: `{"scope": {"angle_deg": 0, "pol": "avg"}, "n_samples", "seed_used", "yield_fraction", "target_db", "lower_pct", "upper_pct", "yield_intervals_hz", "worst_db": {...}, "data"?: {...}}` + 경고 `single_angle_yield`.
+
+`spec FILE.coat` (`-o` 없음)
+```json
+{"spec": {"spec_version": 1, "name": "...", "layers": [], "...": "13.2절 형식 전체"}}
+```
+`-o OUT.json`이면 `{"output_path": "OUT.json"}`이고 파일에는 봉투 없는 명세만 씁니다.
+
+`journal DIR`
+```json
+{"n_trials": 9, "fingerprints": [{"spec_fingerprint": "a1b2c3", "targets": [{"name": "X 0-30", "goal_db": -15}],
+   "thickness_max_m": 0.004, "n_trials": 7,
+   "best": {"seq": 6, "max_margin_db": 1.0, "snapshot": "snapshots/9f8e7d6c5b4a.coat", "note": "2-layer graded"}}],
+ "trials": [{"seq": 1, "command": "solve", "note": "baseline", "max_margin_db": 12.94, "exit_code": 0, "snapshot": "snapshots/..."}],
+ "warnings": ["targets changed during the run (2 fingerprints)"]}
+```
+
+`fit CSV --mu-debye 1`
+```json
+{"material": {"kind": "dispersive", "name": "CI sheet fit", "eps_inf": 14.2, "eps_loss": 0.4, "sigma": 0.0, "eps_terms": [],
+              "mu_inf": 1.0, "mu_loss": 0.0, "mu_terms": [{"type": "debye", "delta": 2.8, "f0": 2.1e9}], "density": 1000.0, "note": "fitted"},
+ "rms_eps": 0.012, "rms_mu": 0.031, "data_range_hz": [1e9, 8e9]}
+```

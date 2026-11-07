@@ -3,7 +3,7 @@
 작성: 2026-11-07 (같은 날 앞선 Handoff를 대체)
 
 ## 현재 상태
-- 브랜치 `agent-cli`에 **계획 v4만 커밋**돼 있습니다: [`docs/CLI_PLAN.md`](docs/CLI_PLAN.md). 코드는 아직 바꾸지 않았습니다.
+- 브랜치 `agent-cli`에 **계획 v6만 커밋**돼 있습니다: [`docs/CLI_PLAN.md`](docs/CLI_PLAN.md). 코드는 아직 바꾸지 않았습니다.
 - v4는 에이전트 실험 루프(13절: 설계 명세 `build`/`spec`, 실험 기록 `--journal`, Rozanov 한계, 플레이북)를 포함하고, 연결 방식은 **CLI + Skill/플레이북**으로 정했습니다(MCP는 조건부 후속).
 - `main`(`d83b9c2`)은 그대로입니다. PR은 아직 만들지 않았습니다.
 - 지금까지 한 일:
@@ -13,10 +13,11 @@
   4. 지적 14건을 모두 `파일:줄`로 직접 확인했습니다(14건 모두 맞음).
   5. 계획 v2 작성: 판정표는 계획 12.1·12.2절에 있습니다.
   6. 워크플로우를 "에이전트가 목표에 도달할 때까지 스스로 실험"으로 정하고 v3 작성 → Argon 2차 리뷰(지적 9건, 실행으로 대조) → v4(12.3·12.4절).
+  7. 엔진을 직접 돌려 실험 루프 모의 실행 → v5(12.5절). 문서만 읽은 Claude·agy 블라인드 테스트 → v6(12.6절, 부록 B 출력 예시).
 - 공통 규칙은 [`AGENTS.md`](AGENTS.md)에, 이전 기능의 설계 이력은 [`docs/DEVELOPMENT_HISTORY.md`](docs/DEVELOPMENT_HISTORY.md)에 있습니다.
 
 ## 다음 세션 시작 프롬프트
-> `docs/CLI_PLAN.md`(계획 v4)를 읽고 `agent-cli` 브랜치에서 구현해줘. 커밋은 계획 10절대로 나눠줘.
+> `docs/CLI_PLAN.md`(계획 v6)를 읽고 `agent-cli` 브랜치에서 구현해줘. 커밋은 계획 10절대로 나눠줘.
 > 시작 전에 11절 남은 질문(N1, N2)을 먼저 확인해줘.
 
 ## 구현 전에 정할 점 (계획 11절)
@@ -31,6 +32,8 @@
 - Rozanov 판정은 PEC 뒷판에서만, 이슈는 경고 수준만. 정적 투자율은 모델식에서 해석적으로(상수 μ″·Tabulated는 `None`).
 - 명세 왕복 테스트는 내장 예제 7개 전부, 실수는 `rtol` 비교. 목표에 각도 범위가 있으면 `n_angle ≥ 2` 필수.
 - 시드가 `None`이면 CLI가 정해 `seed_used`로 기록합니다.
+- 부록 B의 출력 JSON 예시는 규약입니다. 실제 출력과 키 구조를 비교하는 테스트(9절 10i)를 함께 만듭니다.
+- Rozanov: 0°를 포함하는 목표는 수직 입사 판정을 그대로 받습니다(v6 수정). 측정 재료는 sweep·목표를 측정 범위 안으로(`build` 검사).
 - 새 `_ISSUES_EN` 문구 `material_cycle`, `rozanov_limit`, `rozanov_infeasible`에는 KO 항목이 필요합니다. `unknown_material`은 기존 KO 문구(`i18n_ko.py:227`)를 다시 씁니다.
 - 검증 절차는 DEVELOPMENT_HISTORY 2.1절 6단계를 따릅니다.
   - `QT_QPA_PLATFORM=offscreen python -m pytest`를 실행합니다.
