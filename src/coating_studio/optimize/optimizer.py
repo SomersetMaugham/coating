@@ -357,9 +357,16 @@ def optimize(project: Project, settings: OptimizationSettings | None = None, pro
                 return f_cont(xc, combo)
 
             integrality = [False] * n_cont + [True] * len(ordered)
+            # Seed the population with the current design (as the enumerated branch does), so restarting from a
+            # previous best cannot end worse than it.  Only possible when every layer's current material is
+            # one of its candidates.
+            current = [project.structure.layer_by_uid(c.uid).material for c in s.choices]
+            x0 = None
+            if all(m in o for m, o in zip(current, ordered)):
+                x0 = list(x_start) + [o.index(m) for m, o in zip(current, ordered)]
             differential_evolution(
                 f_mixed, bounds + int_bounds, maxiter=int(s.maxiter), popsize=int(s.popsize),
-                seed=rng_seed, polish=False, integrality=integrality, callback=de_callback,
+                seed=rng_seed, polish=False, integrality=integrality, x0=x0, callback=de_callback,
                 tol=1e-6, atol=1e-9, updating="immediate")
 
         if s.polish and n_cont and best["x"] is not None and math.isfinite(best["j"]):
