@@ -45,3 +45,17 @@ def test_report_survives_a_broken_model():
     p.structure.layers[0].material = "missing"
     html = build_report(p)
     assert "Cannot compute" in html and html.rstrip().endswith("</html>")
+
+
+def test_report_angle_grid_lists_the_lowest_row_per_target():
+    from coating_studio.tolerance import run_tolerance_targets
+    p = EXAMPLES["dualband"][1]()
+    p.tolerance.n_samples = 8
+    tol = run_tolerance_targets(p, tolerance_frequencies(p), "grid")
+    html = build_report(p, tolerance=tol)
+    assert "angle grid (10 points)" in html and f"{tol.joint_yield_fraction * 100:.1f} %" in html
+    section = html[html.index("Tolerance analysis"):]
+    assert section.count("<li>") == 2  # one line per target, not one per grid point
+    p.optimization.enabled_targets()[1].n_angle = 1
+    tol = run_tolerance_targets(p, tolerance_frequencies(p), "grid")
+    assert "Target 2: fewer than 2 angle-grid points" in build_report(p, tolerance=tol)

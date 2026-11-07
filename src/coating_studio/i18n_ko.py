@@ -229,15 +229,24 @@ KO.update({
     "Power law": "거듭제곱 법칙", "at 1 GHz": "1 GHz 값", "exponent": "지수",
     "New power-law material": "새 거듭제곱 법칙 재료",
     "Tolerance analysis": "공차 분석",
-    "Check every target corner": "목표의 모든 꼭짓점 평가",
-    "Run the analysis at both ends of each enabled target's angle range and for each of its polarisations, against that target's band and goal, and report the joint yield (samples that pass at every corner).":
-        "사용 중인 목표마다 각도 범위의 양 끝과 각 편광에서, 그 목표의 대역과 목표값을 기준으로 분석하고 결합 수율(모든 꼭짓점을 통과한 표본의 비율)을 보고합니다.",
-    "A single angle can overstate the yield of a target that spans several angles. With every corner checked, each target's own band and goal apply and the angle, polarisation, target and band above are not used.":
-        "각도 범위가 있는 목표는 한 각도만 보면 수율이 부풀려질 수 있습니다. 모든 꼭짓점을 평가하면 각 목표의 대역과 목표값이 적용되고, 위의 입사각·편광·목표·대역 설정은 쓰지 않습니다.",
-    "Checking every corner needs at least one enabled optimisation target.": "모든 꼭짓점을 평가하려면 사용 중인 최적화 목표가 하나 이상 있어야 합니다.",
+    "Angles evaluated": "평가 각도",
+    "Single angle (settings above)": "한 각도 (위 설정)",
+    "Ends of each target's angle range": "목표별 각도 범위의 양 끝",
+    "Each target's angle grid": "목표별 각도 격자",
+    "The two target modes run the analysis for each enabled target against its own band and goal, for each of its polarisations, at the two ends of its angle range or at every angle of its grid (the angles the optimiser checks), and report the joint yield (samples that pass everywhere).":
+        "목표 기준 두 방식은 사용 중인 목표마다 그 목표의 대역과 목표값을 기준으로, 각 편광에서, 각도 범위의 양 끝 또는 각도 격자의 모든 각도(최적화기가 확인하는 각도)에서 분석하고 결합 수율(모든 곳을 통과한 표본의 비율)을 보고합니다.",
+    "A single angle can overstate the yield of a target that spans several angles. The angle grid also checks the angles inside the range; angles between its points are not sampled. In both target modes the angle, polarisation, target and band above are not used.":
+        "각도 범위가 있는 목표는 한 각도만 보면 수율이 부풀려질 수 있습니다. 각도 격자는 범위 안쪽 각도도 확인하지만, 격자 점 사이의 각도는 보지 않습니다. 목표 기준 두 방식에서는 위의 입사각·편광·목표·대역 설정을 쓰지 않습니다.",
+    "Checking the target angles needs at least one enabled optimisation target.": "목표 각도를 평가하려면 사용 중인 최적화 목표가 하나 이상 있어야 합니다.",
+    "Joint yield {y:.1f}% over {n} angle-grid points ({s} samples)": "각도 격자 {n}점의 결합 수율 {y:.1f}% (표본 {s}개)",
+    "Weakest (plotted): {c}. Lowest yield per target: {rows}": "가장 취약한 곳(그래프): {c}. 목표별 최저 수율: {rows}",
+    "Target {n}: fewer than 2 angle-grid points, so the two ends of its range were used.":
+        "목표 {n}: 각도 격자 점이 2개 미만이라 각도 범위의 양 끝을 평가했습니다.",
+    "Tolerance analysis: joint yield {y:.1f}% over {n} angle-grid points": "공차 분석: 각도 격자 {n}점의 결합 수율 {y:.1f}%",
+    "Joint yield over every target's angle grid ({k} points): {y} ({n} samples). Lowest yield per target:":
+        "모든 목표의 각도 격자({k}점) 결합 수율: {y} (표본 {n}개). 목표별 최저 수율:",
     "Target {n}": "목표 {n}",
     "Joint yield {y:.1f}% over {n} corners ({s} samples)": "꼭짓점 {n}개의 결합 수율 {y:.1f}% (표본 {s}개)",
-    "Weakest corner (plotted): {c}. Yield per corner: {rows}": "가장 취약한 꼭짓점(그래프): {c}. 꼭짓점별 수율: {rows}",
     "Tolerance analysis: joint yield {y:.1f}% over {n} corners": "공차 분석: 꼭짓점 {n}개의 결합 수율 {y:.1f}%",
     "f in GHz. An empirical curve fit (e.g. the Michielssen 1993 absorber database), not a causal model: use it only inside the band it was fitted on.":
         "f의 단위는 GHz입니다. 경험적 곡선 맞춤(예: Michielssen 1993 흡수체 재료 데이터베이스)이며 인과적 모델이 아니므로, 맞춘 대역 안에서만 쓰십시오.",

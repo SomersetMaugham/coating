@@ -552,27 +552,43 @@ def test_tolerance_corners_and_extended_diagnostics(app):
     from coating_studio.gui.main_window import MainWindow
     from coating_studio.materials.models import MixtureMaterial
     from coating_studio.project import ContinuousVariable
-    from coating_studio.tolerance import CornerResult, run_tolerance_corners, tolerance_frequencies
+    from coating_studio.tolerance import CornerResult, run_tolerance_targets, tolerance_frequencies
 
     w = MainWindow()
     p = EXAMPLES["dualband"][1]()
     p.tolerance.n_samples = 20
     w.doc.set_project(p)
     tol = w.p_tol
-    tol.chk_corners.setChecked(True)
-    assert not tol.angle.isEnabled() and not tol.pol.isEnabled() and not tol.target.isEnabled()
-    tol.run()
-    for _ in range(800):
-        _pump(app, 25)
-        if tol.thread is None:
-            break
-    res = tol.plot.result
-    assert isinstance(res, CornerResult) and not tol.lbl_corners.isHidden()
-    direct = run_tolerance_corners(w.project, tolerance_frequencies(w.project))
-    assert [c[5].yield_fraction for c in res.corners] == [c[5].yield_fraction for c in direct.corners]
-    assert res.joint_yield_fraction <= min(c[5].yield_fraction for c in res.corners)
-    assert tol.plot.data_table() is not None
-    tol.chk_corners.setChecked(False)
+
+    def run_mode(mode):
+        tol.angle_mode.setCurrentIndex(tol.angle_mode.findData(mode))
+        assert not tol.angle.isEnabled() and not tol.pol.isEnabled() and not tol.target.isEnabled()
+        tol.run()
+        for _ in range(800):
+            _pump(app, 25)
+            if tol.thread is None:
+                break
+        res = tol.plot.result
+        assert isinstance(res, CornerResult) and res.angle_mode == mode and not tol.lbl_corners.isHidden()
+        direct = run_tolerance_targets(w.project, tolerance_frequencies(w.project), mode)
+        assert [c[5].yield_fraction for c in res.corners] == [c[5].yield_fraction for c in direct.corners]
+        assert res.joint_yield_fraction <= min(c[5].yield_fraction for c in res.corners)
+        assert tol.plot.data_table() is not None
+        return res
+
+    assert len(run_mode("corners").corners) == 6  # target 1 at 0 deg, target 2 at 0 and 45 deg; TE and TM
+    res = run_mode("grid")
+    assert len(res.corners) == 10 and "Lowest yield per target" in tol.lbl_corners.text()  # target 2: 4 angles
+    assert tol.lbl_corners.toolTip().count("\n") == 9  # every row in the tooltip
+    tol.plot.redraw()
+    # Changing the targets drops the result (drawing it against other targets raised IndexError).
+    w.doc.edit_settings(lambda pp: setattr(pp.optimization.targets[0], "enabled", False))
+    assert tol.plot.result is None and tol.lbl_corners.isHidden()
+    w.doc.edit_settings(lambda pp: setattr(pp.optimization.targets[0], "enabled", True))
+    res = run_mode("grid")
+    w.doc.edit_settings(lambda pp: setattr(pp.tolerance, "n_samples", 21))  # other settings keep it
+    assert tol.plot.result is res
+    tol.angle_mode.setCurrentIndex(tol.angle_mode.findData(None))
     assert tol.angle.isEnabled() and tol.pol.isEnabled()
 
     # Diagnostics: a thin layer that cannot meet its target (Rozanov), and a mixture whose fraction range

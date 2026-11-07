@@ -313,6 +313,10 @@ CLI와 GUI가 같은 숫자를 내도록 GUI 안에 있던 로직을 엔진으�
 - 표본별 `worst_db` 전체는 `--samples`일 때만 넣습니다.
 - (v5) **`--corners`**: 활성 목표마다 (각도 범위의 양 끝) × (목표 편광)을 각각 평가합니다(13.7절). 결과에 꼭짓점별 수율과 **결합 수율**을 냅니다.
   `--corners` 없이 실행하면 GUI와 같은 단일 각도·편광 계산이고, 결과에 `scope: {"angle_deg", "pol"}`과 "단일 각도 기준" 경고를 항상 붙입니다.
+- (3.19) **`--angle-grid [--n-angle N]`**: `--corners`와 같되, 각도 범위가 있는 목표는 그 목표의 각도 격자(`n_angle`점, `--n-angle`로 덮어씀, N ≥ 2)를 평가합니다.
+  `n_angle`이 2 미만이면 양 끝을 평가하고 경고 `angle_grid_fallback`을 붙입니다. `--corners`와 `--angle-grid`는 함께 쓸 수 없고,
+  둘 다 `--angle-deg`·`--pol`과 함께 쓰면 사용 오류(종료 2)입니다. `-o`는 JSON 결과 전체를 파일에 쓰고 봉투에는 요약만 둡니다(단일 각도 모드도 같음).
+  `--format csv`는 가장 취약한 행의 곡선입니다(GUI 데이터 내보내기와 같음). 진행 이벤트는 표본 단위 `done`/`total`입니다.
 - (v4) `--target-db`는 수율 기준(`ToleranceSettings.target_db`, 기본 −10 dB)을 덮어씁니다. 최적화 목표(기본 −20 dB)와 다를 수 있으므로 결과에 `target_db`를 항상 적습니다.
 
 ## 8. 코드 구성
@@ -365,6 +369,7 @@ src/coating_studio/cli/
    `optimize -o`로 저장한 파일을 다시 로드하면 `values`가 반영돼 있음.
 10. **`--seed -1`**: `optimize`·`tolerance` 모두 오류 없이 동작.
 10a. (v5) `tolerance --corners`: 꼭짓점마다 `run_tolerance`를 직접 부른 결과와 같고, 결합 수율이 꼭짓점별 최소 수율 이하. 꼭짓점 사이 표본이 같은 섭동인지(같은 시드) 확인.
+     (3.19) `--angle-grid`도 행마다 `run_tolerance`와 비트 단위로 같고, 2점 격자는 꼭짓점 결과와 같음. 쓸 수 없는 옵션 조합은 사용 오류.
 10b. (v5) `optimize --restarts 3`: 시작별 결과가 `--seed`를 각각 준 단일 실행과 같고, 최선이 선택됨.
 10c. (v5) `mixture_fraction_range` 이슈: Bruggeman 전도성 충전재 분율 0.30 근처, MG 분율 0.35에서 경고, 변수 범위가 위험 구간을 포함해도 경고.
 10d. (v5) `materials`의 재료 dict를 그대로 명세에 넣어 `build`하면 내장 재료와 같은 `to_dict()`.
@@ -716,6 +721,7 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
    - 특정 대역·각도만 미달: 층 추가(경사형·Jaumann형), 저항 시트 삽입, 재료 후보 추가를 검토합니다(`spec` → 명세 수정 → `build`).
    - (v5) 층을 늘렸는데 결과가 나빠지면 국소 최적을 의심합니다(모의 실행에서 3층이 2층보다 나빴음). 이전 최선 설계를 출발점으로 두고 다시 돌립니다.
 5. (v5) `tolerance --corners --target-db <목표 goal_db> --journal DIR`로 **목표의 각도 끝 × 편광마다** 수율을 확인하고, 결합 수율을 보고합니다.
+   (3.19) 각도 범위가 있는 목표는 `--angle-grid`(필요하면 `--n-angle`로 더 촘촘히)로 범위 안쪽 각도까지 확인합니다.
    단일 각도 수율만 보고하면 안 됩니다(모의 실행: 0° 평균 17%, 30° TE 1%). 낮으면 결과에 위험을 명시합니다.
 6. 멈춤 규칙: 목표 충족 + 수율 기준(1단계에서 정한 값, 기본 결합 수율 80%) 충족 / 시도 예산(기본 20회 또는 사용자가 정한 값) 소진 /
    같은 목표에서 **다중 시작(`--restarts 3`) 기준으로** 연속 3회 개선 없음 / `rozanov_infeasible`.
@@ -753,12 +759,13 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
 - **`coating-cli materials [--name N]`**: 내장 재료(`builtin_materials()`) 목록. 항목마다 `name`, `kind`, `note`, `is_demo`(`is_builtin_demo`, `Air`는 false),
   `dict`(부록 A 형식 그대로 — 명세 `materials[]`에 복사해 쓸 수 있음), `params[]`(`path`, `label`, `unit`), `static_mu`(13.4절, 알 수 없으면 `null`).
   `"input": null`. 사용자 라이브러리 파일은 `--library PATH`로 함께 보여 줍니다(`materials/library.load_library`).
-- **`tolerance --corners`**: 활성 목표마다 꼭짓점 집합 `{angle_min, angle_max} × pols`(중복 제거)에서 `run_tolerance`를 부릅니다.
+- **`tolerance --corners`**: 활성 목표마다 꼭짓점 집합 `{angle_min, angle_max} × pols`(중복 제거)를 평가합니다. (3.19) 구현은 `tolerance.run_tolerance_targets`로,
+  표본을 한 번 뽑고 표본마다 서로 다른 각도마다 한 번 풀며, 각 행은 그 점의 `run_tolerance`와 비트 단위로 같습니다. 아래 설명은 그 성질을 그대로 따릅니다.
   수율 기준 대역은 그 목표의 주파수 대역, `target_db`는 `--target-db`(없으면 그 목표의 `goal_db`).
   - `run_tolerance`의 섭동 표본은 시드와 층 구성만으로 정해지고 각도·편광과 무관하므로(`tolerance.py`의 `factors`는 계산 루프 전에 뽑힘),
     **같은 시드면 꼭짓점마다 같은 표본**입니다. 그래서 표본별 `worst_db`를 꼭짓점에 걸쳐 모아 **결합 수율**(모든 꼭짓점을 동시에 만족하는 표본 비율)을 정확히 계산합니다.
   - 결과: `corners[]`(`target`, `angle_deg`, `pol`, `yield_fraction`, `worst_db` 통계), `joint_yield_fraction`, `min_corner`.
-  - 꼭짓점만 보므로 각도 범위 안쪽의 더 나쁜 각도를 놓칠 수 있습니다(문서와 결과 `note`에 명시). 완전한 다중 각도 몬테카를로 수율은 DEVELOPMENT_HISTORY 6장의 미룬 작업 그대로입니다.
+  - 꼭짓점만 보므로 각도 범위 안쪽의 더 나쁜 각도를 놓칠 수 있습니다(문서와 결과 `note`에 명시). (3.19) 안쪽 각도는 `--angle-grid`로 확인합니다(DEVELOPMENT_HISTORY 3.19).
 - **`mixture_fraction_range` 이슈**(경고, `check`와 `optimize` 사전 점검): 혼합 모델이 신뢰하기 어려운 분율.
   - Bruggeman이고 충전재가 전도성(분산 재료의 `sigma > 0` 또는 대상 대역에서 ε″/ε′ > 1)이면 분율 0.25~0.40(퍼콜레이션 임계 1/3 주변, N7).
   - Maxwell–Garnett이면 분율 > 0.30(희박 구형 입자 가정).
@@ -860,14 +867,17 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
 이때 개별 층은 보통 자기 범위 끝에 있지 않음), `result.run_settings`(`maxiter`, `popsize`, `polish` — 이번 실행에만 적용, 결과 파일에 저장하지 않음),
 `best_seed`(보고한 설계를 만든 시드). 실험 기록에도 `best_seed`를 남깁니다.
 
-`tolerance --corners --target-db -15`
+`tolerance --corners --target-db -15` (`--angle-grid`면 `angle_mode: "grid"`, 행은 격자 각도마다, `note`는 "angle grid only; …", `--n-angle`을 주면 `n_angle`)
 ```json
-{"n_samples": 200, "seed_used": 1, "target_db": -15,
- "corners": [{"target": 0, "angle_deg": 0, "pol": "TE", "yield_fraction": 0.17, "worst_db": {"min": -16.0, "median": -13.5, "max": -10.2}},
-             {"target": 0, "angle_deg": 30, "pol": "TE", "yield_fraction": 0.01, "worst_db": {"min": -15.1, "median": -11.9, "max": -9.0}}],
+{"angle_mode": "corners", "n_samples": 200, "seed_used": 1, "target_db": -15,
+ "corners": [{"target": 0, "target_name": "X", "angle_deg": 0, "pol": "TE", "target_db": -15, "n_samples": 200, "yield_fraction": 0.17,
+              "worst_db": {"min": -16.0, "median": -13.5, "max": -10.2}},
+             {"target": 0, "target_name": "X", "angle_deg": 30, "pol": "TE", "target_db": -15, "n_samples": 200, "yield_fraction": 0.01,
+              "worst_db": {"min": -15.1, "median": -11.9, "max": -9.0}}],
  "joint_yield_fraction": 0.01, "min_corner": {"target": 0, "angle_deg": 30, "pol": "TE"},
- "note": "corners only; angles inside the range are not sampled"}
+ "note": "corners only; angles inside each target's range are not sampled"}
 ```
+최상위 `target_db`는 `--target-db` 값이며, 없으면 `null`이고 행마다 그 목표의 `goal_db`가 `target_db`입니다.
 `--corners` 없이: `{"scope": {"angle_deg": 0, "pol": "avg"}, "n_samples", "seed_used", "yield_fraction", "target_db", "lower_pct", "upper_pct", "yield_intervals_hz", "worst_db": {...}, "data"?: {...}}` + 경고 `single_angle_yield`.
 
 `spec FILE.coat` (`-o` 없음)

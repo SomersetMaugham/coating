@@ -39,7 +39,7 @@ SciPy from conda-forge (`conda install -n coat-py310 -c conda-forge "scipy<1.16"
 
 To improve a design for a user (current composition + target → simulate and optimise until met or shown
 infeasible), use `coating-cli` and follow `docs/AGENT_PLAYBOOK.md`: design specs (`build`/`spec`), the experiment
-journal, the Rozanov feasibility check, yield at target corners and the stop rules. Never invent material
+journal, the Rozanov feasibility check, yield over each target's angle grid and the stop rules. Never invent material
 parameters. Use the CLI, not the GUI, for the search; the design rationale is in `docs/CLI_PLAN.md`.
 
 ## Architecture

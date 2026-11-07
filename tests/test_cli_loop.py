@@ -407,3 +407,51 @@ def test_journal_skips_runs_that_never_loaded_a_design(tmp_path):
     j = tmp_path / "runs"
     run("solve", tmp_path / "missing.coat", "--journal", j)
     assert not (j / "journal.jsonl").exists()
+
+
+def test_angle_grid_cli_output_options_and_journal(tmp_path):
+    from coating_studio.cli.progress import RunControl
+    from coating_studio.tolerance import run_tolerance_targets
+    p = EXAMPLES["dualband"][1]()
+    src = tmp_path / "d.coat"
+    p.save(src)
+    code, env = run("tolerance", src, "--angle-grid", "--seed", "3", "--n-samples", "20")
+    r = env["result"]
+    assert code == 0 and r["angle_mode"] == "grid" and len(r["corners"]) == 10 and r["target_db"] is None
+    assert r["note"].startswith("angle grid only") and env["warnings"] == []
+    p.tolerance.seed, p.tolerance.n_samples = 3, 20
+    direct = run_tolerance_targets(p, tolerance_frequencies(p), "grid")
+    assert [c["yield_fraction"] for c in r["corners"]] == [row[5].yield_fraction for row in direct.corners]
+    assert r["joint_yield_fraction"] == direct.joint_yield_fraction
+    code, env = run("tolerance", src, "--angle-grid", "--n-angle", "7", "--n-samples", "5", "--target-db", "-12")
+    assert env["result"]["n_angle"] == 7 and len(env["result"]["corners"]) == 2 + 14  # 1 + 7 angles x TE, TM
+    assert env["result"]["target_db"] == -12 and all(c["target_db"] == -12 for c in env["result"]["corners"])
+    code, env = run("tolerance", src, "--corners", "--n-samples", "5")
+    assert env["result"]["angle_mode"] == "corners" and env["result"]["note"].startswith("corners only")
+    # options that do not apply are usage errors instead of being ignored
+    for argv in (("--corners", "--pol", "TE"), ("--angle-grid", "--angle-deg", "30"), ("--n-angle", "5"),
+                 ("--angle-grid", "--n-angle", "1")):
+        code, env = run("tolerance", src, *argv)
+        assert code == 2 and env["error"]["code"] == "usage", argv
+    # --output: JSON (plain and multi-angle) and CSV (the weakest row, as the GUI exports it)
+    code, env = run("tolerance", src, "--n-samples", "5", "-o", tmp_path / "plain.json")
+    saved = json.loads((tmp_path / "plain.json").read_text())
+    assert "data" in saved and "data" not in env["result"] and env["result"]["output_path"].endswith("plain.json")
+    assert env["result"]["yield_fraction"] == saved["yield_fraction"]
+    code, env = run("tolerance", src, "--angle-grid", "--n-samples", "5", "-o", tmp_path / "grid.json")
+    saved = json.loads((tmp_path / "grid.json").read_text())
+    assert len(saved["corners"]) == 10 and "corners" not in env["result"] and env["result"]["angle_mode"] == "grid"
+    code, env = run("tolerance", src, "--corners", "--n-samples", "5", "--format", "csv", "-o", tmp_path / "c.csv")
+    assert code == 0 and env["result"]["rows"] == len(tolerance_frequencies(p))
+    assert (tmp_path / "c.csv").read_text().startswith("f [GHz],nominal [dB]")
+    # one final progress line (the corner check used to print it twice)
+    out, err = io.StringIO(), io.StringIO()
+    ctl = RunControl(command="tolerance", progress=True, progress_interval=0.0, stream=err)
+    assert main(["tolerance", str(src), "--angle-grid", "--n-samples", "3"], stdout=out, stderr=err, control=ctl) == 0
+    lines = [json.loads(x) for x in err.getvalue().splitlines()]
+    assert [x["done"] for x in lines] == [1, 2, 3] and all("corner" not in x for x in lines)
+    # the journal records the mode and the --target-db criterion
+    j = tmp_path / "j"
+    run("tolerance", src, "--angle-grid", "--n-samples", "5", "--target-db", "-12", "--journal", j)
+    entry = json.loads((j / "journal.jsonl").read_text().splitlines()[-1])
+    assert entry["summary"]["angle_mode"] == "grid" and entry["summary"]["target_db"] == -12

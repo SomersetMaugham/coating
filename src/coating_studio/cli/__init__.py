@@ -109,8 +109,14 @@ def build_parser():
     to.add_argument("--pol", choices=("TE", "TM", "avg"))
     to.add_argument("--samples", action="store_true", help="include every sample's in-band worst RL")
     to.add_argument("--summary-only", action="store_true")
-    to.add_argument("--corners", action="store_true",
-                    help="yield at every angle end x polarisation of each enabled target, plus the joint yield")
+    mode = to.add_mutually_exclusive_group()
+    mode.add_argument("--corners", action="store_true",
+                      help="yield at every angle end x polarisation of each enabled target, plus the joint yield")
+    mode.add_argument("--angle-grid", action="store_true",
+                      help="yield at every angle of each enabled target's angle grid x polarisation, plus the joint "
+                           "yield (the angles the optimiser checks)")
+    to.add_argument("--n-angle", type=int, metavar="N",
+                    help="with --angle-grid: N evenly spaced angles for every target with an angle range (N >= 2)")
     _common(to, long_running=True, export=True)
     _journal(to)
 
@@ -172,7 +178,7 @@ def _run(args, control):
     if c == "tolerance":
         return C.cmd_tolerance(args.file, control, args.seed, args.n_samples, args.target_db, args.angle_deg,
                                args.pol, args.samples, args.summary_only, args.format, args.output, args.force,
-                               args.corners)
+                               args.corners, args.angle_grid, args.n_angle)
     if c == "materials":
         return C.cmd_materials(args.name, args.library)
     if c == "bound":

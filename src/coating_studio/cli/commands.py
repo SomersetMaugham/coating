@@ -32,7 +32,7 @@ from coating_studio.optimize.optimizer import (
     MAX_ENUMERATED_COMBOS, OptimizationError, apply_result, evaluate_terms, optimize, preflight,
 )
 from coating_studio.project import Project, available_params, describe_path, get_param, param_unit
-from coating_studio.tolerance import run_tolerance, run_tolerance_corners, tolerance_frequencies, yield_intervals
+from coating_studio.tolerance import run_tolerance, run_tolerance_targets, tolerance_frequencies, yield_intervals
 
 POLS = ("TE", "TM", "avg")
 
@@ -590,9 +590,18 @@ def _stats(a):
 
 
 def cmd_tolerance(path, control, seed=None, n_samples=None, target_db=None, angle_deg=None, pol=None,
-                  samples=False, summary_only=False, fmt="json", output=None, force=False, corners=False):
-    if corners:
-        return _tolerance_corners(path, control, seed, n_samples, target_db, samples)
+                  samples=False, summary_only=False, fmt="json", output=None, force=False, corners=False,
+                  angle_grid=False, n_angle=None):
+    if n_angle is not None and not angle_grid:
+        raise CliError("usage", "--n-angle needs --angle-grid", 2)
+    if corners or angle_grid:
+        for flag, given in (("--angle-deg", angle_deg is not None), ("--pol", pol is not None)):
+            if given:  # each row uses its target's own angles and polarisations
+                raise CliError("usage", f"{flag} cannot be combined with --corners / --angle-grid", 2)
+        if n_angle is not None and n_angle < 2:
+            raise CliError("usage", "--n-angle needs N >= 2", 2)
+        return _tolerance_targets(path, control, "grid" if angle_grid else "corners", n_angle, seed, n_samples,
+                                  target_db, samples, fmt, output, force)
     p, inp = load_project(path)
     s = p.tolerance
     s.seed = resolve_seed(seed if seed is not None else s.seed)
@@ -629,6 +638,7 @@ def cmd_tolerance(path, control, seed=None, n_samples=None, target_db=None, angl
                           "lower_db": r.lower_db, "upper_db": r.upper_db}
     if samples:
         result["samples_worst_db"] = r.worst_db
+    result = _write_json_output(result, output, force, ("data", "samples_worst_db"))
     warnings = [warning("single_angle_yield",
                         f"yield evaluated at a single angle ({s.angle:g} deg, {s.pol}) only; "
                         "targets over an angle range need a check at every angle and polarisation")]
@@ -637,27 +647,49 @@ def cmd_tolerance(path, control, seed=None, n_samples=None, target_db=None, angl
     return CommandResult(result, warnings=warnings, stopped=r.stopped, input_info=inp)
 
 
-def _tolerance_corners(path, control, seed, n_samples, target_db, samples):
-    """Yield at every (angle end x polarisation) corner of every enabled target, plus the joint yield
-    (``tolerance.run_tolerance_corners``, shared with the GUI)."""
+def _write_json_output(result, output, force, bulky=()):
+    """With ``--output``: write ``result`` to that file and return a short result for the envelope (``output_path``
+    plus everything except the ``bulky`` keys); without it, return ``result`` unchanged."""
+    if output is None:
+        return result
+    check_output_path(output, force)
+    from coating_studio.cli.output import dumps
+    write_text(output, dumps(result) + "\n")
+    return {"output_path": str(output), **{k: v for k, v in result.items() if k not in bulky}}
+
+
+_ANGLE_NOTES = {"corners": "corners only; angles inside each target's range are not sampled",
+                "grid": "angle grid only; angles between the grid points are not sampled"}
+
+
+def _tolerance_targets(path, control, mode, n_angle, seed, n_samples, target_db, samples, fmt, output, force):
+    """Yield at every (angle x polarisation) row of every enabled target - the ends of its angle range ("corners")
+    or its angle grid ("grid") - plus the joint yield (``tolerance.run_tolerance_targets``, shared with the GUI).
+    ``--format csv`` exports the curves of the weakest row, as the GUI's data export does."""
     p, inp = load_project(path)
     s = p.tolerance
     s.seed = resolve_seed(seed if seed is not None else s.seed)
     if n_samples is not None:
         s.n_samples = int(n_samples)
     if not p.optimization.enabled_targets():
-        raise CliError("invalid_optimization_settings", "--corners needs at least one enabled target", 4)
-    stop_cb = control.tolerance_callback()
-
-    def progress(done, total, k, n_corners):
-        control.emit({"done": done, "total": total, "corner": k + 1, "n_corners": n_corners}, force=done == total)
-        return stop_cb(done, total)
-
+        raise CliError("invalid_optimization_settings",
+                       f"--{'angle-grid' if mode == 'grid' else 'corners'} needs at least one enabled target", 4)
     try:
-        cr = run_tolerance_corners(p, tolerance_frequencies(p), target_db=target_db, progress=progress,
-                                   should_stop=control.should_stop)
+        cr = run_tolerance_targets(p, tolerance_frequencies(p), mode, n_angle=n_angle, target_db=target_db,
+                                   progress=control.tolerance_callback(), should_stop=control.should_stop)
     except MODEL_ERRORS as e:
         raise model_error(e) from None
+    if fmt == "csv":
+        r = cr.corners[cr.worst][5]
+        header = ["f [GHz]", "nominal [dB]", "median [dB]", "lower [dB]", "upper [dB]"]
+        rows = [[f"{a / 1e9:.9g}", f"{b:.6g}", f"{c:.6g}", f"{d:.6g}", f"{e:.6g}"]
+                for a, b, c, d, e in zip(r.f, r.nominal_db, r.median_db, r.lower_db, r.upper_db)]
+        text = csv_text(header, rows)
+        if output is None:
+            return CommandResult({}, input_info=inp, text=text, stopped=cr.stopped)
+        check_output_path(output, force)
+        write_text(output, text)
+        return CommandResult({"output_path": str(output), "rows": len(rows)}, input_info=inp, stopped=cr.stopped)
     rows = []
     for ti, name, ang, pol_, tdb, r in cr.corners:
         row = {"target": ti, "target_name": name, "angle_deg": ang, "pol": pol_, "target_db": tdb,
@@ -666,11 +698,18 @@ def _tolerance_corners(path, control, seed, n_samples, target_db, samples):
             row["samples_worst_db"] = r.worst_db
         rows.append(row)
     worst = rows[cr.worst]
-    result = {"n_samples": cr.n_samples, "seed_used": s.seed, "corners": rows,
-              "joint_yield_fraction": cr.joint_yield_fraction,
+    result = {"angle_mode": mode, "n_samples": cr.n_samples, "seed_used": s.seed, "target_db": target_db,
+              "corners": rows, "joint_yield_fraction": cr.joint_yield_fraction,
               "min_corner": {k_: worst[k_] for k_ in ("target", "angle_deg", "pol")},
-              "note": "corners only; angles inside each target's range are not sampled"}
-    warnings = [warning("timeout", "stopped by --timeout")] if control.timed_out else []
+              "note": _ANGLE_NOTES[mode]}
+    if n_angle is not None:
+        result["n_angle"] = n_angle
+    result = _write_json_output(result, output, force, ("corners",))
+    warnings = [warning("angle_grid_fallback",
+                        f"target {ti + 1}: its angle range has fewer than 2 grid points (n_angle); "
+                        "its two ends were evaluated instead") for ti in cr.fallback_targets]
+    if control.timed_out:
+        warnings.append(warning("timeout", "stopped by --timeout"))
     return CommandResult(result, warnings=warnings, stopped=cr.stopped, input_info=inp)
 
 

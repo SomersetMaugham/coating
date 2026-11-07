@@ -255,12 +255,25 @@ def build_report(project, rl_positive=False, references=(), tolerance=None, sour
         out.append(f"<h2>{_e(tr('Tolerance analysis'))}</h2>")
         s = p.tolerance
         if isinstance(tolerance, CornerResult):
-            out.append(f"<p>{_e(tr('Joint yield over all target corners: {y} ({n} samples)', y=_pct(tolerance.joint_yield_fraction), n=tolerance.n_samples))}</p><ul>")
-            for ti, name, ang, pol, goal, r in tolerance.corners:
+            grid = tolerance.angle_mode == "grid"
+            if grid:
+                head_text = tr("Joint yield over every target's angle grid ({k} points): {y} ({n} samples). Lowest "
+                               "yield per target:", k=len(tolerance.corners), y=_pct(tolerance.joint_yield_fraction),
+                               n=tolerance.n_samples)
+                shown = list(tolerance.per_target().values())  # a grid has too many rows to list them all
+            else:
+                head_text = tr("Joint yield over all target corners: {y} ({n} samples)",
+                               y=_pct(tolerance.joint_yield_fraction), n=tolerance.n_samples)
+                shown = range(len(tolerance.corners))
+            out.append(f"<p>{_e(head_text)}</p><ul>")
+            for i in shown:
+                ti, name, ang, pol, goal, r = tolerance.corners[i]
                 head = tr("Target {n}", n=ti + 1) + (f" ({name})" if name else "")
                 out.append(f"<li>{_e(head)} {ang:g}° {pol}: {_e(_pct(r.yield_fraction))}"
                            f" ({_e(tr('goal'))} {_rl(goal, pos):g} dB)</li>")
             out.append("</ul>")
+            for ti in tolerance.fallback_targets:
+                out.append(f"<p class=muted>{_e(tr('Target {n}: fewer than 2 angle-grid points, so the two ends of its range were used.', n=ti + 1))}</p>")
         elif isinstance(tolerance, ToleranceResult):
             out.append(f"<p>{_e(tr('Yield {y} at {a}° {pol} ({n} samples), target {t} dB', y=_pct(tolerance.yield_fraction), a=f'{s.angle:g}', pol=s.pol, n=tolerance.n_samples, t=f'{_rl(s.target_db, pos):g}'))}</p>")
         loss = lambda v: tr("follows the real part") if v is None else f"{v * 100:g} %"  # noqa: E731

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
@@ -26,9 +28,17 @@ _LOSS_BASE = {"eps_loss": "eps", "mu_loss": "mu"}
 
 
 def corner_label(ti, name, angle, pol):
-    """'Target 1 (X) 30° TE' — the angle end and polarisation of one target corner."""
+    """'Target 1 (X) 30° TE' — the angle and polarisation of one target row."""
     head = tr("Target {n}", n=ti + 1) + (f" ({name})" if name else "")
     return f"{head} {angle:g}° {pol}"
+
+
+def joint_yield_title(r):
+    if r.angle_mode == "grid":
+        return tr("Joint yield {y:.1f}% over {n} angle-grid points ({s} samples)",
+                  y=100 * (r.joint_yield_fraction or 0.0), n=len(r.corners), s=r.n_samples)
+    return tr("Joint yield {y:.1f}% over {n} corners ({s} samples)",
+              y=100 * (r.joint_yield_fraction or 0.0), n=len(r.corners), s=r.n_samples)
 
 
 class TolerancePlot(PlotView):
@@ -57,11 +67,11 @@ class TolerancePlot(PlotView):
         target_db, bands = s.target_db, yield_intervals(self.ctx.project)
         if isinstance(r, CornerResult):
             # Show the weakest corner's spread; the title carries the joint yield over all corners.
+            # The panel drops the result when the targets change, so its target index is still valid here.
             ti, name, ang, pol, target_db, worst = r.corners[r.worst]
             t = self.ctx.project.optimization.enabled_targets()[ti]
             bands = [(t.f_min, t.f_max)]
-            title = tr("Joint yield {y:.1f}% over {n} corners ({s} samples)",
-                       y=100 * (r.joint_yield_fraction or 0.0), n=len(r.corners), s=r.n_samples)
+            title = joint_yield_title(r)
             r = worst
         x = r.f / 1e9
         ax.fill_between(x, sgn * r.lower_db, sgn * r.upper_db, color=c.series[0], alpha=0.22,
@@ -76,7 +86,7 @@ class TolerancePlot(PlotView):
         ax.set_xlim(x[0], x[-1])
         ax.legend(loc="best")
         ax.set_title(title or tr("Yield {y:.1f}% ({n} samples)", y=100 * r.yield_fraction, n=r.n_samples),
-                     fontsize=10, loc="left")
+                     fontsize=10, loc="left", wrap=True)  # long joint-yield titles wrap instead of being clipped
         return None
 
     def format_cursor(self, ax, x, y):
@@ -208,18 +218,22 @@ class TolerancePanel(QWidget):
         f.addRow(tr("Incidence angle"), self.angle)
         f.addRow(tr("Polarisation"), self.pol)
         f.addRow("", self.chk_band)
-        self.chk_corners = QCheckBox(tr("Check every target corner"))
-        self.chk_corners.setToolTip(tr("Run the analysis at both ends of each enabled target's angle range and for "
-                                       "each of its polarisations, against that target's band and goal, and report "
-                                       "the joint yield (samples that pass at every corner)."))
+        self.angle_mode = QComboBox()  # view state only, not saved
+        self.angle_mode.addItem(tr("Single angle (settings above)"), None)
+        self.angle_mode.addItem(tr("Ends of each target's angle range"), "corners")
+        self.angle_mode.addItem(tr("Each target's angle grid"), "grid")
+        self.angle_mode.setToolTip(tr("The two target modes run the analysis for each enabled target against its own "
+                                      "band and goal, for each of its polarisations, at the two ends of its angle "
+                                      "range or at every angle of its grid (the angles the optimiser checks), and "
+                                      "report the joint yield (samples that pass everywhere)."))
         f.addRow(tr("Band from"), self.b_lo)
         f.addRow(tr("to"), self.b_hi)
         f.addRow(muted(tr("Yield = share of samples whose worst RL in the band meets the target. "
                           "Without a custom band, the bands of the enabled optimisation targets are used.")))
-        f.addRow("", self.chk_corners)
-        f.addRow(muted(tr("A single angle can overstate the yield of a target that spans several angles. With "
-                          "every corner checked, each target's own band and goal apply and the angle, "
-                          "polarisation, target and band above are not used.")))
+        f.addRow(tr("Angles evaluated"), self.angle_mode)
+        f.addRow(muted(tr("A single angle can overstate the yield of a target that spans several angles. The angle "
+                          "grid also checks the angles inside the range; angles between its points are not sampled. "
+                          "In both target modes the angle, polarisation, target and band above are not used.")))
         ll.addWidget(g)
         ll.addStretch(1)
         split.addWidget(scroll)
@@ -257,7 +271,8 @@ class TolerancePanel(QWidget):
         self.dist.currentIndexChanged.connect(self._commit)
         self.pol.currentIndexChanged.connect(self._commit)
         self.chk_band.toggled.connect(self._commit)
-        self.chk_corners.toggled.connect(self._on_corners_toggled)
+        self._result_targets = None  # the enabled targets a shown multi-angle result was computed for
+        self.angle_mode.currentIndexChanged.connect(self._on_corners_toggled)
         for w in list(self.d.values()) + [self.target, self.angle, self.b_lo, self.b_hi]:
             w.valueEdited.connect(self._commit)
         for chk in self.follow.values():
@@ -394,12 +409,13 @@ class TolerancePanel(QWidget):
         f = tolerance_frequencies(p)
         s = p.tolerance
         band = yield_intervals(p)
-        corners = self.chk_corners.isChecked()
-        if corners and not p.optimization.enabled_targets():
+        mode = self.angle_mode.currentData()
+        if mode and not p.optimization.enabled_targets():
             QMessageBox.information(self, tr("Tolerance analysis"),
-                                    tr("Checking every corner needs at least one enabled optimisation target."))
+                                    tr("Checking the target angles needs at least one enabled optimisation target."))
             return
-        self.worker = ToleranceWorker(p, f, band, corners=corners)
+        self._result_targets = _targets_key(p)
+        self.worker = ToleranceWorker(p, f, band, angle_mode=mode)
         self.worker.progress.connect(self._on_progress)
         self.worker.finished.connect(self._on_finished)
         self.worker.failed.connect(self._on_failed)
@@ -428,14 +444,24 @@ class TolerancePanel(QWidget):
         self.plot.result = res
         self.plot.mark_dirty()
         if isinstance(res, CornerResult):
-            rows = [f"{corner_label(ti, name, ang, pol)}: {100 * r.yield_fraction:.1f}%"
-                    for ti, name, ang, pol, _tdb, r in res.corners]
-            ti, name, ang, pol, _tdb, _r = res.corners[res.worst]
-            self.lbl_corners.setText(tr("Weakest corner (plotted): {c}. Yield per corner: {rows}",
-                                        c=corner_label(ti, name, ang, pol), rows=" · ".join(rows)))
+            label = lambda i: corner_label(*res.corners[i][:4])  # noqa: E731
+            lowest = [f"{label(i)}: {100 * res.corners[i][5].yield_fraction:.1f}%" for i in res.per_target().values()]
+            text = tr("Weakest (plotted): {c}. Lowest yield per target: {rows}",
+                      c=label(res.worst), rows=" · ".join(lowest))
+            for ti in res.fallback_targets:
+                text += " " + tr("Target {n}: fewer than 2 angle-grid points, so the two ends of its range were used.",
+                                 n=ti + 1)
+            self.lbl_corners.setText(text)
+            self.lbl_corners.setToolTip("\n".join(f"{label(i)}: {100 * row[5].yield_fraction:.1f}%"
+                                                   for i, row in enumerate(res.corners)))
             self.lbl_corners.setVisible(True)
-            self.statusMessage.emit(tr("Tolerance analysis: joint yield {y:.1f}% over {n} corners",
-                                       y=100 * (res.joint_yield_fraction or 0.0), n=len(res.corners)))
+            if res.angle_mode == "grid":
+                msg = tr("Tolerance analysis: joint yield {y:.1f}% over {n} angle-grid points",
+                         y=100 * (res.joint_yield_fraction or 0.0), n=len(res.corners))
+            else:
+                msg = tr("Tolerance analysis: joint yield {y:.1f}% over {n} corners",
+                         y=100 * (res.joint_yield_fraction or 0.0), n=len(res.corners))
+            self.statusMessage.emit(msg)
             return
         self.lbl_corners.setVisible(False)
         self.statusMessage.emit(tr("Tolerance analysis: yield {y:.1f}% of {n} samples",
@@ -451,13 +477,13 @@ class TolerancePanel(QWidget):
         self.btn_stop.setEnabled(False)
 
     def _apply_corner_state(self):
-        # Per-corner runs use each target's own angle, polarisation, band and goal.
-        if self.chk_corners.isChecked():
+        # Per-target runs use each target's own angle, polarisation, band and goal.
+        if self.angle_mode.currentData():
             for w in (self.target, self.angle, self.pol, self.chk_band, self.b_lo, self.b_hi):
                 w.setEnabled(False)
 
-    def _on_corners_toggled(self, on):
-        if on:
+    def _on_corners_toggled(self, *_):
+        if self.angle_mode.currentData():
             self._apply_corner_state()
         else:
             for w in (self.target, self.angle, self.pol, self.chk_band):
@@ -470,6 +496,16 @@ class TolerancePanel(QWidget):
             self.plot.result = None
             self.plot.mark_dirty()
             self.lbl_corners.setVisible(False)
+
+    def settings_changed(self):
+        """Drop a multi-angle result once the enabled targets differ from the ones it was computed for: its rows
+        index those targets (drawing it against other targets plotted the wrong band or raised IndexError)."""
+        if isinstance(self.plot.result, CornerResult) and _targets_key(self.doc.project) != self._result_targets:
+            self.invalidate()
+
+
+def _targets_key(project):
+    return json.dumps([t.to_dict() for t in project.optimization.enabled_targets()], sort_keys=True)
 
 
 _ = (QLabel, SlabLayer)
