@@ -23,6 +23,30 @@ class _Stop(Exception):
     pass
 
 
+TOLERANCE_MAX_POINTS = 301  # frequency points of a tolerance run (GUI and CLI share this grid)
+
+
+def tolerance_frequencies(project: Project):
+    """Frequency grid of a tolerance run: the sweep grid, capped at TOLERANCE_MAX_POINTS points."""
+    return project.sweep.freq_grid(min(project.sweep.n_f, TOLERANCE_MAX_POINTS))
+
+
+def yield_intervals(project: Project):
+    """Frequency intervals of the yield criterion: the custom band if set, otherwise the bands of the
+    enabled optimisation targets (their union - not the envelope, which would include the gap
+    between disjoint bands)."""
+    s = project.tolerance
+    if s.band_min and s.band_max and s.band_max > s.band_min:
+        return [(s.band_min, s.band_max)]
+    return project.optimization.frequency_intervals() or [(project.sweep.f_min, project.sweep.f_max)]
+
+
+def yield_band(project: Project):
+    """Envelope of ``yield_intervals`` (for display in the band fields)."""
+    iv = yield_intervals(project)
+    return min(a for a, _ in iv), max(b for _, b in iv)
+
+
 @dataclass
 class ToleranceResult:
     f: np.ndarray

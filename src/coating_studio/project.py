@@ -24,6 +24,14 @@ class ProjectError(ValueError):
     pass
 
 
+class NewerSchemaError(ProjectError):
+    """The file was written by a newer version (its schema is above SCHEMA_VERSION)."""
+
+    def __init__(self, schema, supported=SCHEMA_VERSION):
+        self.schema, self.supported = schema, supported
+        super().__init__(f"file schema {schema} is newer than supported ({supported})")
+
+
 @dataclass
 class SweepSettings:
     f_min: float = 2e9  # Hz
@@ -265,6 +273,7 @@ class Project:
         self.optimization = optimization or OptimizationSettings()
         self.tolerance = tolerance or ToleranceSettings()
         self.notes = notes
+        self.source_schema = SCHEMA_VERSION  # schema of the file this project was read from (not saved)
 
     # -- materials ---------------------------------------------------------
     def resolver(self, name):
@@ -413,7 +422,7 @@ class Project:
     def from_dict(cls, d):
         schema = d.get("schema", 1)
         if schema > SCHEMA_VERSION:
-            raise ProjectError(f"file schema {schema} is newer than supported ({SCHEMA_VERSION})")
+            raise NewerSchemaError(schema)
         mats = [material_from_dict(m) for m in d.get("materials", [])]
         sweep = SweepSettings(**{k: v for k, v in d.get("sweep", {}).items()
                                  if k in SweepSettings.__dataclass_fields__})
@@ -422,7 +431,11 @@ class Project:
                    sweep=sweep,
                    optimization=OptimizationSettings.from_dict(d.get("optimization", {})),
                    tolerance=ToleranceSettings.from_dict(d.get("tolerance", {})),
-                   notes=d.get("notes", ""))
+                   notes=d.get("notes", ""))._with_source_schema(schema)
+
+    def _with_source_schema(self, schema):
+        self.source_schema = int(schema)
+        return self
 
     def save(self, path):
         with open(path, "w", encoding="utf-8") as fh:

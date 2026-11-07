@@ -21,9 +21,7 @@ from coating_studio.gui.widgets.inputs import SciSpinBox, muted
 from coating_studio.gui.widgets.properties import default_lc_bounds
 from coating_studio.gui.workers import OptimizationWorker, start_worker
 from coating_studio.i18n import issue_text, tr
-from coating_studio.materials.checks import check_material
-from coating_studio.optimize import MAX_ENUMERATED_COMBOS, OptimizationError, apply_result
-from coating_studio.optimize.optimizer import target_frequencies, validate_settings
+from coating_studio.optimize import MAX_ENUMERATED_COMBOS, OptimizationError, apply_result, preflight
 from coating_studio.project import (
     BandTarget, ContinuousVariable, available_params, get_param, param_unit,
 )
@@ -544,23 +542,17 @@ class OptimizationPanel(QWidget):
     def _preflight(self):
         p = self.doc.project
         try:
-            validate_settings(p, p.optimization)
+            error_issues, warning_issues = preflight(p, p.optimization)
         except (OptimizationError, KeyError) as e:
             QMessageBox.warning(self, tr("Cannot start optimisation"), str(e))
             return False
-        f = target_frequencies(p.optimization)  # enabled targets only
-        names = set(p.structure.referenced_materials())
-        for c in p.optimization.choices:
-            names |= set(c.candidates)
-        errors, warnings = [], []
-        for n in sorted(names):
-            if n not in p.materials:
-                errors.append(tr("Unknown material: {n}", n=n))
-                continue
-            for iss in check_material(p.materials[n], f, p.resolver):
-                if iss.level == "info":
-                    continue
-                (errors if iss.level == "error" else warnings).append(f"{n}: {issue_text(iss)}")
+
+        def text(iss):
+            # "Unknown material: X" already names the material
+            return issue_text(iss) if iss.code == "unknown_material" else f"{iss.material}: {issue_text(iss)}"
+
+        errors = [text(i) for i in error_issues]
+        warnings = [text(i) for i in warning_issues]
         if errors:
             QMessageBox.critical(self, tr("Pre-flight check failed"), "\n".join(errors))
             return False

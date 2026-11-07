@@ -32,6 +32,7 @@ from scipy.optimize import differential_evolution, minimize
 from scipy.special import logsumexp
 
 from coating_studio.core.solver import SolverError, solve
+from coating_studio.materials.checks import Issue, check_material
 from coating_studio.materials.models import MaterialCycleError, OutOfRangeError
 from coating_studio.project import OptimizationSettings, Project, get_param, set_param
 
@@ -227,7 +228,35 @@ def validate_settings(project: Project, s: OptimizationSettings):
         for name in c.candidates:
             if name not in project.materials:
                 raise OptimizationError(f"unknown candidate material {name!r}")
-        project.structure.layer_by_uid(c.uid)
+        try:
+            project.structure.layer_by_uid(c.uid)
+        except KeyError:
+            raise OptimizationError(f"choice layer {c.uid!r} no longer exists") from None
+
+
+def preflight(project: Project, settings: OptimizationSettings | None = None):
+    """Checks before an optimisation run: ``(errors, warnings)`` as lists of ``Issue``.
+
+    Raises ``OptimizationError`` for invalid settings (``validate_settings``).  Errors are unknown
+    materials and material-check errors on the enabled targets' frequencies; warnings are the
+    material-check warnings.  Informational issues (e.g. built-in demo values) are left out."""
+    s = settings or project.optimization
+    validate_settings(project, s)
+    f = target_frequencies(s)
+    names = set(project.structure.referenced_materials())
+    for c in s.choices:
+        names |= set(c.candidates)
+    errors, warnings = [], []
+    for n in sorted(names):
+        if n not in project.materials:
+            errors.append(Issue("error", "unknown_material", n, {"n": n}))
+            continue
+        for iss in check_material(project.materials[n], f, project.resolver):
+            if iss.level == "error":
+                errors.append(iss)
+            elif iss.level == "warning":
+                warnings.append(iss)
+    return errors, warnings
 
 
 def _impedance_at(project, name, f):

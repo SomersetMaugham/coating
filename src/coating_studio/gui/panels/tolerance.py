@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
@@ -17,25 +16,10 @@ from coating_studio.gui.plots.base import PlotView
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
 from coating_studio.gui.workers import ToleranceWorker, start_worker
 from coating_studio.i18n import tr
+from coating_studio.tolerance import tolerance_frequencies, yield_band, yield_intervals  # noqa: F401 (re-exported)
 
 _KEYS = ("thickness", "eps", "eps_loss", "mu", "mu_loss", "sheet")
 _LOSS_BASE = {"eps_loss": "eps", "mu_loss": "mu"}
-
-
-def yield_intervals(p):
-    """Frequency intervals of the yield criterion: the custom band if set, otherwise the bands of the
-    enabled optimisation targets (their union - not the envelope, which would include the gap
-    between disjoint bands)."""
-    s = p.tolerance
-    if s.band_min and s.band_max and s.band_max > s.band_min:
-        return [(s.band_min, s.band_max)]
-    return p.optimization.frequency_intervals() or [(p.sweep.f_min, p.sweep.f_max)]
-
-
-def yield_band(p):
-    """Envelope of ``yield_intervals`` (for display in the band fields)."""
-    iv = yield_intervals(p)
-    return min(a for a, _ in iv), max(b for _, b in iv)
 
 
 class TolerancePlot(PlotView):
@@ -347,9 +331,7 @@ class TolerancePanel(QWidget):
         if self.thread is not None:
             return
         p = self.doc.project
-        sw = p.sweep
-        f = np.geomspace(sw.f_min, sw.f_max, min(sw.n_f, 301)) if sw.log_f else \
-            np.linspace(sw.f_min, sw.f_max, min(sw.n_f, 301))
+        f = tolerance_frequencies(p)
         s = p.tolerance
         band = yield_intervals(p)
         self.worker = ToleranceWorker(p, f, band)

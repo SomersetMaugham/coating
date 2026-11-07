@@ -225,6 +225,15 @@ KO.update({
     "Change variable bound": "변수 범위 변경", "Add optimisation variable": "최적화 변수 추가",
     "Remove optimisation variable": "최적화 변수 제거",
     "Cannot start optimisation": "최적화를 시작할 수 없습니다", "Unknown material: {n}": "알 수 없는 재료: {n}",
+    "This mixture references itself (directly or through other mixtures).": "이 혼합 재료가 자기 자신을 (직접 또는 다른 혼합 재료를 거쳐) 참조합니다.",
+    "Target {target}: the design's mu_s x d is {design_mm:.3g} mm but at least {required_mm:.3g} mm is needed (Rozanov bound, normal incidence).":
+        "목표 {target}: 설계의 mu_s x d가 {design_mm:.3g} mm인데 최소 {required_mm:.3g} mm가 필요합니다(Rozanov 한계, 수직 입사).",
+    "Target {target}: even the optimisation ranges reach only {max_mm:.3g} mm of mu_s x d; at least {required_mm:.3g} mm is needed (Rozanov bound, normal incidence).":
+        "목표 {target}: 최적화 범위를 다 써도 mu_s x d가 {max_mm:.3g} mm에 그칩니다. 최소 {required_mm:.3g} mm가 필요합니다(Rozanov 한계, 수직 입사).",
+    "Fraction {fraction_lo:.3g}-{fraction_hi:.3g} reaches {lo:.3g}-{hi:.3g}, where the {model} model is unreliable.":
+        "분율 {fraction_lo:.3g}-{fraction_hi:.3g}이(가) {model} 모델을 믿기 어려운 구간 {lo:.3g}-{hi:.3g}에 들어갑니다.",
+    "Frequencies {flo:.4g}-{fhi:.4g} GHz ({where}) lie outside the measured data {lo:.4g}-{hi:.4g} GHz.":
+        "주파수 {flo:.4g}-{fhi:.4g} GHz({where})가 측정 데이터 범위 {lo:.4g}-{hi:.4g} GHz를 벗어납니다.",
     "Pre-flight check failed": "사전 검증 실패", "Pre-flight check": "사전 검증",
     "The following warnings were found:": "다음 경고가 발견되었습니다:", "Run anyway?": "그래도 실행할까요?",
     "Starting…": "시작하는 중…", "Stopping…": "중지하는 중…", "global search": "전역 탐색",
