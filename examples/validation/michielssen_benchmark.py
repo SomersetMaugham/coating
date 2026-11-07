@@ -1,6 +1,9 @@
-"""Michielssen et al. (1993) multilayer-absorber benchmark: 16-material database, 5 layers, 2-8 GHz, <= 5 mm.
+"""Michielssen et al. (1993) multilayer-absorber benchmarks on the 16-material database.
 
-The benchmark has been re-solved by many optimisers (GA, PSO, DE, CFO, BESOA, MIGRO, ...).  This script
+Benchmark A: 5 layers, 2-8 GHz, <= 5 mm (GA, PSO, DE, CFO, BESOA, MIGRO, ...).
+Benchmark B: 3 layers, 0.85-5.4 GHz (PSO, UPSO; Amaya & Correa 2013).
+
+This script
   1. builds the database (power-law and relaxation-type materials) from reference.json,
   2. recomputes every published design on the frequency grid its paper used and compares the maximum
      reflection with the published number,
@@ -41,11 +44,11 @@ def database():
     return {f"M{n}": material(n, d) for n, d in BM["database"].items()}
 
 
-def max_reflection(mats, layers, step_ghz):
-    """Maximum 20 log10|Gamma| over 2-8 GHz (inclusive) at normal incidence; layer 1 faces the incident wave."""
+def max_reflection(mats, layers, step_ghz, band=(2.0, 8.0)):
+    """Maximum 20 log10|Gamma| over the band (inclusive) at normal incidence; layer 1 faces the incident wave."""
     s = Structure(layers=[SlabLayer(f"M{m}", t * 1e-3) for m, t in layers], backing=Backing("pec"))
     mats = {"Air": ConstantMaterial("Air", 1.0, 0.0), **mats}
-    f = np.round(np.arange(2.0, 8.0 + 1e-9, step_ghz), 3) * 1e9
+    f = np.round(np.arange(band[0], band[1] + 1e-9, step_ghz), 3) * 1e9
     return float(power_to_db(solve(s, mats, f, 0.0, pols=("TE",)).quantity("R", "TE"))[:, 0].max())
 
 
@@ -74,7 +77,7 @@ def main():
     args = ap.parse_args()
     mats = database()
     ok_all = []
-    print("Published designs, recomputed on each paper's own frequency grid (max reflection, dB):")
+    print("Benchmark A (5 layers, 2-8 GHz): published designs on each paper's own grid (max reflection, dB):")
     print(f"  {'design':64s} {'grid':>5s} {'published':>10s} {'here':>9s} {'diff':>7s}  verdict")
     for d in BM["designs"]:
         got = max_reflection(mats, d["layers"], d["grid_step_GHz"])
@@ -85,6 +88,14 @@ def main():
         verdict = "reproduced" if ok else "NOT reproduced"
         print(f"  {d['name'] + ' [' + d['source'] + ']':64s} {d['grid_step_GHz']:5.1f} {d['published_dB']:10.3f} "
               f"{got:9.3f} {diff:+7.3f}  {verdict}")
+    print("\nBenchmark B (3 layers, 0.85-5.4 GHz; the paper does not state its grid, 0.01 GHz used here):")
+    for d in BM["designs_3layer"]:
+        got = max_reflection(mats, d["layers"], 0.01, band=(0.85, 5.4))
+        diff = got - d["published_dB"]
+        ok = abs(diff) <= REPRODUCED_DB
+        ok_all.append(ok)
+        print(f"  {d['name'] + ' [' + d['source'] + ']':64s} {d['published_dB']:10.3f} {got:9.3f} {diff:+7.3f}  "
+              f"{'reproduced' if ok else 'NOT reproduced'}")
     cs = BM["coating_studio_design"]
     got = max_reflection(mats, cs["layers"], 0.1)
     fine = max_reflection(mats, cs["layers"], 0.01)
@@ -93,7 +104,7 @@ def main():
     print(f"\nCoating Studio design: {got:.3f} dB on the 0.1 GHz grid ({fine:.3f} dB on 0.01 GHz), "
           f"{total:.3f} mm thick")
     print(f"\n{sum(ok_all)}/{len(ok_all)} checks pass "
-          "(Asi & Dib designs within {:.2f} dB; recorded Coating Studio result)".format(REPRODUCED_DB))
+          "(Asi & Dib and Amaya & Correa designs within {:.2f} dB; recorded Coating Studio result)".format(REPRODUCED_DB))
     if args.write_spec:
         Path(args.write_spec).write_text(json.dumps(search_spec(), indent=1))
         print(f"wrote {args.write_spec}: coating-cli build {args.write_spec} -o bench.coat, then "

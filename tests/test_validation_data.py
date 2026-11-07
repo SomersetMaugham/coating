@@ -64,6 +64,9 @@ def test_michielssen_benchmark_reproduces_published_designs():
         if d["source"].startswith("asi_dib_2010"):
             got = mb.max_reflection(mats, d["layers"], d["grid_step_GHz"])
             assert abs(got - d["published_dB"]) <= mb.REPRODUCED_DB, d["name"]
+    for d in mb.BM["designs_3layer"]:  # Amaya & Correa (2013): 3 layers, 0.85-5.4 GHz
+        got = mb.max_reflection(mats, d["layers"], 0.01, band=(0.85, 5.4))
+        assert abs(got - d["published_dB"]) <= mb.REPRODUCED_DB, d["name"]
     cs = mb.BM["coating_studio_design"]
     assert abs(mb.max_reflection(mats, cs["layers"], 0.1) - cs["max_dB_0p1GHz"]) <= 1e-3
     assert mb.BM["database"]["8"]["eps_loss"] == 6.0
