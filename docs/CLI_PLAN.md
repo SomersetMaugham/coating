@@ -1,11 +1,14 @@
-# 계획 v4 — Agent Friendly CLI 어댑터
+# 계획 v5 — Agent Friendly CLI 어댑터
 
-작성: 2026-11-07 · 브랜치 `agent-cli` · 상태: **v4 (Argon 2차 리뷰 반영, 구현 전)**
+작성: 2026-11-07 · 브랜치 `agent-cli` · 상태: **v5 (실험 루프 시뮬레이션 반영, 블라인드 테스트 전)**
 - v1 → v2: 1차 Argon 리뷰 반영(12.1·12.2절).
 - v2 → v3: 목표 워크플로우를 "에이전트가 사용자의 현재 조성에서 출발해 목표에 도달할 때까지 스스로 실험한다"로 정하고,
   설계 명세(`build`/`spec`), 실험 기록(`--journal`), 물리 한계 검사(Rozanov), 에이전트 플레이북, 연결 방식 비교를 추가(13절).
 - v3 → v4: 2차 Argon 리뷰 반영(12.3절). 명세를 `Project` 전체를 담도록 확장, Rozanov 적용 조건·정적 투자율 계산·판정 수준 수정,
-  실험 기록의 비교 기준·시드 기록 추가, 연결 방식을 **CLI + Skill/플레이북**으로 결정. 바뀐 곳에는 "(v3)"·"(v4)"를 붙였습니다.
+  실험 기록의 비교 기준·시드 기록 추가, 연결 방식을 **CLI + Skill/플레이북**으로 결정.
+- v4 → v5: 엔진을 직접 돌려 실험 루프를 모의 실행한 결과 반영(12.5절). `materials` 명령, 재료 형식 부록(부록 A),
+  공차 분석의 목표 꼭짓점 평가(`--corners`)와 결합 수율, 혼합 모델 유효 범위 경고, 다중 시작(`--restarts`), 플레이북 보강.
+  바뀐 곳에는 "(v3)"·"(v4)"·"(v5)"를 붙였습니다.
 
 ## 1. 문제
 
@@ -32,6 +35,7 @@ Coating Studio의 기능은 지금 GUI로만 쓸 수 있습니다. 코딩 에이
 | `spec` (v3) | `.coat` → 설계 명세(JSON). `build`의 역 | 13.2절 |
 | `bound` (v3) | 파일 없이 목표만으로 Rozanov 최소 두께 계산 | 13.4절 |
 | `journal` (v3) | 실험 기록 폴더 요약(시도 목록, 최선 설계) | 13.3절 |
+| `materials` (v5) | 내장 재료 목록: 이름, 종류, note, 명세에 그대로 쓸 수 있는 재료 dict, 최적화 가능한 파라미터와 단위 | 13.7절 |
 
 (v3) `check`는 활성 목표마다 Rozanov 한계 판정(`result.limits`)을 함께 냅니다. `solve`·`optimize`·`tolerance`·`check`는 공통 옵션 `--journal DIR --note TEXT`를 받습니다.
 
@@ -286,6 +290,9 @@ CLI와 GUI가 같은 숫자를 내도록 GUI 안에 있던 로직을 엔진으�
   `info` 수준(`demo_values`)은 `--strict`에서도 멈추지 않습니다(GUI `_preflight`와 같음).
 - 옵션 값은 프로젝트 사본의 `optimization` 설정만 바꿉니다(입력 파일은 그대로).
 - 엔진 호출은 `optimize(p, s, progress=cb, throttle_s=0.0)`(5절).
+- (v5) **`--restarts N`**(기본 1): 시드 `seed_used, seed_used+1, …`로 N번 돌려 목적함수가 가장 작은 결과를 냅니다. 결과에 시작별 `seed`·`objective`·`margin_db`를 남깁니다.
+  모의 실행에서 같은 구조라도 시드에 따라 margin이 +5.7 dB와 +6.9 dB로 갈렸고, 3층 구조가 국소 최적에 빠져 2층보다 나빴습니다(12.5절).
+  중단·시간 제한은 전체 재시작에 걸쳐 적용되고, 그때까지 끝난 시작 중 최선을 냅니다.
 - `result`: `message`, `n_evals`, `elapsed_s`(=`res.elapsed`), `terms`(`res.terms.as_dict()`, `res.terms`가 `None`이면 `null`),
   `values[]`(`path`, `label`, `before`, `after` — 4.1절 형식), `choices[]`(`uid`, `layer`, `before`, `after`), `history`(`[[n_evals, best], …]`), `output_path`.
   `before`는 `apply_result()`를 부르기 **전에** 기록합니다.
@@ -297,6 +304,8 @@ CLI와 GUI가 같은 숫자를 내도록 GUI 안에 있던 로직을 엔진으�
 - `result`: `n_samples`, `yield_fraction`, `target_db`, `lower_pct`, `upper_pct`, `yield_intervals_hz`, `worst_db`의 통계(`min`, `median`, `max`),
   `data`(같은 길이의 1차원 배열만: `f_hz`, `nominal_db`, `median_db`, `lower_db`, `upper_db`). `--summary-only` 지원.
 - 표본별 `worst_db` 전체는 `--samples`일 때만 넣습니다.
+- (v5) **`--corners`**: 활성 목표마다 (각도 범위의 양 끝) × (목표 편광)을 각각 평가합니다(13.7절). 결과에 꼭짓점별 수율과 **결합 수율**을 냅니다.
+  `--corners` 없이 실행하면 GUI와 같은 단일 각도·편광 계산이고, 결과에 `scope: {"angle_deg", "pol"}`과 "단일 각도 기준" 경고를 항상 붙입니다.
 - (v4) `--target-db`는 수율 기준(`ToleranceSettings.target_db`, 기본 −10 dB)을 덮어씁니다. 최적화 목표(기본 −20 dB)와 다를 수 있으므로 결과에 `target_db`를 항상 적습니다.
 
 ## 8. 코드 구성
@@ -348,6 +357,10 @@ src/coating_studio/cli/
 9. **내보내기**: `solve --format csv`의 헤더와 행이 GUI `data_table()` 포맷과 같음(오프스크린 GUI 없이 같은 포맷 함수 비교).
    `optimize -o`로 저장한 파일을 다시 로드하면 `values`가 반영돼 있음.
 10. **`--seed -1`**: `optimize`·`tolerance` 모두 오류 없이 동작.
+10a. (v5) `tolerance --corners`: 꼭짓점마다 `run_tolerance`를 직접 부른 결과와 같고, 결합 수율이 꼭짓점별 최소 수율 이하. 꼭짓점 사이 표본이 같은 섭동인지(같은 시드) 확인.
+10b. (v5) `optimize --restarts 3`: 시작별 결과가 `--seed`를 각각 준 단일 실행과 같고, 최선이 선택됨.
+10c. (v5) `mixture_fraction_range` 이슈: Bruggeman 전도성 충전재 분율 0.30 근처, MG 분율 0.35에서 경고, 변수 범위가 위험 구간을 포함해도 경고.
+10d. (v5) `materials`의 재료 dict를 그대로 명세에 넣어 `build`하면 내장 재료와 같은 `to_dict()`.
 11. **리팩터링 회귀**: 기존 `test_optimize_tolerance.py`, `test_gui_smoke.py`, `test_i18n.py` 그대로 통과. `preflight`가 GUI 대화상자와 같은 오류·경고 목록을 냄.
     새 `_ISSUES_EN` 문구(`material_cycle`)의 KO 항목 존재.
 
@@ -358,7 +371,8 @@ src/coating_studio/cli/
 1. **엔진 리팩터링·수정** (6절): 옮긴 함수, `preflight`, `NewerSchemaError`·`source_schema`, `check_material` 순환 처리, `validate_settings`의 `KeyError`,
    단위 환산표, i18n 문구(+KO). GUI는 새 위치를 import. 엔진 단위 테스트 추가. 기존 테스트 통과.
 2. **CLI 추가** (`cli/`, `pyproject.toml`, `tests/test_cli.py`) — 1~7절의 명령.
-3. (v3) **에이전트 실험 루프** — `limits.py`(+단위 테스트), `cli/spec.py`·`build`·`spec`, `cli/journal.py`·`--journal`·`journal`, `bound`, `check`의 `limits`.
+3. (v3) **에이전트 실험 루프** — `limits.py`(+단위 테스트), `cli/spec.py`·`build`·`spec`, `cli/journal.py`·`--journal`·`journal`, `bound`, `check`의 `limits`,
+   (v5) `materials`, `tolerance --corners`, `optimize --restarts`, `mixture_fraction_range` 이슈(+KO).
 4. (v4) **플레이북과 연결** — `docs/AGENT_PLAYBOOK.md`, `.claude/skills/coating-experiment/SKILL.md`, `AGENTS.md` 단락(13.6절). MCP 코드는 넣지 않음.
 5. **문서**: README(영·한)에 CLI 절, AGENTS.md "Commands"에 `coating-cli` 추가, `DEVELOPMENT_HISTORY.md`에 기록.
 
@@ -372,6 +386,8 @@ v1의 Q1~Q7은 모두 결정했습니다(12.2절). 새로 남은 질문입니다
 - **N1** GUI 진단 패널도 혼합물 성분까지 펼쳐 검사하게 할지(7절 `check` 3번). 이번 범위에서는 CLI만 넓히는 안.
 - **N2** `optimize`가 `no_valid_design`일 때 종료 코드 4가 맞는지(설정은 유효하지만 모든 평가가 실패한 경우).
 - N3~N6은 v4에서 결정했습니다(12.4절).
+- (v5) **N7** 혼합 모델 위험 구간의 기준값(13.7절의 0.25~0.40, MG 0.30)이 적절한지. 문헌값(구형 입자 Bruggeman 임계 1/3)에 기댄 경험적 경계입니다.
+- (v5) **N8** `tolerance --corners`의 비용: 꼭짓점 수 × 표본 수만큼 계산합니다(목표 1개·2편광·2각도면 4배). 기본 표본 수를 줄일지.
 
 ## 12. Argon 리뷰 반영 기록
 
@@ -438,6 +454,32 @@ Argon은 코드를 실행할 수 없으므로, 실행으로만 확인되는 주�
 
 검증하지 못한 주장: Argon은 "agy도 작업공간의 `SKILL.md`를 읽는다"고 했지만 확인하지 못했습니다. 그래서 agy 쪽은 `AGENTS.md` 단락에만 의존합니다.
 
+### 12.5 실험 루프 모의 실행 (v4 → v5)
+CLI 구현 전에, 계획 문서만 아는 에이전트라고 가정하고 실험 루프를 끝까지 따라갔습니다. 각 명령이 부를 엔진 함수를 직접 실행해 숫자를 얻었습니다(데모 재료 기준).
+시나리오: "에폭시 + 카본블랙 20 vol%, 3 mm, 금속판 위. 8–12 GHz, 0–30°, TE/TM, RL ≤ −15 dB, 총 두께 ≤ 4 mm."
+
+| 단계 | 결과 |
+|---|---|
+| `bound` | 필요 μs·d ≥ 1.09 mm → 4 mm 안에서는 한계에 걸리지 않음 |
+| 기준선 | 최악 −2.1 dB (margin +12.9) |
+| 1층 최적화(두께·분율) | 1.95 mm·28 vol%, 최악 −6.4 dB (margin +8.6), 0.8초 |
+| 2층 경사형 | 최악 −13.9 dB (margin +1.0~1.06) — 단, 아래층 분율 0.35 |
+| 시트 + 스페이서 + 흡수층 | margin +5.3 |
+| 3층 | margin +6.9 (2층보다 나쁨, 두께 예산 2.6/4 mm만 사용 — 국소 최적) |
+| 분율 상한 0.30으로 2층 | 최선 margin +5.7 (시드에 따라 +5.7 / +6.9) |
+| 공차(2층 최선, −15 dB 기준) | 0° 평균 17%, 30° TE **1%**, 30° TM 28% |
+
+발견과 반영:
+1. 내장 재료 이름을 파일 없이 볼 방법이 없음 → `materials` 명령(13.7절).
+2. 재료 dict 형식(혼합 `model` 값, 분산 항 필드)이 문서에 없음 → 부록 A.
+3. **공차 분석이 단일 각도·편광이라 수율을 크게 과대평가**(17% vs 1%) → `tolerance --corners`와 결합 수율, 단일 계산에는 범위 경고(7절, 13.7절).
+4. **최적화기가 혼합 모델의 신뢰 범위 밖을 파고듦**: 최선 결과가 Bruggeman 퍼콜레이션 임계(1/3) 바로 위 분율에 의존. ε은 분율 0.30에서 17.5 − j9.9,
+   0.35에서 19.0 − j22.8, 0.40에서 16.3 − j41.2로 손실이 급증 → 사용자 합의 범위 규칙(플레이북), `mixture_fraction_range` 경고(13.7절).
+5. 국소 최적·시드 의존 → `optimize --restarts`, 플레이북의 "개선 없음" 판정은 다중 시작 기준.
+6. Rozanov `ok`인데 목표 미달 — 설계대로("필요조건일 뿐")지만, 목표 미달 시 절충안 보고가 플레이북에 없었음 → 13.5절 7단계.
+7. 실행 시간은 한 번에 1~10초(변수 2~6개). v4의 "탐색은 `--maxiter 40 --timeout 60`" 권고는 이 규모에서 불필요 → `estimated_max_evals` 기준으로 바꿈.
+한계: 시뮬레이션한 사람이 코드를 알고 있어 문서의 빈틈을 과소평가했을 수 있음 → v5에 대해 블라인드 테스트(문서만 주고 시나리오 수행)를 진행.
+
 ## 13. (v3) 에이전트 실험 루프
 
 ### 13.1 목표 워크플로우와 역할 분담
@@ -476,13 +518,13 @@ Argon은 코드를 실행할 수 없으므로, 실행으로만 확인되는 주�
   "incident": "Air",
   "backing": "pec",
   "materials": [
-    {"name": "CB 20%", "kind": "mixture", "matrix": "Epoxy", "inclusion": "Carbon black",
+    {"name": "CB mix A", "kind": "mixture", "matrix": "Epoxy", "inclusion": "Carbon black",
      "fraction": 0.20, "model": "bruggeman"},
     {"name": "Measured CI", "csv": "data/ci_measured.csv"}
   ],
   "layers": [
     {"name": "R-card", "sheet": {"model": "constant", "R_ohm": 377, "X_ohm": 0}},
-    {"name": "Absorber", "material": "CB 20%", "thickness_mm": 1.5}
+    {"name": "Absorber", "material": "CB mix A", "thickness_mm": 1.5}
   ],
   "sweep": {"f_ghz": [2, 18], "n_f": 401, "log_f": false, "angle_deg": 0, "f_at_ghz": 10,
             "angle_range_deg": [0, 80], "n_angle": 81, "map_n_f": 161, "map_n_angle": 61},
@@ -492,10 +534,10 @@ Argon은 코드를 실행할 수 없으므로, 실행으로만 확인되는 주�
   ],
   "variables": [
     {"layer": "Absorber", "param": "thickness", "range": [0.5, 3.0], "unit": "mm"},
-    {"material": "CB 20%", "param": ["fraction"], "range": [0.10, 0.40], "unit": "frac"},
+    {"material": "CB mix A", "param": ["fraction"], "range": [0.10, 0.40], "unit": "frac"},
     {"layer": "R-card", "param": "R", "range": [100, 1000], "unit": "ohm"}
   ],
-  "choices": [{"layer": "Absorber", "candidates": ["CB 20%", "Measured CI"]}],
+  "choices": [{"layer": "Absorber", "candidates": ["CB mix A", "Measured CI"]}],
   "optimization": {"w_worst": 1, "w_mean": 0, "w_thickness": 0, "w_mass": 0, "rl_ref_db": -20,
                    "thickness_ref_mm": 5, "mass_ref_kg_m2": 5, "thickness_max_mm": 3.0,
                    "maxiter": 150, "popsize": 15, "seed": null, "polish": true},
@@ -524,6 +566,8 @@ Argon은 코드를 실행할 수 없으므로, 실행으로만 확인되는 주�
 - **내장 재료**: `build`는 `Project()`의 내장 재료에서 시작합니다. 명세에 같은 이름이 있으면 덮어쓰고, `"remove_builtin": ["PTFE", …]`로 지울 수 있습니다.
   `spec`은 `m.to_dict() == builtin.to_dict()`(note 포함, `Air` 포함)인 재료만 생략하고, 지워진 내장 재료는 `remove_builtin`에 적습니다.
   (`is_builtin_demo()`는 `Air`를 데모로 보지 않고 note를 무시하므로 이 판정에 쓰지 않습니다 — `checks.py:31-42`.)
+- (v5) 재료 dict의 종류별 필드는 **부록 A**에 있습니다. `materials` 명령은 내장 재료를 이 형식 그대로 보여 줍니다.
+- (v5) **재료 이름에 배합비를 넣지 않습니다**(예: "CB 20%" 대신 "CB mix A"). 분율을 최적화하면 이름이 거짓이 되기 때문입니다.
 - **혼합 재료는 2성분**(매트릭스 + 충전재 하나)입니다. 3성분 이상은 혼합 재료를 중첩해 표현하며, 플레이북에 분율의 의미(바깥 혼합 기준)를 적습니다.
   내장 `"Carbonyl iron / epoxy"`는 이미 복합재이므로 다시 에폭시에 섞으면 "희석"이라는 점도 플레이북에 적습니다.
 - 생략한 섹션은 `Project` 기본값을 씁니다. 단 **`targets`를 생략하면 목표 없음**으로 둡니다(기본 8–12 GHz 목표를 쓰지 않음) —
@@ -586,16 +630,23 @@ Argon은 코드를 실행할 수 없으므로, 실행으로만 확인되는 주�
    재료가 내장 데모 값(`demo_values` 이슈)이면 "실측 데이터가 아니므로 결과는 참고용"이라고 반드시 알립니다.
 2. `bound`로 목표의 현실성 확인 → `build` → `check`. 오류면 고칩니다. `rozanov_infeasible`이면 사용자에게 목표·두께 상한 조정이나 고투자율 재료 추가를 제안하고 멈춥니다.
 3. `solve --summary-only --journal DIR`로 기준선을 기록합니다(목표가 있으면 margin이 함께 기록됨).
-4. 변수·범위 설정 → `optimize --journal DIR`. 목표별 `margin_db`를 보고 다음 수를 정합니다.
-   - **탐색용 시도는 작게**: `--maxiter 40 --timeout 60`. 재료 후보(choices)는 조합 수만큼 실행 시간이 곱해지므로(조합 ≤ 64면 조합마다 DE 전체 실행)
-     `info`·`check`가 보여 주는 `n_combos`와 `estimated_max_evals`를 먼저 봅니다. 최종 후보만 기본 설정으로 다시 돌립니다.
-   - **두께 상한으로 목표를 맞출 때는 `w_thickness = 0`**: 두께 항이 RL과 맞바꿔져 목표 전에 멈추는 것을 막습니다. 두께를 줄이는 것이 목표일 때만 쓰고, 그때는 `thickness_max`와 함께 씁니다.
+4. 변수·범위 설정 → `optimize --restarts 3 --journal DIR`. 목표별 `margin_db`를 보고 다음 수를 정합니다.
+   - (v5) **변수 범위는 사용자와 합의한 제조 가능 범위**로 정합니다. 사용자가 범위를 말하지 않았으면 묻습니다(예: "배합비는 몇 vol%까지 가능합니까?").
+     특히 혼합 분율은 `check`의 `mixture_fraction_range` 경고 구간을 넘지 않게 둡니다. 최적화기는 모델이 믿기 어려운 영역(퍼콜레이션 근처)을 파고듭니다.
+   - (v5) 실행 시간은 `info`·`check`의 `estimated_max_evals`로 가늠합니다(모의 실행: 변수 2~6개에서 수천~2만 번 평가, 1~10초).
+     재료 후보(choices)는 조합 수만큼 곱해지므로, 예상 평가가 수십만을 넘으면 `--maxiter`를 줄이거나 `--timeout`을 에이전트의 도구 호출 시간 제한보다 짧게 둡니다.
+   - **두께 상한으로 목표를 맞출 때는 `w_thickness = 0`**: 두께 항이 RL과 맞바꿔져 목표 전에 멈추는 것을 막습니다.
    - 모든 margin ≤ 0: 5단계로.
    - 두께 변수가 상한에 붙음: 상한 완화를 사용자에게 제안하거나 고투자율 재료·층 추가를 검토합니다.
-   - 특정 대역만 미달: 층 추가(Jaumann형), 저항 시트 삽입, 재료 후보 추가를 검토합니다(`spec` → 명세 수정 → `build`).
-5. `tolerance --target-db <목표 goal_db> --journal DIR`로 수율 확인(공차 설정의 기본 `target_db`는 −10 dB라 목표와 다를 수 있음). 낮으면 결과에 위험을 명시합니다.
-6. 멈춤 규칙: 목표 충족 + 수율 기준 충족 / 시도 예산(기본 20회 또는 사용자가 정한 값) 소진 / 같은 목표에서 연속 3회 개선 없음 / `rozanov_infeasible`.
-7. 보고: `journal DIR` 요약 + 최종 설계의 명세(`spec`) + `seed_used`(재현용) + 남은 위험(데모 재료, 수율, 사입사 근사).
+   - 특정 대역·각도만 미달: 층 추가(경사형·Jaumann형), 저항 시트 삽입, 재료 후보 추가를 검토합니다(`spec` → 명세 수정 → `build`).
+   - (v5) 층을 늘렸는데 결과가 나빠지면 국소 최적을 의심합니다(모의 실행에서 3층이 2층보다 나빴음). 이전 최선 설계를 출발점으로 두고 다시 돌립니다.
+5. (v5) `tolerance --corners --target-db <목표 goal_db> --journal DIR`로 **목표의 각도 끝 × 편광마다** 수율을 확인하고, 결합 수율을 보고합니다.
+   단일 각도 수율만 보고하면 안 됩니다(모의 실행: 0° 평균 17%, 30° TE 1%). 낮으면 결과에 위험을 명시합니다.
+6. 멈춤 규칙: 목표 충족 + 수율 기준 충족 / 시도 예산(기본 20회 또는 사용자가 정한 값) 소진 /
+   같은 목표에서 **다중 시작(`--restarts 3`) 기준으로** 연속 3회 개선 없음 / `rozanov_infeasible`.
+7. 보고: `journal DIR` 요약 + 최종 설계의 명세(`spec`) + `seed_used`(재현용) + 남은 위험(데모 재료, 수율, 사입사 근사, 혼합 모델 범위).
+   (v5) **목표에 못 미쳤으면** 최선 margin과 함께 절충안을 계산해 제시합니다: 목표를 최선값 근처로 완화했을 때, 두께 상한을 늘렸을 때,
+   각도 범위를 줄였을 때 각각 다시 최적화한 결과. 사용자가 다음 결정을 할 수 있게 하기 위해서입니다.
 
 ### 13.6 에이전트 연결 방식 (N3) — (v4) 결정: CLI + Skill/플레이북
 쓰는 에이전트는 Claude Code와 agy(Antigravity CLI, Gemini)입니다. 한 번의 루프는 수~수십 회 시도이고, `optimize` 한 번은 수 초~수 분입니다.
@@ -622,3 +673,31 @@ Argon은 코드를 실행할 수 없으므로, 실행으로만 확인되는 주�
 
 **MCP로 넘어갈 조건**: (a) 셸 도구가 없는 MCP 클라이언트(예: 코드 실행 없는 데스크톱 앱)에 연결해야 할 때,
 (b) 에이전트가 `optimize` 밖에서 한 세션에 단일 `solve`를 수백 번 부르는 사용 패턴이 실제로 관찰되어 프로세스 시작 비용이 병목이 될 때.
+
+### 13.7 (v5) 모의 실행으로 추가한 명령·옵션
+- **`coating-cli materials [--name N]`**: 내장 재료(`builtin_materials()`) 목록. 항목마다 `name`, `kind`, `note`, `is_demo`(`is_builtin_demo`, `Air`는 false),
+  `dict`(부록 A 형식 그대로 — 명세 `materials[]`에 복사해 쓸 수 있음), `params[]`(`path`, `label`, `unit`), `static_mu`(13.4절, 알 수 없으면 `null`).
+  `"input": null`. 사용자 라이브러리 파일은 `--library PATH`로 함께 보여 줍니다(`materials/library.load_library`).
+- **`tolerance --corners`**: 활성 목표마다 꼭짓점 집합 `{angle_min, angle_max} × pols`(중복 제거)에서 `run_tolerance`를 부릅니다.
+  수율 기준 대역은 그 목표의 주파수 대역, `target_db`는 `--target-db`(없으면 그 목표의 `goal_db`).
+  - `run_tolerance`의 섭동 표본은 시드와 층 구성만으로 정해지고 각도·편광과 무관하므로(`tolerance.py`의 `factors`는 계산 루프 전에 뽑힘),
+    **같은 시드면 꼭짓점마다 같은 표본**입니다. 그래서 표본별 `worst_db`를 꼭짓점에 걸쳐 모아 **결합 수율**(모든 꼭짓점을 동시에 만족하는 표본 비율)을 정확히 계산합니다.
+  - 결과: `corners[]`(`target`, `angle_deg`, `pol`, `yield_fraction`, `worst_db` 통계), `joint_yield_fraction`, `min_corner`.
+  - 꼭짓점만 보므로 각도 범위 안쪽의 더 나쁜 각도를 놓칠 수 있습니다(문서와 결과 `note`에 명시). 완전한 다중 각도 몬테카를로 수율은 DEVELOPMENT_HISTORY 6장의 미룬 작업 그대로입니다.
+- **`mixture_fraction_range` 이슈**(경고, `check`와 `optimize` 사전 점검): 혼합 모델이 신뢰하기 어려운 분율.
+  - Bruggeman이고 충전재가 전도성(분산 재료의 `sigma > 0` 또는 대상 대역에서 ε″/ε′ > 1)이면 분율 0.25~0.40(퍼콜레이션 임계 1/3 주변, N7).
+  - Maxwell–Garnett이면 분율 > 0.30(희박 구형 입자 가정).
+  - 현재 분율뿐 아니라 **`fraction` 변수의 범위가 이 구간과 겹쳐도** 냅니다. `_ISSUES_EN` 문구 + KO 항목 추가.
+- **`optimize --restarts N`**: 7절 참고.
+
+## 부록 A. (v5) 재료 dict 형식 (`.coat`·명세 공통, SI, 접미사 없음)
+모든 종류 공통: `kind`, `name`, `density`(kg/m³, 혼합 재료에는 없음 — 성분에서 계산), `note`.
+
+| `kind` | 필드 | 의미 |
+|---|---|---|
+| `constant` | `eps_re`, `eps_loss`, `mu_re`, `mu_loss` | ε = eps_re − j·eps_loss, μ도 같음(손실 > 0). 주파수와 무관 |
+| `dispersive` | `eps_inf`, `eps_loss`, `sigma`(S/m), `eps_terms[]`, `mu_inf`, `mu_loss`, `mu_terms[]` | ε = eps_inf − j·eps_loss − jσ/(ωε₀) + Σ 항. 항은 `{"type": "debye", "delta", "f0"}` 또는 `{"type": "lorentz", "delta", "f0", "gamma"}`(Hz) — Debye Δ/(1 + j f/f₀), Lorentz Δ·f₀²/(f₀² − f² + j f γ) |
+| `tabulated` | `f[]`(Hz), `eps_re[]`, `eps_loss[]`, `mu_re[]`, `mu_loss[]`(없으면 μ = 1), `source` | 측정값. 범위 밖은 외삽하지 않고 오류 |
+| `mixture` | `matrix`, `inclusion`(재료 이름), `fraction`(0~1, 부피 분율), `model`(`"maxwell_garnett"` 또는 `"bruggeman"`) | 2성분 유효 매질. 성분은 다른 혼합 재료여도 됨(순환 금지) |
+
+측정 CSV는 재료 dict 대신 명세에서 `{"name", "csv", "density"?, "note"?}`로 씁니다(13.2절).
