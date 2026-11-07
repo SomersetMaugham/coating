@@ -497,7 +497,7 @@ def test_rlc_sheet_editing(app):
 
 
 def test_loss_tolerance_panel(app):
-    """Independent ε″/μ″ tolerances: default rows with Follow checkboxes and a 7-column table."""
+    """Independent ε″/μ″ tolerances: default rows with Follow checkboxes and an 8-column table (with ρ)."""
     from coating_studio.examples import EXAMPLES
     from coating_studio.gui.main_window import MainWindow
     from coating_studio.project import Project
@@ -525,11 +525,21 @@ def test_loss_tolerance_panel(app):
     assert pt.rho.isEnabled() and w.project.tolerance.loss_correlation == 0.0
     pt.rho.setValue(0.6)
     assert w.project.tolerance.loss_correlation == pytest.approx(0.6) and w.doc.is_dirty
-    # 7-column per-layer table; a loss cell overrides one layer
-    assert pt.tbl.columnCount() == 7 and pt.tbl.horizontalHeaderItem(3).text() == "ε″"
+    # 8-column per-layer table; a loss cell overrides one layer
+    assert pt.tbl.columnCount() == 8 and pt.tbl.horizontalHeaderItem(3).text() == "ε″"
     pt.tbl.item(0, 3).setText("25")
     uid = w.project.structure.layers[0].uid
     assert w.project.tolerance.per_layer[uid]["eps_loss"] == pytest.approx(0.25)
+    # the rho column holds a coefficient, not a percentage; it is undoable like the other cells
+    assert pt.tbl.horizontalHeaderItem(6).text() == "ρ"
+    pt.tbl.item(0, 6).setText("-0.4")
+    assert w.project.tolerance.per_layer[uid]["loss_correlation"] == pytest.approx(-0.4)
+    assert pt.tbl.item(0, 6).text() == "-0.4"
+    pt.tbl.item(0, 6).setText("1.5")  # out of range: rejected, cell restored
+    assert w.project.tolerance.per_layer[uid]["loss_correlation"] == pytest.approx(-0.4)
+    assert pt.tbl.item(0, 6).text() == "-0.4"
+    w.doc.undo_stack.undo()
+    assert "loss_correlation" not in w.project.tolerance.per_layer[uid] and pt.tbl.item(0, 6).text() == ""
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()

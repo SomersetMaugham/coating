@@ -20,7 +20,8 @@ from coating_studio.tolerance import (  # noqa: F401 (yield_band re-exported)
     CornerResult, tolerance_frequencies, yield_band, yield_intervals,
 )
 
-_KEYS = ("thickness", "eps", "eps_loss", "mu", "mu_loss", "sheet")
+_KEYS = ("thickness", "eps", "eps_loss", "mu", "mu_loss", "loss_correlation", "sheet")
+_COEFF_KEYS = {"loss_correlation"}  # per-layer cells that hold a plain coefficient (-1..1), not a percentage
 _LOSS_BASE = {"eps_loss": "eps", "mu_loss": "mu"}
 
 
@@ -173,9 +174,10 @@ class TolerancePanel(QWidget):
         g = QGroupBox(tr("Per-layer tolerances (%)"))
         gl = QVBoxLayout(g)
         self.tbl = QTableWidget(0, 1 + len(_KEYS))
-        self.tbl.setHorizontalHeaderLabels([tr("Layer"), tr("Thickness"), "ε′", "ε″", "μ′", "μ″", tr("Sheet")])
+        self.tbl.setHorizontalHeaderLabels([tr("Layer"), tr("Thickness"), "ε′", "ε″", "μ′", "μ″", "ρ", tr("Sheet")])
         for c, tip in enumerate((tr("Thickness"), tr("Permittivity ε′"), tr("Dielectric loss ε″"),
-                                 tr("Permeability μ′"), tr("Magnetic loss μ″"), tr("Sheet impedance")), start=1):
+                                 tr("Permeability μ′"), tr("Magnetic loss μ″"), tr("Real/loss correlation ρ"),
+                                 tr("Sheet impedance")), start=1):
             self.tbl.horizontalHeaderItem(c).setToolTip(tip)
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.setSelectionMode(QAbstractItemView.NoSelection)
@@ -186,7 +188,8 @@ class TolerancePanel(QWidget):
             th.setSectionResizeMode(c, QHeaderView.ResizeToContents)
         self.tbl.setMinimumHeight(120)
         gl.addWidget(self.tbl)
-        gl.addWidget(muted(tr("Blank cells use the default tolerance.")))
+        gl.addWidget(muted(tr("Blank cells use the default values. ρ is a coefficient from −1 to 1, not a "
+                              "percentage, and overrides the default ρ for that layer.")))
         ll.addWidget(g)
 
         g = QGroupBox(tr("Evaluation"))
@@ -245,8 +248,8 @@ class TolerancePanel(QWidget):
         self.lbl_corners.setVisible(False)
         rl.addWidget(self.lbl_corners)
         split.addWidget(right)
-        split.setSizes([440, 600])
-        scroll.setMinimumWidth(400)
+        split.setSizes([480, 560])
+        scroll.setMinimumWidth(440)  # room for the layer names next to the 7 per-layer columns
 
         self.n.valueChanged.connect(self._commit)
         self.seed.valueChanged.connect(self._commit)
@@ -300,13 +303,15 @@ class TolerancePanel(QWidget):
             for r, ly in enumerate(layers):
                 name = ly.name or (tr("Sheet") if isinstance(ly, SheetLayer) else ly.material)
                 it = QTableWidgetItem(f"{r + 1}. {name}")
+                it.setToolTip(it.text())  # the name can be clipped when the panel is narrow
                 it.setFlags(Qt.ItemIsEnabled)
                 it.setData(Qt.UserRole, ly.uid)
                 self.tbl.setItem(r, 0, it)
                 for c, key in enumerate(_KEYS, start=1):
                     applicable = (key == "sheet") == isinstance(ly, SheetLayer)
                     val = s.per_layer.get(ly.uid, {}).get(key)
-                    cell = QTableWidgetItem("" if val is None or not applicable else f"{val * 100:g}")
+                    shown = val if key in _COEFF_KEYS else None if val is None else val * 100
+                    cell = QTableWidgetItem("" if shown is None or not applicable else f"{shown:g}")
                     cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                     if not applicable:
                         cell.setFlags(Qt.NoItemFlags)
@@ -358,13 +363,16 @@ class TolerancePanel(QWidget):
         text = item.text().strip().replace("%", "")
         if text:
             try:
-                val = float(text) / 100
+                val = float(text)
             except ValueError:
                 self.refresh()
                 return
-            if val < 0:
+            ok = -1.0 <= val <= 1.0 if key in _COEFF_KEYS else val >= 0
+            if not ok:
                 self.refresh()
                 return
+            if key not in _COEFF_KEYS:
+                val /= 100
         else:
             val = None
 

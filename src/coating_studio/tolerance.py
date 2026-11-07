@@ -7,7 +7,8 @@ With a loss tolerance set (eps_loss / mu_loss), the real part and the loss part
 of eps (mu) get their own errors, so the loss tangent varies as well; with
 None the whole complex value is scaled by one factor (tan delta fixed).  The
 real-part and loss errors are independent by default; ``loss_correlation`` (rho)
-couples them, e.g. rho > 0 for a filler content that raises eps' and eps'' together.
+couples them, e.g. rho > 0 for a filler content that raises eps' and eps'' together.  A layer can
+override rho through ``per_layer[uid]["loss_correlation"]``.
 """
 
 from __future__ import annotations
@@ -153,12 +154,12 @@ def sample_factors(project: Project, s: ToleranceSettings, rng, n):
     """Perturbation factors {layer uid: {key: array of n}} for ``n`` samples, drawn from ``rng``.
 
     The draw order is part of the reproducibility contract (same seed -> same samples as earlier versions)."""
-    rho = float(s.loss_correlation)
-    if not -1.0 <= rho <= 1.0:
-        raise ValueError(f"loss_correlation must be between -1 and 1, got {rho}")
     factors = {}
     for ly in project.structure.layers:
         if isinstance(ly, SlabLayer):
+            rho = float(s.tolerance_for(ly.uid, "loss_correlation"))
+            if not -1.0 <= rho <= 1.0:
+                raise ValueError(f"loss_correlation must be between -1 and 1, got {rho}")
             # Same draws, in the same order, as before loss tolerances existed (bit-identical results
             # for files with eps_loss = mu_loss = None); independent loss draws come afterwards.
             raw = {k: _draw(rng, s.distribution, s.tolerance_for(ly.uid, k), n) for k in ("thickness", "eps", "mu")}

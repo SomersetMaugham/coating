@@ -611,6 +611,7 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
 - (v6) **공차 값**(`tolerance`의 `thickness`, `eps`, `mu`, `sheet`, `eps_loss`, `mu_loss`, `per_layer` 값)은 **공칭값에 대한 상대값**입니다(0.05 = 5%).
   `distribution: "normal"`이면 1σ, `"uniform"`이면 ± 반폭입니다(`ToleranceSettings`). 무차원이라 접미사가 없습니다.
   `loss_correlation`(−1…1, 기본 0)은 같은 층의 실수부 오차와 손실 오차(ε′–ε″, μ′–μ″)의 상관계수 ρ입니다. 손실 공차가 있는 곳에만 쓰입니다(스키마 5).
+  `per_layer[]` 항목의 `loss_correlation`은 그 층의 ρ로 기본값 대신 쓰입니다(−1…1, 상대값이 아닌 계수, 스키마 6).
 - **목표**: `angle_deg`의 상한이 하한보다 크면 `n_angle`이 필수이고 2 이상이어야 합니다. 빠지면 `invalid_spec` —
   `BandTarget.n_angle` 기본값이 1이라 그대로 두면 `grid()`가 하한 각도만 평가합니다(`project.py:102-110`).
 - **재료 dict는 `.coat`와 같은 형식(SI, 접미사 없음)**이라는 예외를 명시합니다. `Material.to_dict()` 그대로이며(`density` kg/m³, `sigma` S/m, 분산 항의 `f0`·`gamma` Hz),

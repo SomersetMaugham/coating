@@ -349,6 +349,66 @@ def test_rho_validation_old_files_and_spec():
         spec_to_project(spec)
 
 
+def _two_slab_project(n=4000):
+    """Two lossy slabs with independent loss tolerances (per-layer rho tests)."""
+    from coating_studio.core.structure import Backing, SlabLayer, Structure
+    from coating_studio.materials.models import ConstantMaterial
+    p = Project()
+    p.add_material(ConstantMaterial("A", eps_re=4.0, eps_loss=0.8, mu_re=1.5, mu_loss=0.6))
+    p.structure = Structure(layers=[SlabLayer("A", 2e-3), SlabLayer("A", 3e-3)], backing=Backing("pec"))
+    s = p.tolerance
+    s.n_samples, s.thickness, s.eps, s.mu, s.eps_loss, s.mu_loss = n, 0.03, 0.05, 0.04, 0.2, 0.3
+    return p, [ly.uid for ly in p.structure.layers]
+
+
+def test_per_layer_rho_overrides_the_default():
+    from coating_studio.tolerance import sample_factors
+    p, (u1, u2) = _two_slab_project()
+    p.tolerance.loss_correlation = 0.0
+    p.tolerance.per_layer = {u2: {"loss_correlation": 0.8}}
+    fac = sample_factors(p, p.tolerance, np.random.default_rng(11), 4000)
+    for part in ("eps", "mu"):
+        assert abs(np.corrcoef(fac[u1][f"{part}_re"], fac[u1][f"{part}_loss"])[0, 1]) < 0.04  # default rho = 0
+        assert abs(np.corrcoef(fac[u2][f"{part}_re"], fac[u2][f"{part}_loss"])[0, 1] - 0.8) < 0.04
+    # an override equal to the default draws exactly what the default alone draws
+    p.tolerance.loss_correlation = 0.5
+    p.tolerance.per_layer = {}
+    ref = sample_factors(p, p.tolerance, np.random.default_rng(2), 50)
+    p.tolerance.per_layer = {u1: {"loss_correlation": 0.5}}
+    got = sample_factors(p, p.tolerance, np.random.default_rng(2), 50)
+    assert all(np.array_equal(got[u][k], ref[u][k]) for u in ref for k in ref[u])
+    # a per-layer rho = 0 restores the independent draws of that layer only
+    p.tolerance.per_layer = {u1: {"loss_correlation": 0.0}}
+    got = sample_factors(p, p.tolerance, np.random.default_rng(2), 50)
+    p.tolerance.loss_correlation, p.tolerance.per_layer = 0.0, {}
+    indep = sample_factors(p, p.tolerance, np.random.default_rng(2), 50)
+    assert all(np.array_equal(got[u1][k], indep[u1][k]) for k in indep[u1])
+    assert all(np.array_equal(got[u2][k], ref[u2][k]) for k in ref[u2])
+
+
+def test_per_layer_rho_validation_and_round_trip():
+    from coating_studio.cli.output import CliError
+    from coating_studio.cli.spec import project_to_spec, spec_to_project
+    p, (u1, u2) = _two_slab_project(n=5)
+    p.tolerance.per_layer = {u2: {"loss_correlation": -1.2}}
+    with pytest.raises(ValueError):
+        run_tolerance(p, np.linspace(8e9, 12e9, 5))
+    p.tolerance.per_layer = {u2: {"loss_correlation": 0.7, "eps_loss": 0.25}}
+    d = json.loads(json.dumps(p.to_dict()))
+    assert d["schema"] == 6
+    assert Project.from_dict(d).tolerance.per_layer == {u2: {"loss_correlation": 0.7, "eps_loss": 0.25}}
+    spec = project_to_spec(p)
+    assert len(spec["tolerance"]["per_layer"]) == 1
+    assert spec["tolerance"]["per_layer"][0]["loss_correlation"] == 0.7
+    q = spec_to_project(spec)[0]
+    assert q.tolerance.tolerance_for(q.structure.layers[1].uid, "loss_correlation") == 0.7
+    assert q.tolerance.tolerance_for(q.structure.layers[0].uid, "loss_correlation") == 0.0
+    for bad in (2, "0.5", True):
+        spec["tolerance"]["per_layer"][0]["loss_correlation"] = bad
+        with pytest.raises(CliError):
+            spec_to_project(spec)
+
+
 def test_rho_changes_yield_only_when_set():
     p, _ = _rho_project(n=60)
     f = np.linspace(6e9, 14e9, 41)

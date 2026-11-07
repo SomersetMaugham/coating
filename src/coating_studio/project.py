@@ -17,7 +17,7 @@ from coating_studio.core.structure import Backing, SheetLayer, SlabLayer, Struct
 from coating_studio.materials.library import builtin_materials
 from coating_studio.materials.models import ConstantMaterial, Material, material_from_dict
 
-SCHEMA_VERSION = 5  # 5: real/loss error correlation, saved comparison curves; 4: independent loss tolerances; 3: RLC sheets; 2: optimisation targets; 1: one band
+SCHEMA_VERSION = 6  # 6: per-layer real/loss correlation; 5: real/loss error correlation, saved comparison curves; 4: independent loss tolerances; 3: RLC sheets; 2: optimisation targets; 1: one band
 FILE_EXTENSION = ".coat"
 
 
@@ -235,7 +235,9 @@ class ToleranceSettings:
     # Correlation coefficient rho (-1..1) between the real-part and loss errors of the same layer (eps' with
     # eps'', mu' with mu''); used only where a loss tolerance is set.  0 = independent (schema <= 4).
     loss_correlation: float = 0.0
-    per_layer: dict = field(default_factory=dict)  # uid -> {"thickness","eps","eps_loss","mu","mu_loss","sheet"}
+    # uid -> {"thickness","eps","eps_loss","mu","mu_loss","sheet","loss_correlation"}; a missing key uses the
+    # default above.  "loss_correlation" is a coefficient (-1..1, schema 6), the others are relative tolerances.
+    per_layer: dict = field(default_factory=dict)
     target_db: float = -10.0
     band_min: float | None = None  # Hz; yield band (None -> whole sweep)
     band_max: float | None = None

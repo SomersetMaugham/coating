@@ -63,6 +63,7 @@ would silently use the old file). Prefer a new file name per trial (`d1.coat`, `
   1 σ for `"normal"`, ± half-width for `"uniform"`. `tolerance.loss_correlation` (−1…1, default 0) correlates each
   layer's real-part and loss errors (ε′ with ε″, μ′ with μ″) where a loss tolerance is set; use it only when the
   user knows the errors move together (e.g. filler content raises ε′ and ε″ together → positive).
+  A `tolerance.per_layer[]` entry can set its own `loss_correlation` for that layer (a coefficient, not relative).
 - Omitted sections use defaults; omitted `targets` means **no target** (optimisation then refuses to run).
 - Do not put fractions in material names ("CB 20%"): an optimised fraction makes the name wrong.
 

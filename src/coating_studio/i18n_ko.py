@@ -275,8 +275,8 @@ KO.update({
     "Uniform (± value)": "균일분포 (± 값)", "Samples": "표본 수", "Distribution": "분포",
     "Default tolerances (relative)": "기본 공차 (상대값)", "Permittivity ε": "유전율 ε",
     "Permeability μ": "투자율 μ", "Sheet impedance": "시트 임피던스",
-    "Per-layer tolerances (%)": "층별 공차 (%)", "Blank cells use the default tolerance.":
-        "빈 칸은 기본 공차를 사용합니다.", "Evaluation": "평가", "Custom yield band": "수율 대역 직접 지정",
+    "Per-layer tolerances (%)": "층별 공차 (%)", "Blank cells use the default values. ρ is a coefficient from −1 to 1, not a percentage, and overrides the default ρ for that layer.":
+        "빈 칸은 기본값을 사용합니다. ρ는 백분율이 아니라 −1에서 1 사이의 계수이며, 그 층에서 기본 ρ 대신 쓰입니다.", "Evaluation": "평가", "Custom yield band": "수율 대역 직접 지정",
     "Target RL (≤)": "목표 RL (≤)", "Band from": "대역 시작",
     "Yield = share of samples whose worst RL in the band meets the target. "
     "Without a custom band, the bands of the enabled optimisation targets are used.":
