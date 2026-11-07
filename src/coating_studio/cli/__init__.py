@@ -120,7 +120,8 @@ def build_parser():
     bo.add_argument("--goal-db", type=float, required=True)
     bo.add_argument("--mu-s", type=float, default=1.0)
 
-    fi = sp.add_parser("fit", help="fit Debye/Lorentz terms to a measured CSV; prints a spec-ready material")
+    fi = sp.add_parser("fit", help="fit Debye/Lorentz terms to a measured CSV; prints a spec-ready material",
+                       formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     fi.add_argument("csv")
     fi.add_argument("--name")
     fi.add_argument("--eps-debye", type=int, default=1)
@@ -212,8 +213,8 @@ def main(argv=None, stdout=None, stderr=None, control=None) -> int:
     journal_dir = getattr(args, "journal", None)
 
     def journal(result, code, stopped, error_code=None):
-        if not journal_dir:
-            return
+        if not journal_dir or error_code in ("file_not_found", "file_unreadable", "usage"):
+            return  # nothing was run on a design; keep the journal to real trials
         from coating_studio.cli.journal import record
         record(journal_dir, command=command, argv=argv, note=getattr(args, "note", ""),
                input_path=getattr(args, "file", None), result=result, exit_code=code, stopped=stopped,

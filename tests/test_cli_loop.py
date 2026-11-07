@@ -344,3 +344,66 @@ def test_journal_records_snapshots_and_compares_within_a_fingerprint(tmp_path):
     run("solve", tmp_path / "other.coat", "--summary-only", "--journal", j)
     code, env = run("journal", j)
     assert len(env["result"]["fingerprints"]) == 2 and env["warnings"][0]["code"] == "targets_changed"
+
+
+# -- regressions from the real-CLI blind test ---------------------------------------------------------------------
+
+def test_run_options_are_not_saved_into_the_result(tmp_path):
+    src = tmp_path / "s.coat"
+    EXAMPLES["salisbury"][1]().save(src)
+    before = Project.load(src).optimization
+    code, env = run("optimize", src, "-o", tmp_path / "o.coat", "--popsize", "7", "--maxiter", "4")
+    assert env["result"]["run_settings"] == {"maxiter": 4, "popsize": 7, "polish": before.polish}
+    saved = Project.load(tmp_path / "o.coat").optimization
+    assert (saved.maxiter, saved.popsize, saved.polish, saved.seed) == \
+        (before.maxiter, before.popsize, before.polish, before.seed)
+    # a random seed is drawn again next time instead of repeating the first run's
+    code2, env2 = run("optimize", tmp_path / "o.coat", "--maxiter", "2")
+    assert env2["result"]["seed_used"] != env["result"]["seed_used"]
+
+
+def test_explicit_sweep_at_the_data_edges_and_f_at(tmp_path):
+    _csv(tmp_path)
+    base = {"materials": [{"name": "Meas", "csv": "ci.csv"}], "layers": [{"material": "Meas", "thickness_mm": 1.2}],
+            "targets": [{"f_ghz": [2, 6], "angle_deg": 0, "goal_db": -10}], "sweep": {"f_ghz": [1, 8], "n_f": 141}}
+    sp = tmp_path / "s.json"
+    sp.write_text(json.dumps(base))
+    code, env = run("build", sp, "-o", tmp_path / "o.coat")
+    assert code == 0 and env["warnings"] == []  # exactly the data range is fine; the default f_at (10 GHz) moves in
+    p = Project.load(tmp_path / "o.coat")
+    assert (p.sweep.f_min, p.sweep.f_max) == (1e9, 8e9) and 1e9 <= p.sweep.f_at <= 8e9
+    base["sweep"]["f_at_ghz"] = 10
+    sp.write_text(json.dumps(base))
+    code, env = run("build", sp, "-o", tmp_path / "x.coat")
+    assert code == 3 and env["error"]["details"]["path"] == "sweep.f_at_ghz"
+
+
+def test_sweep_clamped_message_names_the_measured_range(tmp_path):
+    _csv(tmp_path)
+    sp = tmp_path / "s.json"
+    sp.write_text(json.dumps({"materials": [{"name": "Meas", "csv": "ci.csv"}],
+                              "layers": [{"material": "Meas", "thickness_mm": 1.2}]}))
+    code, env = run("build", sp, "-o", tmp_path / "o.coat")
+    msg = env["warnings"][0]["message"]
+    assert env["warnings"][0]["code"] == "sweep_clamped" and "2-8 GHz" in msg and "(1-8 GHz)" in msg
+
+
+def test_thickness_at_limit_flag():
+    from coating_studio.cli.commands import _terms_dict
+    from coating_studio.optimize import ObjectiveTerms
+    t = ObjectiveTerms(worst_db=-10, mean_r=0.1, thickness=3.9998e-3, mass=1.0, objective=0.5)
+    assert _terms_dict(t, 4e-3)["thickness_at_limit"] is True
+    assert _terms_dict(t, 5e-3)["thickness_at_limit"] is False
+    assert _terms_dict(t, None)["thickness_at_limit"] is False
+
+
+def test_fit_drops_negligible_terms(tmp_path):
+    code, env = run("fit", _csv(tmp_path), "--mu-debye", "1", "--eps-const-loss")
+    assert env["result"]["material"]["eps_terms"] == []  # the data has a constant permittivity
+    assert "fit_terms_dropped" in {w["code"] for w in env["warnings"]}
+
+
+def test_journal_skips_runs_that_never_loaded_a_design(tmp_path):
+    j = tmp_path / "runs"
+    run("solve", tmp_path / "missing.coat", "--journal", j)
+    assert not (j / "journal.jsonl").exists()

@@ -295,7 +295,7 @@ def measured_range_issues(p):
         spans.append(("tolerance band", p.tolerance.band_min, p.tolerance.band_max))
     return [Issue("error", "sweep_outside_data", "", {"where": w, "flo": a / 1e9, "fhi": b / 1e9,
                                                        "lo": lo / 1e9, "hi": hi / 1e9})
-            for w, a, b in spans if a < lo or b > hi]
+            for w, a, b in spans if a < lo - 1e-9 * hi or b > hi + 1e-9 * hi]
 
 
 def cmd_check(path, no_opt=False):
@@ -414,6 +414,9 @@ def cmd_solve(path, sweep="freq", quantity_name="RL", pol="avg", targets=False, 
         "best": {q: _best(cut(rl_db(res, q)), res.f, res.theta, sweep) for q in POLS},
         "total_thickness_m": p.structure.total_thickness(), "areal_mass_kg_m2": mass}}
     if targets:
+        if any(v is not None for v in (overrides or {}).values()):
+            warnings.append(warning("targets_use_own_grid", "sweep overrides do not change the targets: each target "
+                                    "is evaluated on its own band, angles and polarisations"))
         try:
             rows, max_margin = target_rows(p)
         except MODEL_ERRORS as e:
@@ -470,11 +473,13 @@ def _at_bound(v, value):
     return None
 
 
-def _terms_dict(t):
+def _terms_dict(t, thickness_max=None):
     if t is None:
         return None
+    at_limit = thickness_max is not None and t.thickness >= thickness_max * (1 - 1e-3)
     return {"objective": t.objective, "worst_db": t.worst_db, "margin_db": t.margin_db, "mean_r": t.mean_r,
-            "thickness_m": t.thickness, "mass_kg_m2": t.mass}
+            "thickness_m": t.thickness, "mass_kg_m2": t.mass, "thickness_max_m": thickness_max,
+            "thickness_at_limit": at_limit}
 
 
 def cmd_optimize(path, control, output=None, in_place=False, force=False, seed=None, maxiter=None,
@@ -483,6 +488,9 @@ def cmd_optimize(path, control, output=None, in_place=False, force=False, seed=N
     if in_place:
         output = path
     s = p.optimization
+    # One-off run options (and a randomly drawn seed) must not leak into the saved design: the next run would
+    # silently repeat the same seed and inherit e.g. a large --popsize.
+    saved_settings = {k: getattr(s, k) for k in ("maxiter", "popsize", "polish", "seed")}
     if maxiter is not None:
         s.maxiter = int(maxiter)
     if popsize is not None:
@@ -541,8 +549,13 @@ def cmd_optimize(path, control, output=None, in_place=False, force=False, seed=N
                        "at_bound": _at_bound(v, after)})
     choices = [{"uid": c.uid, "layer": layer_label(p, c.uid), "before": before_choice[c.uid],
                 "after": res.choices.get(c.uid, before_choice[c.uid])} for c in s.choices]
+    run_settings = {k: getattr(s, k) for k in saved_settings}
     if output is not None:
+        for k, v in saved_settings.items():
+            setattr(s, k, v)
         save_project(p, output)
+        for k, v in run_settings.items():
+            setattr(s, k, v)
     message = "stopped by timeout" if control.timed_out else res.message
     restart_rows = []
     for seed_k, r in runs:
@@ -551,8 +564,9 @@ def cmd_optimize(path, control, output=None, in_place=False, force=False, seed=N
         restart_rows.append(rr)
     best_seed = next(sd for sd, r in runs if r is res)
     result = {"message": message, "n_evals": n_evals, "best_seed": best_seed, "restarts": restart_rows,
+              "run_settings": {"maxiter": s.maxiter, "popsize": s.popsize, "polish": s.polish},
               "elapsed_s": sum(r.elapsed for _, r in runs), "seed_used": s.seed,
-              "targets": rows, "max_margin_db": max_margin, "terms": _terms_dict(res.terms),
+              "targets": rows, "max_margin_db": max_margin, "terms": _terms_dict(res.terms, s.thickness_max),
               "values": values, "choices": choices, "history": [list(h) for h in res.history],
               "output_path": None if output is None else str(output)}
     if control.timed_out:
@@ -727,8 +741,16 @@ def cmd_fit(csv_path, name=None, eps_debye=1, eps_lorentz=0, sigma=False, eps_co
                                     fit_const_loss=eps_const_loss), mu_spec, density=density)
     except (ValueError, RuntimeError) as e:
         raise CliError("invalid_value", f"fit failed: {e}", 4) from None
+    pruned = 0
+    for side, inf in (("eps_terms", fr.material.eps_inf), ("mu_terms", fr.material.mu_inf)):
+        terms = getattr(fr.material, side)
+        kept = [tm for tm in terms if abs(tm["delta"]) >= 1e-6 * max(1.0, abs(inf))]  # negligible fitted terms
+        pruned += len(terms) - len(kept)
+        setattr(fr.material, side, kept)
     fr.material.note = f"{FITTED_PREFIX} {os.path.basename(csv_path)}, {f[0] / 1e9:g}-{f[-1] / 1e9:g} GHz"
     warnings = []
+    if pruned:
+        warnings.append(warning("fit_terms_dropped", f"{pruned} fitted term(s) with negligible strength were dropped"))
     if mu_spec is None and np.any(np.abs(mu - 1) > 1e-6):
         warnings.append(warning("mu_not_fitted", "the data has mu != 1 but no mu terms were fitted (use --mu-debye)"))
     for side, rms in (("eps", fr.rms_eps), ("mu", fr.rms_mu)):

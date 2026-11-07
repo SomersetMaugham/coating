@@ -850,7 +850,10 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
  "restarts": [{"seed": 1234567, "objective": 0.42, "max_margin_db": 8.63}, {"seed": 1234568, "objective": 0.47, "max_margin_db": 9.1}],
  "history": [[150, 3.1], [900, 0.6]], "output_path": "s1_opt.coat"}
 ```
-`at_bound`는 `"lower"`/`"upper"`/`null` — 변수가 범위 끝에 붙었는지(플레이북 4단계의 판단 근거).
+`at_bound`는 `"lower"`/`"upper"`/`null` — 변수가 범위 끝(범위 폭의 0.1% 안)에 붙었는지(플레이북 4단계의 판단 근거).
+(구현 후 추가, 실제 CLI 블라인드 테스트 반영) `result.terms`에 `thickness_max_m`, `thickness_at_limit`(총 두께가 `thickness_max`에 걸림 —
+이때 개별 층은 보통 자기 범위 끝에 있지 않음), `result.run_settings`(`maxiter`, `popsize`, `polish` — 이번 실행에만 적용, 결과 파일에 저장하지 않음),
+`best_seed`(보고한 설계를 만든 시드). 실험 기록에도 `best_seed`를 남깁니다.
 
 `tolerance --corners --target-db -15`
 ```json

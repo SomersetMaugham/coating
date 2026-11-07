@@ -94,6 +94,8 @@ def record(directory, *, command, argv, note, input_path, result, exit_code, sto
         summary.update(extra_summary or {})
         entry["summary"] = summary
         entry["seed_used"] = (result or {}).get("seed_used")
+        if (result or {}).get("best_seed") is not None:
+            entry["best_seed"] = result["best_seed"]  # the seed that produced the reported design
         with open(jpath, "a", encoding="utf-8") as fh:
             fh.write(dumps(entry) + "\n")
     except OSError as e:
@@ -142,7 +144,7 @@ def report(directory):
                "stopped": e.get("stopped"), "spec_fingerprint": e.get("spec_fingerprint"),
                "max_margin_db": (e.get("summary") or {}).get("max_margin_db"),
                "snapshot": e.get("snapshot"), "output_snapshot": e.get("output_snapshot"),
-               "seed_used": e.get("seed_used")} for e in entries]
+               "seed_used": e.get("seed_used"), "best_seed": e.get("best_seed")} for e in entries]
     warnings = []
     if len(groups) > 1:
         warnings.append({"code": "targets_changed", "level": "warning",

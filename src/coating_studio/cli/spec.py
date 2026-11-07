@@ -394,11 +394,15 @@ def spec_to_project(spec: dict, base_dir=".") -> tuple[Project, list]:
         tol.per_layer[layers[li].uid] = {k: v for k, v in d.items() if k != "layer"}
     p.tolerance = tol
 
-    warnings += _check_measured_ranges(p, sweep_given)
+    warnings += _check_measured_ranges(p, spec.get("sweep"))
     return p, warnings
 
 
-def _check_measured_ranges(p, sweep_given):
+def _check_measured_ranges(p, sweep_spec):
+    """Keep the sweep, targets and tolerance band inside the measured data of the materials in use.
+
+    ``sweep_spec`` is the spec's sweep section (None if omitted).  Values the spec does not give are moved into
+    the data range; values it gives explicitly must lie inside it (``invalid_spec`` names the field)."""
     names = set(p.structure.referenced_materials())
     for c in p.optimization.choices:
         names |= set(c.candidates)
@@ -406,21 +410,37 @@ def _check_measured_ranges(p, sweep_given):
     if rng is None:
         return []
     lo, hi = rng
+    eps = 1e-9 * hi  # tolerate rounding at the data edges
+
+    def outside(a, b):
+        return a < lo - eps or b > hi + eps
+
+    data = [lo / 1e9, hi / 1e9]
     for i, t in enumerate(p.optimization.targets):
-        if t.enabled and (t.f_min < lo or t.f_max > hi):
+        if t.enabled and outside(t.f_min, t.f_max):
             raise spec_error(f"targets[{i}].f_ghz", "outside the measured data range",
-                             data_ghz=[lo / 1e9, hi / 1e9], requested_ghz=[t.f_min / 1e9, t.f_max / 1e9])
+                             data_ghz=data, requested_ghz=[t.f_min / 1e9, t.f_max / 1e9])
     tol = p.tolerance
-    if tol.band_min and tol.band_max and (tol.band_min < lo or tol.band_max > hi):
-        raise spec_error("tolerance.band_ghz", "outside the measured data range", data_ghz=[lo / 1e9, hi / 1e9])
+    if tol.band_min and tol.band_max and outside(tol.band_min, tol.band_max):
+        raise spec_error("tolerance.band_ghz", "outside the measured data range", data_ghz=data)
     sw = p.sweep
-    inside = lo <= sw.f_min and sw.f_max <= hi and lo <= sw.f_at <= hi
-    if inside:
+    given = sweep_spec or {}
+    before = (sw.f_min, sw.f_max)
+    if "f_ghz" in given:
+        if outside(sw.f_min, sw.f_max):
+            raise spec_error("sweep.f_ghz", "outside the measured data range", data_ghz=data,
+                             requested_ghz=[sw.f_min / 1e9, sw.f_max / 1e9])
+    elif outside(sw.f_min, sw.f_max):
+        sw.f_min, sw.f_max = max(sw.f_min, lo), min(sw.f_max, hi)
+    if "f_at_ghz" in given:
+        if not (sw.f_min - eps <= sw.f_at <= sw.f_max + eps):
+            raise spec_error("sweep.f_at_ghz", "outside the sweep / measured data range", data_ghz=data,
+                             sweep_ghz=[sw.f_min / 1e9, sw.f_max / 1e9], requested_ghz=sw.f_at / 1e9)
+    elif not (sw.f_min <= sw.f_at <= sw.f_max):
+        sw.f_at = min(max(sw.f_at, sw.f_min), sw.f_max)
+    if (sw.f_min, sw.f_max) == before:
         return []
-    if sweep_given:
-        raise spec_error("sweep.f_ghz", "outside the measured data range", data_ghz=[lo / 1e9, hi / 1e9],
-                         requested_ghz=[sw.f_min / 1e9, sw.f_max / 1e9])
-    sw.f_min, sw.f_max = max(sw.f_min, lo), min(sw.f_max, hi)
-    sw.f_at = min(max(sw.f_at, sw.f_min), sw.f_max)
     return [{"code": "sweep_clamped", "level": "warning", "material": "",
-             "message": f"sweep set to the measured data range {sw.f_min / 1e9:g}-{sw.f_max / 1e9:g} GHz"}]
+             "message": f"sweep clamped to {sw.f_min / 1e9:g}-{sw.f_max / 1e9:g} GHz: the default "
+                        f"{before[0] / 1e9:g}-{before[1] / 1e9:g} GHz sweep exceeds the measured data "
+                        f"({lo / 1e9:g}-{hi / 1e9:g} GHz); give sweep.f_ghz to choose another range inside it"}]
