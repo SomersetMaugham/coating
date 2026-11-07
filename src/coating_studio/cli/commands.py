@@ -32,7 +32,7 @@ from coating_studio.optimize.optimizer import (
     MAX_ENUMERATED_COMBOS, OptimizationError, apply_result, evaluate_terms, optimize, preflight,
 )
 from coating_studio.project import Project, available_params, describe_path, get_param, param_unit
-from coating_studio.tolerance import run_tolerance, tolerance_frequencies, yield_intervals
+from coating_studio.tolerance import run_tolerance, run_tolerance_corners, tolerance_frequencies, yield_intervals
 
 POLS = ("TE", "TM", "avg")
 
@@ -187,19 +187,7 @@ def sweep_dict(sw):
 
 def used_materials(project, include_candidates=True):
     """Materials the design uses, with mixture constituents expanded (sorted)."""
-    names = set(project.structure.referenced_materials())
-    if include_candidates:
-        for c in project.optimization.choices:
-            names |= set(c.candidates)
-    seen, stack = set(), list(names)
-    while stack:
-        n = stack.pop()
-        if n in seen:
-            continue
-        seen.add(n)
-        if n in project.materials:
-            stack.extend(project.materials[n].references())
-    return sorted(seen)
+    return project.used_materials(include_candidates)
 
 
 # ---------------------------------------------------------------------------
@@ -632,53 +620,40 @@ def cmd_tolerance(path, control, seed=None, n_samples=None, target_db=None, angl
 
 
 def _tolerance_corners(path, control, seed, n_samples, target_db, samples):
-    """Yield at every (angle end x polarisation) corner of every enabled target, plus the joint yield.
-
-    The perturbation samples depend only on the seed and the layers (they are drawn before the solve loop in
-    ``run_tolerance``), so with one seed every corner sees the same samples and the joint yield is exact."""
+    """Yield at every (angle end x polarisation) corner of every enabled target, plus the joint yield
+    (``tolerance.run_tolerance_corners``, shared with the GUI)."""
     p, inp = load_project(path)
     s = p.tolerance
     s.seed = resolve_seed(seed if seed is not None else s.seed)
     if n_samples is not None:
         s.n_samples = int(n_samples)
-    targets = p.optimization.enabled_targets()
-    if not targets:
+    if not p.optimization.enabled_targets():
         raise CliError("invalid_optimization_settings", "--corners needs at least one enabled target", 4)
-    f = tolerance_frequencies(p)
-    plan = []
-    for ti, t in enumerate(targets):
-        for ang in sorted({t.angle_min, t.angle_max}):
-            for pol_ in t.pols:
-                plan.append((ti, t, ang, pol_))
-    rows, passes, stopped = [], [], False
-    for k, (ti, t, ang, pol_) in enumerate(plan):
-        if k and control.should_stop():
-            stopped = True
-            break
-        s.angle, s.pol = float(ang), pol_
-        s.target_db = float(target_db) if target_db is not None else t.goal_db
-        try:
-            r = run_tolerance(p, f, band=[(t.f_min, t.f_max)],
-                              progress=control.tolerance_callback({"corner": k + 1, "n_corners": len(plan)}))
-        except MODEL_ERRORS as e:
-            raise model_error(e) from None
-        stopped = stopped or r.stopped
-        row = {"target": ti, "target_name": t.name, "angle_deg": ang, "pol": pol_, "target_db": s.target_db,
+    stop_cb = control.tolerance_callback()
+
+    def progress(done, total, k, n_corners):
+        control.emit({"done": done, "total": total, "corner": k + 1, "n_corners": n_corners}, force=done == total)
+        return stop_cb(done, total)
+
+    try:
+        cr = run_tolerance_corners(p, tolerance_frequencies(p), target_db=target_db, progress=progress,
+                                   should_stop=control.should_stop)
+    except MODEL_ERRORS as e:
+        raise model_error(e) from None
+    rows = []
+    for ti, name, ang, pol_, tdb, r in cr.corners:
+        row = {"target": ti, "target_name": name, "angle_deg": ang, "pol": pol_, "target_db": tdb,
                "n_samples": r.n_samples, "yield_fraction": r.yield_fraction, "worst_db": _stats(r.worst_db)}
         if samples:
             row["samples_worst_db"] = r.worst_db
         rows.append(row)
-        passes.append(np.asarray(r.worst_db) <= s.target_db)
-        if r.stopped:
-            break
-    n = min(len(x) for x in passes)
-    joint = float(np.mean(np.all([x[:n] for x in passes], axis=0))) if n else None
-    worst = min(rows, key=lambda r_: r_["yield_fraction"])
-    result = {"n_samples": n, "seed_used": s.seed, "corners": rows, "joint_yield_fraction": joint,
+    worst = rows[cr.worst]
+    result = {"n_samples": cr.n_samples, "seed_used": s.seed, "corners": rows,
+              "joint_yield_fraction": cr.joint_yield_fraction,
               "min_corner": {k_: worst[k_] for k_ in ("target", "angle_deg", "pol")},
               "note": "corners only; angles inside each target's range are not sampled"}
     warnings = [warning("timeout", "stopped by --timeout")] if control.timed_out else []
-    return CommandResult(result, warnings=warnings, stopped=stopped or len(rows) < len(plan), input_info=inp)
+    return CommandResult(result, warnings=warnings, stopped=cr.stopped, input_info=inp)
 
 
 # ---------------------------------------------------------------------------

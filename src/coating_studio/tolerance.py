@@ -10,6 +10,7 @@ None the whole complex value is scaled by one factor (tan delta fixed).
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 
 import numpy as np
@@ -58,6 +59,68 @@ class ToleranceResult:
     yield_fraction: float  # samples whose in-band worst <= target
     n_samples: int
     stopped: bool = False
+
+
+@dataclass
+class CornerResult:
+    """Tolerance analysis at every (angle end x polarisation) corner of the enabled targets."""
+
+    corners: list  # [(target index, target name, angle deg, pol, target dB, ToleranceResult)]
+    joint_yield_fraction: float | None  # samples that meet every corner's criterion
+    n_samples: int
+    stopped: bool = False
+
+    @property
+    def worst(self):
+        """Index into ``corners`` of the corner with the lowest yield."""
+        return min(range(len(self.corners)), key=lambda i: self.corners[i][5].yield_fraction)
+
+
+def _corner_progress(progress, k, n_req, n_corners):
+    def cb(done, total):
+        return progress(k * n_req + done, n_corners * n_req, k, n_corners)
+    return cb
+
+
+def target_corners(project: Project):
+    """(target index, target, angle, pol) for the angle ends x polarisations of every enabled target."""
+    out = []
+    for ti, t in enumerate(project.optimization.enabled_targets()):
+        for ang in sorted({t.angle_min, t.angle_max}):
+            for pol in t.pols:
+                out.append((ti, t, float(ang), pol))
+    return out
+
+
+def run_tolerance_corners(project: Project, f, target_db=None, progress=None, should_stop=None) -> CornerResult:
+    """``run_tolerance`` at every target corner; each corner's yield band is its target's band and its criterion
+    the target's goal (or ``target_db``).  The perturbation samples depend only on the seed and the layers (they
+    are drawn before the solve loop), so every corner sees the same samples and the joint yield is exact.
+
+    ``progress(done, total, corner_index, n_corners) -> bool`` may return True to stop; ``should_stop()`` is
+    checked between corners."""
+    plan = target_corners(project)
+    if not plan:
+        raise ValueError("no enabled target to take corners from")
+    base = project.tolerance
+    rows, passes, stopped = [], [], False
+    n_req = int(base.n_samples)
+    for k, (ti, t, ang, pol) in enumerate(plan):
+        if k and should_stop is not None and should_stop():
+            stopped = True
+            break
+        s = dataclasses.replace(base, angle=ang, pol=pol,
+                                target_db=float(target_db) if target_db is not None else t.goal_db)
+        cb = None if progress is None else _corner_progress(progress, k, n_req, len(plan))
+        r = run_tolerance(project, f, settings=s, band=[(t.f_min, t.f_max)], progress=cb)
+        rows.append((ti, t.name, ang, pol, s.target_db, r))
+        passes.append(np.asarray(r.worst_db) <= s.target_db)
+        if r.stopped:
+            stopped = True
+            break
+    n = min(len(x) for x in passes)
+    joint = float(np.mean(np.all([x[:n] for x in passes], axis=0))) if n else None
+    return CornerResult(rows, joint, n, stopped or len(rows) < len(plan))
 
 
 def _draw(rng, dist, tol, n):

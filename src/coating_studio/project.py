@@ -301,6 +301,23 @@ class Project:
                 break
         return users
 
+    def used_materials(self, include_candidates=True) -> list[str]:
+        """Materials the design uses (incident medium, slabs, backing and optionally the optimisation
+        candidates), with mixture constituents expanded; sorted.  Names not in ``materials`` are kept."""
+        names = set(self.structure.referenced_materials())
+        if include_candidates:
+            for c in self.optimization.choices:
+                names |= set(c.candidates)
+        seen, stack = set(), list(names)
+        while stack:
+            n = stack.pop()
+            if n in seen:
+                continue
+            seen.add(n)
+            if n in self.materials:
+                stack.extend(self.materials[n].references())
+        return sorted(seen)
+
     def unique_material_name(self, base):
         if base not in self.materials:
             return base
