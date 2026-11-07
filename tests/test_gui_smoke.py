@@ -628,3 +628,52 @@ def test_target_masks_on_angle_and_map_tabs(app):
     assert not draw(w.v_map).patches
     w.doc._settings_dirty = False  # no save prompt on close
     w.close()
+
+
+def test_comparison_curves_are_saved_with_the_project(app, tmp_path):
+    """Curves on screen go into the .coat; a file with curves shows them, one without keeps the screen's."""
+    import numpy as np
+
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.project import Project
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["jaumann2"][1]())
+    assert not w.doc.is_dirty
+    ref = w.pin_reference("A")
+    assert w.doc.is_dirty  # curves are part of the file now
+    csv = tmp_path / "meas.csv"
+    csv.write_text("f [GHz], RL [dB]\n2, -0.5\n10, -25\n18, -4\n", encoding="utf-8")
+    meas = w.import_measured(str(csv))
+    w.set_reference_visible(meas, False)
+    path = tmp_path / "with_refs.coat"
+    assert w._save_to(str(path)) and not w.doc.is_dirty
+    saved = Project.load(str(path)).references
+    assert [(r.name, r.kind, r.slot, r.visible) for r in saved] == [("A", "design", ref.slot, True),
+                                                                     ("meas", "measured", meas.slot, False)]
+    assert saved[0].model == ref.model and np.array_equal(saved[1].rl_meas_db, meas.rl_meas_db)
+    # a project without curves keeps the ones on screen (cross-file comparison) ...
+    w.doc.set_project(EXAMPLES["dallenbach"][1]())
+    assert [r.name for r in w.references] == ["A", "meas"] and not w.doc.is_dirty
+    w.clear_references()
+    assert w.project.references == [] and w.doc.is_dirty
+    w.doc._settings_dirty = False
+    # ... a project with curves shows its own, and they are drawn
+    assert w.load_path(str(path), confirm=False)
+    assert [r.name for r in w.references] == ["A", "meas"] and w.project.references is w.references
+    w.tabs.setCurrentWidget(w.v_freq)
+    w.recompute()
+    w.v_freq.redraw()
+    assert "A" in [ln.get_label() for ln in w.v_freq.fig.axes[0].get_lines()]
+    # opening the optimiser's result as a new project keeps "Before optimisation" alongside the others
+    w.pin_before_optimisation()
+    q = w.project.copy()
+    q.references = q.references[:2]  # the copy was taken before the pin
+    w.doc._settings_dirty = False  # no save prompt
+    w._open_project_object(q)
+    assert [r.name for r in w.references] == ["A", "meas", "Before optimisation"]
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()

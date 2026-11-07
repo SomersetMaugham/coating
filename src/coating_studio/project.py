@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass, field
 import numpy as np
 
 from coating_studio import __version__
+from coating_studio.comparison import MAX_REFERENCES, ReferenceTrace
 from coating_studio.core.structure import Backing, SheetLayer, SlabLayer, Structure
 from coating_studio.materials.library import builtin_materials
 from coating_studio.materials.models import ConstantMaterial, Material, material_from_dict
@@ -262,9 +263,20 @@ class ToleranceSettings:
         return cls(**kw)
 
 
+def _references_from(items):
+    """Saved comparison curves; at most MAX_REFERENCES, colour slots made unique."""
+    refs = [ReferenceTrace.from_dict(x) for x in items][:MAX_REFERENCES]
+    used = set()
+    for r in refs:
+        if r.slot in used or not 0 <= r.slot < MAX_REFERENCES:
+            r.slot = next(i for i in range(MAX_REFERENCES) if i not in used)
+        used.add(r.slot)
+    return refs
+
+
 class Project:
     def __init__(self, name="Untitled", materials=None, structure=None, sweep=None,
-                 optimization=None, tolerance=None, notes=""):
+                 optimization=None, tolerance=None, notes="", references=None):
         self.name = name
         self.materials: dict[str, Material] = {}
         for m in (materials if materials is not None else builtin_materials()):
@@ -276,6 +288,8 @@ class Project:
         self.optimization = optimization or OptimizationSettings()
         self.tolerance = tolerance or ToleranceSettings()
         self.notes = notes
+        # Comparison curves (comparison.ReferenceTrace) saved with the file; not part of undo (like settings).
+        self.references: list = list(references or [])
         self.source_schema = SCHEMA_VERSION  # schema of the file this project was read from (not saved)
 
     # -- materials ---------------------------------------------------------
@@ -418,6 +432,7 @@ class Project:
             "sweep": asdict(self.sweep),
             "optimization": self.optimization.to_dict(),
             "tolerance": self.tolerance.to_dict(),
+            "references": [r.to_dict() for r in self.references],
         }
 
     def model_state(self):
@@ -451,7 +466,8 @@ class Project:
                    sweep=sweep,
                    optimization=OptimizationSettings.from_dict(d.get("optimization", {})),
                    tolerance=ToleranceSettings.from_dict(d.get("tolerance", {})),
-                   notes=d.get("notes", ""))._with_source_schema(schema)
+                   notes=d.get("notes", ""),
+                   references=_references_from(d.get("references", [])))._with_source_schema(schema)
 
     def _with_source_schema(self, schema):
         self.source_schema = int(schema)

@@ -52,7 +52,9 @@ class MainWindow(QMainWindow):
         self.doc = Document(new_project_with_example_stack(tr("Untitled")))
         self.results = {}
         self.result_error = None
-        # Pinned reference traces live for the session, across New/Open (not saved, not undoable).
+        # Pinned reference traces (comparison curves).  They are saved with the project; a project opened
+        # without saved curves keeps the ones on screen, so designs from different files can be compared.
+        # Not undoable.
         self.references = []
         self._ref_counter = 0
         self.setWindowIcon(QApplication.windowIcon())
@@ -65,7 +67,7 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._build_toolbar()
         self._build_status()
-        self._references_changed()
+        self._references_changed(user=False)
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -358,6 +360,11 @@ class MainWindow(QMainWindow):
         return self.doc.project
 
     def _on_reset(self):
+        if self.project.references:  # a file with saved comparison curves shows those
+            self.references = list(self.project.references)
+            self._ref_counter = len(self.references)
+        self.project.references = self.references
+        self._references_changed(user=False)
         self.w_layers.refresh(self.colors)
         layers = self.project.structure.layers
         if layers:
@@ -574,6 +581,7 @@ class MainWindow(QMainWindow):
     def _open_project_object(self, proj):
         if not self._confirm_discard():
             return
+        proj.references = self.references  # the curves on screen, including the "Before optimisation" just pinned
         self.doc.set_project(proj)
         self.doc._settings_dirty = True
         self._update_title()
@@ -638,7 +646,12 @@ class MainWindow(QMainWindow):
         self.references.append(ref)
         self._references_changed()
 
-    def _references_changed(self):
+    def _set_references(self, refs):
+        self.references[:] = refs  # in place: the project holds the same list and saves it
+
+    def _references_changed(self, user=True):
+        if user:
+            self.doc.mark_dirty()  # comparison curves are saved with the file
         n = len(self.references)
         self.a_refs.setText(tr("References ({n})", n=n) if n else tr("References"))
         self.a_clear_refs.setEnabled(bool(n))
@@ -663,7 +676,7 @@ class MainWindow(QMainWindow):
     def pin_before_optimisation(self):
         """Called by the optimiser just before a result replaces the design."""
         name = tr(BEFORE_OPTIMISATION)
-        self.references = [r for r in self.references if not (r.kind == "design" and r.name == name)]
+        self._set_references([r for r in self.references if not (r.kind == "design" and r.name == name)])
         if self.pin_reference(name) is None:
             self._references_changed()
             self.statusBar().showMessage(
@@ -694,11 +707,11 @@ class MainWindow(QMainWindow):
         return ref
 
     def remove_reference(self, ref):
-        self.references = [r for r in self.references if r is not ref]
+        self._set_references([r for r in self.references if r is not ref])
         self._references_changed()
 
     def clear_references(self):
-        self.references = []
+        self._set_references([])
         self._references_changed()
 
     def set_reference_visible(self, ref, visible):

@@ -7,6 +7,8 @@ No Qt here (see AGENTS.md); the GUI only draws what this module computes.
   mixes different incidence angles or bands.  Results are cached per sweep key, so editing the live
   design costs nothing for the references.
 * A **measured** reference is frozen data (frequency, RL in dB) that cannot be re-solved.
+
+References are saved with the project (``.coat`` schema 5, ``references``): ``to_dict``/``from_dict``.
 """
 
 from __future__ import annotations
@@ -71,6 +73,33 @@ class ReferenceTrace:
 
     def same_model(self, project) -> bool:
         return self.kind == "design" and self.model == _model_of(project)
+
+    # -- saving ----------------------------------------------------------------------------
+    def to_dict(self):
+        d = {"name": self.name, "kind": self.kind, "slot": int(self.slot), "visible": bool(self.visible)}
+        if self.kind == "design":
+            d["model"] = self.model
+        else:
+            d["f_hz"] = [float(x) for x in self.f_meas]
+            d["rl_db"] = [float(x) for x in self.rl_meas_db]
+        return d
+
+    @classmethod
+    def from_dict(cls, d):
+        kind = d.get("kind")
+        common = dict(name=str(d["name"]), kind=kind, slot=int(d.get("slot", 0)), visible=bool(d.get("visible", True)))
+        if kind == "design":
+            model = d["model"]
+            if not isinstance(model, dict) or "materials" not in model or "structure" not in model:
+                raise ValueError(f"reference {d['name']!r}: design model needs materials and structure")
+            return cls(model=json.loads(json.dumps(model)), **common)
+        if kind == "measured":
+            f = np.asarray(d["f_hz"], dtype=float)
+            rl = np.asarray(d["rl_db"], dtype=float)
+            if f.ndim != 1 or f.shape != rl.shape or len(f) < 2:
+                raise ValueError(f"reference {d['name']!r}: f_hz and rl_db must be equal-length lists")
+            return cls(f_meas=f, rl_meas_db=rl, **common)
+        raise ValueError(f"unknown reference kind {kind!r}")
 
 
 def _model_of(project):
