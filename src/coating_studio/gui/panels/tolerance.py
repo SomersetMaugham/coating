@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
+    QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
     QMessageBox, QProgressBar, QPushButton, QScrollArea, QSpinBox, QSplitter, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
@@ -158,6 +158,14 @@ class TolerancePanel(QWidget):
                 f.addRow(lab, row)
             else:
                 f.addRow(lab, sp)
+        self.rho = QDoubleSpinBox()
+        self.rho.setRange(-1.0, 1.0)
+        self.rho.setDecimals(2)
+        self.rho.setSingleStep(0.1)
+        self.rho.setToolTip(tr("Correlation coefficient between each layer's real-part error and loss error (ε′ with ε″, "
+                               "μ′ with μ″). 0 = independent; positive when both rise together, for example with "
+                               "filler content. Used only where the loss does not follow the real part."))
+        f.addRow(tr("Real/loss correlation ρ"), self.rho)
         f.addRow(muted(tr("ε″ and μ″ vary independently of ε′ and μ′, so the loss tangent varies too. A "
                           "relative tolerance has no effect where the nominal loss is zero.")))
         ll.addWidget(g)
@@ -242,6 +250,7 @@ class TolerancePanel(QWidget):
 
         self.n.valueChanged.connect(self._commit)
         self.seed.valueChanged.connect(self._commit)
+        self.rho.valueChanged.connect(self._commit)
         self.dist.currentIndexChanged.connect(self._commit)
         self.pol.currentIndexChanged.connect(self._commit)
         self.chk_band.toggled.connect(self._commit)
@@ -271,6 +280,8 @@ class TolerancePanel(QWidget):
                     if follows:
                         val = getattr(s, _LOSS_BASE[k])  # shows the factor the loss follows
                 sp.set_value(val * 100)
+            self.rho.setValue(s.loss_correlation)
+            self._update_rho_enabled()
             pos = self.ctx.rl_positive
             self.target.setRange(*((0, 200) if pos else (-200, 0)))
             self.target.set_value(rl_display(s.target_db, pos))
@@ -305,6 +316,10 @@ class TolerancePanel(QWidget):
             self._loading = False
         self._apply_corner_state()
 
+    def _update_rho_enabled(self):
+        """rho couples a loss error to its real-part error, so it needs at least one independent loss tolerance."""
+        self.rho.setEnabled(not all(chk.isChecked() for chk in self.follow.values()))
+
     def _commit(self, *_):
         if self._loading:
             return
@@ -314,6 +329,7 @@ class TolerancePanel(QWidget):
         self._apply_corner_state()
         for k, chk in self.follow.items():
             self.d[k].setEnabled(not chk.isChecked())
+        self._update_rho_enabled()
 
         def mut(p):
             s = p.tolerance
@@ -323,6 +339,7 @@ class TolerancePanel(QWidget):
             for k, sp in self.d.items():
                 follows = k in _LOSS_BASE and self.follow[k].isChecked()
                 setattr(s, k, None if follows else sp.value() / 100)
+            s.loss_correlation = round(self.rho.value(), 2)
             s.target_db = rl_display(self.target.value(), self.ctx.rl_positive)
             s.angle = self.angle.value()
             s.pol = self.pol.currentData()

@@ -4,8 +4,10 @@ Each sample perturbs, per layer and independently, the thickness, eps and mu
 (slabs) or the sheet impedance (sheets) by a relative error drawn from a
 normal distribution (tolerance = 1 sigma) or a uniform one (+/- tolerance).
 With a loss tolerance set (eps_loss / mu_loss), the real part and the loss part
-of eps (mu) get independent errors, so the loss tangent varies as well; with
-None the whole complex value is scaled by one factor (tan delta fixed).
+of eps (mu) get their own errors, so the loss tangent varies as well; with
+None the whole complex value is scaled by one factor (tan delta fixed).  The
+real-part and loss errors are independent by default; ``loss_correlation`` (rho)
+couples them, e.g. rho > 0 for a filler content that raises eps' and eps'' together.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import dataclasses
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.special import ndtr, ndtri
 
 from coating_studio.core.solver import solve
 from coating_studio.core.structure import SheetLayer, SlabLayer
@@ -131,6 +134,57 @@ def _draw(rng, dist, tol, n):
     return 1.0 + rng.normal(0.0, tol, n)
 
 
+def _correlate(d_re, tol_re, d_loss, tol_loss, rho, dist):
+    """Loss factors correlated with the real-part factors (correlation ``rho``), keeping their own distribution.
+
+    Normal: z = rho*z_re + sqrt(1 - rho^2)*z_loss on the standardised draws, so the Pearson correlation is rho.
+    Uniform: the same mixing through a Gaussian copula, so both marginals stay exactly uniform; the Pearson
+    correlation is then (6/pi)*asin(rho/2), within 0.02 of rho."""
+    w = np.sqrt(max(0.0, 1.0 - rho * rho))
+    if dist == "uniform":
+        eps = 1e-12
+        z_re = ndtri(np.clip(((d_re - 1.0) / tol_re + 1.0) / 2.0, eps, 1 - eps))
+        z_l = ndtri(np.clip(((d_loss - 1.0) / tol_loss + 1.0) / 2.0, eps, 1 - eps))
+        return 1.0 + tol_loss * (2.0 * ndtr(rho * z_re + w * z_l) - 1.0)
+    return 1.0 + tol_loss * (rho * (d_re - 1.0) / tol_re + w * (d_loss - 1.0) / tol_loss)
+
+
+def sample_factors(project: Project, s: ToleranceSettings, rng, n):
+    """Perturbation factors {layer uid: {key: array of n}} for ``n`` samples, drawn from ``rng``.
+
+    The draw order is part of the reproducibility contract (same seed -> same samples as earlier versions)."""
+    rho = float(s.loss_correlation)
+    if not -1.0 <= rho <= 1.0:
+        raise ValueError(f"loss_correlation must be between -1 and 1, got {rho}")
+    factors = {}
+    for ly in project.structure.layers:
+        if isinstance(ly, SlabLayer):
+            # Same draws, in the same order, as before loss tolerances existed (bit-identical results
+            # for files with eps_loss = mu_loss = None); independent loss draws come afterwards.
+            raw = {k: _draw(rng, s.distribution, s.tolerance_for(ly.uid, k), n) for k in ("thickness", "eps", "mu")}
+            fac = {k: np.maximum(v, 1e-6) for k, v in raw.items()}
+            for part in ("eps", "mu"):
+                tol_loss = s.tolerance_for(ly.uid, f"{part}_loss")
+                if tol_loss is not None:
+                    fac[f"{part}_re"] = fac.pop(part)
+                    d_loss = _draw(rng, s.distribution, tol_loss, n)
+                    tol_re = s.tolerance_for(ly.uid, part)
+                    if rho and tol_loss > 0 and tol_re > 0:  # rho = 0 keeps the independent draws bit for bit
+                        d_loss = _correlate(raw[part], tol_re, d_loss, tol_loss, rho, s.distribution)
+                    fac[f"{part}_loss"] = np.maximum(d_loss, 1e-6)
+            factors[ly.uid] = fac
+        elif isinstance(ly, SheetLayer):
+            tol = s.tolerance_for(ly.uid, "sheet")
+            if ly.model == "rlc":
+                # R, L and C vary independently, so the resonance moves as it does for a real pattern
+                # (scaling Zs as a whole would leave f0 = 1/(2*pi*sqrt(LC)) unchanged).
+                factors[ly.uid] = {k: np.maximum(_draw(rng, s.distribution, tol, n), 1e-6)
+                                   for k in ("sheet_R", "sheet_L", "sheet_C")}
+            else:
+                factors[ly.uid] = {"sheet": np.maximum(_draw(rng, s.distribution, tol, n), 1e-6)}
+    return factors
+
+
 def run_tolerance(project: Project, f, settings: ToleranceSettings | None = None,
                   band=None, progress=None) -> ToleranceResult:
     """``band`` = (f_lo, f_hi) or a list of such intervals for the yield criterion (default: all of
@@ -148,28 +202,7 @@ def run_tolerance(project: Project, f, settings: ToleranceSettings | None = None
         return 10 * np.log10(np.maximum(r, 1e-30))
 
     nominal = rl_db()
-    factors = {}
-    for ly in project.structure.layers:
-        if isinstance(ly, SlabLayer):
-            # Same draws, in the same order, as before loss tolerances existed (bit-identical results
-            # for files with eps_loss = mu_loss = None); independent loss draws come afterwards.
-            fac = {k: np.maximum(_draw(rng, s.distribution, s.tolerance_for(ly.uid, k), n), 1e-6)
-                   for k in ("thickness", "eps", "mu")}
-            for part in ("eps", "mu"):
-                tol_loss = s.tolerance_for(ly.uid, f"{part}_loss")
-                if tol_loss is not None:
-                    fac[f"{part}_re"] = fac.pop(part)
-                    fac[f"{part}_loss"] = np.maximum(_draw(rng, s.distribution, tol_loss, n), 1e-6)
-            factors[ly.uid] = fac
-        elif isinstance(ly, SheetLayer):
-            tol = s.tolerance_for(ly.uid, "sheet")
-            if ly.model == "rlc":
-                # R, L and C vary independently, so the resonance moves as it does for a real pattern
-                # (scaling Zs as a whole would leave f0 = 1/(2*pi*sqrt(LC)) unchanged).
-                factors[ly.uid] = {k: np.maximum(_draw(rng, s.distribution, tol, n), 1e-6)
-                                   for k in ("sheet_R", "sheet_L", "sheet_C")}
-            else:
-                factors[ly.uid] = {"sheet": np.maximum(_draw(rng, s.distribution, tol, n), 1e-6)}
+    factors = sample_factors(project, s, rng, n)
     samples = []
     stopped = False
     try:

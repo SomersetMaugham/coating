@@ -520,6 +520,11 @@ def test_loss_tolerance_panel(app):
     d["tolerance"].pop("mu_loss")
     w.doc.set_project(Project.from_dict(d))
     assert pt.follow["eps_loss"].isChecked() and pt.follow["mu_loss"].isChecked()
+    assert not pt.rho.isEnabled()  # rho needs an independent loss tolerance
+    pt.follow["mu_loss"].setChecked(False)
+    assert pt.rho.isEnabled() and w.project.tolerance.loss_correlation == 0.0
+    pt.rho.setValue(0.6)
+    assert w.project.tolerance.loss_correlation == pytest.approx(0.6) and w.doc.is_dirty
     # 7-column per-layer table; a loss cell overrides one layer
     assert pt.tbl.columnCount() == 7 and pt.tbl.horizontalHeaderItem(3).text() == "ε″"
     pt.tbl.item(0, 3).setText("25")

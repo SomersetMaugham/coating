@@ -361,4 +361,7 @@ KO.update({
 KO.update({
     "In use: {u}": "사용처: {u}",
     "Bold: material is used in the current design.": "굵은 글씨: 현재 설계에서 사용 중인 재료입니다.",
+    "Real/loss correlation ρ": "실수부·손실 상관계수 ρ",
+    "Correlation coefficient between each layer's real-part error and loss error (ε′ with ε″, μ′ with μ″). 0 = independent; positive when both rise together, for example with filler content. Used only where the loss does not follow the real part.":
+        "각 층의 실수부 오차와 손실 오차(ε′와 ε″, μ′와 μ″) 사이의 상관계수입니다. 0이면 서로 독립이고, 충전재 함량처럼 둘이 함께 커지는 경우에는 양수입니다. 손실이 실수부를 따르지 않는 곳에만 쓰입니다.",
 })

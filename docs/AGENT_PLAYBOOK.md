@@ -60,7 +60,9 @@ would silently use the old file). Prefer a new file name per trial (`d1.coat`, `
 - Sheet layers: `{"name": "R-card", "sheet": {"model": "constant", "R_ohm": 377, "X_ohm": 0}}` or
   `{"sheet": {"model": "rlc", "R_ohm": 50, "L_nh": 2.0, "C_pf": 0.08}}` (`"C_pf": null` = no capacitor).
 - Tolerance values (`tolerance.thickness`, `eps`, `mu`, `sheet`, `eps_loss`, `mu_loss`) are relative (0.05 = 5 %),
-  1 σ for `"normal"`, ± half-width for `"uniform"`.
+  1 σ for `"normal"`, ± half-width for `"uniform"`. `tolerance.loss_correlation` (−1…1, default 0) correlates each
+  layer's real-part and loss errors (ε′ with ε″, μ′ with μ″) where a loss tolerance is set; use it only when the
+  user knows the errors move together (e.g. filler content raises ε′ and ε″ together → positive).
 - Omitted sections use defaults; omitted `targets` means **no target** (optimisation then refuses to run).
 - Do not put fractions in material names ("CB 20%"): an optimised fraction makes the name wrong.
 

@@ -107,8 +107,8 @@ def project_to_spec(project: Project) -> dict:
                     "thickness_max_mm": None if s.thickness_max is None else to_display(s.thickness_max, "mm"),
                     "maxiter": s.maxiter, "popsize": s.popsize, "seed": s.seed, "polish": s.polish}
     tol = project.tolerance
-    tolerance = {k: getattr(tol, k) for k in ("n_samples", "distribution", *_TOL_KEYS, "target_db", "pol",
-                                              "lower_pct", "upper_pct", "seed")}
+    tolerance = {k: getattr(tol, k) for k in ("n_samples", "distribution", *_TOL_KEYS, "loss_correlation",
+                                              "target_db", "pol", "lower_pct", "upper_pct", "seed")}
     tolerance["band_ghz"] = (None if not (tol.band_min and tol.band_max)
                              else _f_pair(tol.band_min, tol.band_max))
     tolerance["angle_deg"] = tol.angle
@@ -381,9 +381,12 @@ def spec_to_project(spec: dict, base_dir=".") -> tuple[Project, list]:
 
     t = spec.get("tolerance", {})
     tol = ToleranceSettings()
-    for key in ("n_samples", "distribution", *_TOL_KEYS, "target_db", "pol", "lower_pct", "upper_pct", "seed"):
+    for key in ("n_samples", "distribution", *_TOL_KEYS, "loss_correlation", "target_db", "pol", "lower_pct",
+                "upper_pct", "seed"):
         if key in t:
             setattr(tol, key, t[key])
+    if not isinstance(tol.loss_correlation, (int, float)) or not -1 <= tol.loss_correlation <= 1:
+        raise spec_error("tolerance.loss_correlation", "must be a number between -1 and 1")
     if "angle_deg" in t:
         tol.angle = float(t["angle_deg"])
     band = _pair(t, "band_ghz", "tolerance")
