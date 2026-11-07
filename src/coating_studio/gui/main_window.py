@@ -35,6 +35,7 @@ from coating_studio.gui.widgets.properties import PropertiesPanel
 from coating_studio.gui.widgets.sweep_panel import SweepPanel
 from coating_studio.i18n import issue_text, tr
 from coating_studio.materials.checks import check_material
+from coating_studio.limits import limit_issues, mixture_range_issues, target_limits
 from coating_studio.materials.csvio import CsvFormatError
 from coating_studio.materials.models import MaterialCycleError, OutOfRangeError
 from coating_studio.project import FILE_EXTENSION, Project, ProjectError, new_project_with_example_stack
@@ -456,7 +457,8 @@ class MainWindow(QMainWindow):
             it = QListWidgetItem(icon("error"), self.result_error)
             self.w_msgs.addItem(it)
             n_issues += 1
-        names = sorted(n for n in p.structure.referenced_materials() if n in p.materials)
+        # Same coverage as `coating-cli check`: optimisation candidates and mixture constituents too.
+        names = [n for n in p.used_materials() if n in p.materials]
         notes = []
         for n in names:
             for iss in check_material(p.materials[n], f, p.resolver):
@@ -466,6 +468,15 @@ class MainWindow(QMainWindow):
                     continue
                 self.w_msgs.addItem(QListWidgetItem(icon("error" if iss.level == "error" else "warning"), text))
                 n_issues += 1
+        extra = mixture_range_issues(p, float(np.sqrt(s.f_min * s.f_max)), names=set(names))
+        try:
+            extra += [iss for _ti, iss in limit_issues(target_limits(p))]
+        except Exception:  # noqa: BLE001 - the feasibility hint must never break the diagnostics
+            pass
+        for iss in extra:
+            text = f"{iss.material}: {issue_text(iss)}" if iss.material else issue_text(iss)
+            self.w_msgs.addItem(QListWidgetItem(icon("warning"), text))
+            n_issues += 1
         if not n_issues:
             self.w_msgs.addItem(QListWidgetItem(icon("info"), tr("No problems found in the materials used.")))
         for text in notes:  # informational only (e.g. built-in demo values); not counted as problems

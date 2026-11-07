@@ -228,6 +228,17 @@ KO.update({
     "This mixture references itself (directly or through other mixtures).": "이 혼합 재료가 자기 자신을 (직접 또는 다른 혼합 재료를 거쳐) 참조합니다.",
     "Power law": "거듭제곱 법칙", "at 1 GHz": "1 GHz 값", "exponent": "지수",
     "New power-law material": "새 거듭제곱 법칙 재료",
+    "Tolerance analysis": "공차 분석",
+    "Check every target corner": "목표의 모든 꼭짓점 평가",
+    "Run the analysis at both ends of each enabled target's angle range and for each of its polarisations, against that target's band and goal, and report the joint yield (samples that pass at every corner).":
+        "사용 중인 목표마다 각도 범위의 양 끝과 각 편광에서, 그 목표의 대역과 목표값을 기준으로 분석하고 결합 수율(모든 꼭짓점을 통과한 표본의 비율)을 보고합니다.",
+    "A single angle can overstate the yield of a target that spans several angles. With every corner checked, each target's own band and goal apply and the angle, polarisation, target and band above are not used.":
+        "각도 범위가 있는 목표는 한 각도만 보면 수율이 부풀려질 수 있습니다. 모든 꼭짓점을 평가하면 각 목표의 대역과 목표값이 적용되고, 위의 입사각·편광·목표·대역 설정은 쓰지 않습니다.",
+    "Checking every corner needs at least one enabled optimisation target.": "모든 꼭짓점을 평가하려면 사용 중인 최적화 목표가 하나 이상 있어야 합니다.",
+    "Target {n}": "목표 {n}",
+    "Joint yield {y:.1f}% over {n} corners ({s} samples)": "꼭짓점 {n}개의 결합 수율 {y:.1f}% (표본 {s}개)",
+    "Weakest corner (plotted): {c}. Yield per corner: {rows}": "가장 취약한 꼭짓점(그래프): {c}. 꼭짓점별 수율: {rows}",
+    "Tolerance analysis: joint yield {y:.1f}% over {n} corners": "공차 분석: 꼭짓점 {n}개의 결합 수율 {y:.1f}%",
     "f in GHz. An empirical curve fit (e.g. the Michielssen 1993 absorber database), not a causal model: use it only inside the band it was fitted on.":
         "f의 단위는 GHz입니다. 경험적 곡선 맞춤(예: Michielssen 1993 흡수체 재료 데이터베이스)이며 인과적 모델이 아니므로, 맞춘 대역 안에서만 쓰십시오.",
     "Target {target}: the design's mu_s x d is {design_mm:.3g} mm but at least {required_mm:.3g} mm is needed (Rozanov bound, normal incidence).":

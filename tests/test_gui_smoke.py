@@ -528,3 +528,51 @@ def test_loss_tolerance_panel(app):
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()
+
+
+def test_tolerance_corners_and_extended_diagnostics(app):
+    """GUI parity with coating-cli: per-corner joint yield, and the same diagnostics as `check`."""
+    from coating_studio.core.structure import Backing, SlabLayer, Structure
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.materials.models import MixtureMaterial
+    from coating_studio.project import ContinuousVariable
+    from coating_studio.tolerance import CornerResult, run_tolerance_corners, tolerance_frequencies
+
+    w = MainWindow()
+    p = EXAMPLES["dualband"][1]()
+    p.tolerance.n_samples = 20
+    w.doc.set_project(p)
+    tol = w.p_tol
+    tol.chk_corners.setChecked(True)
+    assert not tol.angle.isEnabled() and not tol.pol.isEnabled() and not tol.target.isEnabled()
+    tol.run()
+    for _ in range(800):
+        _pump(app, 25)
+        if tol.thread is None:
+            break
+    res = tol.plot.result
+    assert isinstance(res, CornerResult) and not tol.lbl_corners.isHidden()
+    direct = run_tolerance_corners(w.project, tolerance_frequencies(w.project))
+    assert [c[5].yield_fraction for c in res.corners] == [c[5].yield_fraction for c in direct.corners]
+    assert res.joint_yield_fraction <= min(c[5].yield_fraction for c in res.corners)
+    assert tol.plot.data_table() is not None
+    tol.chk_corners.setChecked(False)
+    assert tol.angle.isEnabled() and tol.pol.isEnabled()
+
+    # Diagnostics: a thin layer that cannot meet its target (Rozanov), and a mixture whose fraction range
+    # reaches the percolation region (constituents checked too).
+    q = EXAMPLES["dallenbach"][1]()
+    q.add_material(MixtureMaterial("CB mix", "Epoxy", "Carbon black", 0.10, "bruggeman"))
+    q.structure = Structure(layers=[SlabLayer("CB mix", 0.5e-3)], backing=Backing("pec"))
+    q.optimization.variables = [ContinuousVariable(("material", "CB mix", "fraction"), 0.05, 0.30)]
+    q.optimization.choices = []
+    w.doc.set_project(q)
+    w.recompute()
+    texts = [w.w_msgs.item(i).text() for i in range(w.w_msgs.count())]
+    assert any("CB mix:" in t and "bruggeman" in t for t in texts)          # mixture_fraction_range
+    assert any(t.startswith("Target 1") for t in texts)                       # rozanov_limit / _infeasible
+    assert any(t.startswith("Carbon black:") for t in texts)                  # constituent's demo-values note
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()
