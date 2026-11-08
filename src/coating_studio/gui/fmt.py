@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from coating_studio.core.units import from_display, to_display  # noqa: F401 (re-exported)
+from coating_studio.core.units import fmt_num, from_display, to_display  # noqa: F401 (re-exported)
 from coating_studio.i18n import tr
 
 _LABEL = {"mm": "mm", "GHz": "GHz", "ohm": "Ω/sq", "S/m": "S/m", "frac": "", "": "", "g/cm3": "g/cm³",
@@ -18,17 +18,6 @@ def rl_display(db, positive):
 
 def unit_label(unit):
     return _LABEL.get(unit, unit)
-
-
-def fmt_num(x, digits=5):
-    if x == 0:
-        return "0"
-    a = abs(x)
-    if 1e-3 <= a < 1e5:
-        s = f"{x:.{digits}g}"
-    else:
-        s = f"{x:.{max(digits - 2, 2)}e}"
-    return s
 
 
 def param_label(label: str) -> str:

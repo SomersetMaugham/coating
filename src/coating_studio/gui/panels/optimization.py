@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QMenu, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from coating_studio.gui import spectral
 from coating_studio.gui.fmt import fmt_num, from_display, param_label, rl_display, to_display, unit_label
 from coating_studio.gui.icons import set_button_icon
 from coating_studio.gui.theme import mpl_rc
@@ -98,8 +99,9 @@ class OptimizationPanel(QWidget):
         tl.addLayout(br)
         ed = QGridLayout()
         ed.setHorizontalSpacing(6)
-        self.f_min = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="GHz")
-        self.f_max = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="GHz")
+        self.f_min = SciSpinBox()
+        self.f_max = SciSpinBox()
+        self.band = spectral.SpectralInputs(self.f_min, self.f_max)  # start/end in the project's spectral unit
         self.n_f = QSpinBox()
         self.n_f.setRange(1, 2001)
         self.n_f.setSuffix(" " + tr("pts"))
@@ -288,8 +290,7 @@ class OptimizationPanel(QWidget):
     # -- targets -----------------------------------------------------------------
     def target_summary(self, t):
         pos = self.ctx.rl_positive
-        band = (f"{fmt_num(t.f_min / 1e9, 4)} GHz" if t.f_max <= t.f_min
-                else f"{fmt_num(t.f_min / 1e9, 4)}–{fmt_num(t.f_max / 1e9, 4)} GHz")
+        band = spectral.fmt_range(t.f_min, t.f_max, spectral.unit_of(self.doc.project))
         ang = (f"{t.angle_min:g}°" if t.angle_max <= t.angle_min else f"{t.angle_min:g}–{t.angle_max:g}°")
         pols = "+".join(t.pols) if t.pols else "—"
         rel = "≥" if pos else "≤"
@@ -326,8 +327,7 @@ class OptimizationPanel(QWidget):
         if t is None:
             return
         pos = self.ctx.rl_positive
-        self.f_min.set_value(t.f_min / 1e9)
-        self.f_max.set_value(t.f_max / 1e9)
+        self.band.show(spectral.unit_of(self.doc.project), t.f_min, t.f_max)
         self.n_f.setValue(t.n_f)
         self.a_min.set_value(t.angle_min)
         self.a_max.set_value(t.angle_max)
@@ -479,12 +479,13 @@ class OptimizationPanel(QWidget):
         pols = [p for p, b in (("TE", self.pol_te), ("TM", self.pol_tm)) if b.isChecked()]
         i = self._target_idx
         pos = self.ctx.rl_positive
+        f_lo, f_hi = self.band.values()  # an untouched box keeps its stored Hz value
 
         def mut(p):
             s = p.optimization
             if 0 <= i < len(s.targets):
                 t = s.targets[i]
-                t.f_min, t.f_max, t.n_f = self.f_min.value() * 1e9, self.f_max.value() * 1e9, self.n_f.value()
+                t.f_min, t.f_max, t.n_f = f_lo, f_hi, self.n_f.value()
                 t.angle_min, t.angle_max, t.n_angle = self.a_min.value(), self.a_max.value(), self.n_a.value()
                 t.pols = pols
                 t.goal_db = rl_display(self.goal.value(), pos)
@@ -549,7 +550,8 @@ class OptimizationPanel(QWidget):
 
         def text(iss):
             # "Unknown material: X" already names the material
-            return issue_text(iss) if iss.code == "unknown_material" else f"{iss.material}: {issue_text(iss)}"
+            msg = issue_text(iss, unit=spectral.unit_of(self.doc.project))
+            return msg if iss.code == "unknown_material" else f"{iss.material}: {msg}"
 
         errors = [text(i) for i in error_issues]
         warnings = [text(i) for i in warning_issues]

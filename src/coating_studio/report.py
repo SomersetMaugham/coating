@@ -14,7 +14,7 @@ import math
 
 import numpy as np
 
-from coating_studio import __version__, diagnostics
+from coating_studio import __version__, diagnostics, spectral
 from coating_studio.core.solver import solve
 from coating_studio.core.structure import SheetLayer, SlabLayer
 from coating_studio.i18n import tr
@@ -91,32 +91,35 @@ def samples_text(r, s):
     return tr("{n} samples", n=r.n_samples)
 
 
-def draw_tolerance_band(ax, r, target_db, bands, lower_pct, upper_pct, colors, positive=False, log_f=False):
-    """Draw one ToleranceResult: percentile band, median, nominal design, target level and the yield intervals.
+def draw_tolerance_band(ax, r, target_db, bands, lower_pct, upper_pct, colors, positive=False, log_f=False,
+                        unit="GHz"):
+    """Draw one ToleranceResult: percentile band, median, nominal design, target level and the yield intervals,
+    against the spectral axis in ``unit`` (``core.units.SPECTRAL_UNITS``).
 
     Shared by the GUI's tolerance tab and the report.  ``colors``: {"spread", "nominal", "target", "band"}.
     Labels, legend, title and grid are left to the caller."""
     sgn = -1 if positive else 1
-    x = r.f / 1e9
+    x = spectral.x_values(r.f, unit)
     ax.fill_between(x, sgn * r.lower_db, sgn * r.upper_db, color=colors["spread"], alpha=0.22,
                     label=tr("{a:g}–{b:g} percentile band", a=lower_pct, b=upper_pct))
     ax.plot(x, sgn * r.median_db, color=colors["spread"], label=tr("Median"))
     ax.plot(x, sgn * r.nominal_db, color=colors["nominal"], ls="--", label=tr("Nominal design"))
     ax.axhline(sgn * target_db, color=colors["target"], lw=1, ls=":", label=tr("Target"))
     for lo, hi in bands:
-        ax.axvspan(lo / 1e9, hi / 1e9, color=colors["band"], alpha=0.07)
+        ax.axvspan(*spectral.span(lo, hi, unit), color=colors["band"], alpha=0.07)
     if log_f:
         ax.set_xscale("log")  # before set_xlim
-    ax.set_xlim(x[0], x[-1])
+    spectral.set_xlim(ax, x)  # ascending even for a wavelength axis
 
 
-def _tolerance_figure(r, s, title, positive, log_f):
+def _tolerance_figure(r, s, title, positive, log_f, unit):
     from matplotlib.figure import Figure
 
     fig = Figure(figsize=(8, 3.2), layout="constrained")
     ax = fig.add_subplot(111)
-    draw_tolerance_band(ax, r, s.target_db, r.band or [], s.lower_pct, s.upper_pct, TOL_COLORS, positive, log_f)
-    ax.set_xlabel(tr("Frequency [GHz]"))
+    draw_tolerance_band(ax, r, s.target_db, r.band or [], s.lower_pct, s.upper_pct, TOL_COLORS, positive, log_f,
+                        unit)
+    ax.set_xlabel(spectral.axis_label(unit))
     ax.set_ylabel(_rl_label(positive))
     ax.set_title(title, fontsize=10, loc="left", wrap=True)
     ax.grid(True, color="#e3e6eb")
@@ -127,12 +130,12 @@ def _tolerance_figure(r, s, title, positive, log_f):
 def _tolerance_figures(p, tolerance, positive):
     """Band plots of a tolerance result: one for a single-angle result; for target rows, the lowest-yield row of each
     target (at most MAX_TOLERANCE_PLOTS, keeping the weakest targets), in target order."""
-    log_f = p.sweep.log_f
+    log_f, unit = p.sweep.log_f, p.sweep.spectral_unit
     if isinstance(tolerance, ToleranceResult):
         s = result_settings(tolerance, p)
         r = tolerance if tolerance.band is not None else _with_band(tolerance, result_band(tolerance, p))
         title = f"{s.angle:g}° {s.pol} — " + tr("Yield {y} ({s})", y=_pct(r.yield_fraction), s=samples_text(r, s))
-        return [_tolerance_figure(r, s, title, positive, log_f)]
+        return [_tolerance_figure(r, s, title, positive, log_f, unit)]
     rows = sorted(tolerance.per_target().values(), key=lambda i: tolerance.corners[i][5].yield_fraction)
     out = []
     for i in sorted(rows[:MAX_TOLERANCE_PLOTS]):
@@ -140,7 +143,7 @@ def _tolerance_figures(p, tolerance, positive):
         s = result_settings(r, p)
         title = corner_label(ti, name, ang, pol) + " — " + tr("Yield {y} ({s})", y=_pct(r.yield_fraction),
                                                                  s=samples_text(r, s))
-        out.append(_tolerance_figure(r, s, title, positive, log_f))
+        out.append(_tolerance_figure(r, s, title, positive, log_f, unit))
     return out
 
 
@@ -156,29 +159,32 @@ def _freq_figure(project, positive, references):
     res = solve(project.structure, project.materials, sw.freq_grid(), sw.angle)
     fig = Figure(figsize=(8, 3.8), layout="constrained")
     ax = fig.add_subplot(111)
-    x = res.f / 1e9
+    unit = sw.spectral_unit
+    x = spectral.x_values(res.f, unit)
     _pol_curves(ax, x, res, lambda a: a[:, 0], abs(sw.angle) < 1e-9, positive)
     first = True
     for t in project.optimization.enabled_targets():
         if t.angle_min - 1e-9 <= sw.angle <= t.angle_max + 1e-9:
             y = _rl(t.goal_db, positive)
-            ax.hlines(y, t.f_min / 1e9, max(t.f_max, t.f_min) / 1e9, colors=_COLORS["target"], lw=2.4, alpha=0.75,
-                      label=tr("Targets") if first else None)
+            ax.hlines(y, *spectral.span(t.f_min, max(t.f_max, t.f_min), unit), colors=_COLORS["target"], lw=2.4,
+                      alpha=0.75, label=tr("Targets") if first else None)
             first = False
     for ref in references:
         style = dict(color=_REF_COLORS[ref.slot % len(_REF_COLORS)], lw=1.2, ls=":")
         if ref.kind == "measured":
-            ax.plot(ref.f_meas / 1e9, _rl(ref.rl_meas_db, positive), label=f"{ref.name} {tr('(measured)')}", **style)
+            ax.plot(spectral.x_values(ref.f_meas, unit), _rl(ref.rl_meas_db, positive),
+                    label=f"{ref.name} {tr('(measured)')}", **style)
             continue
         r = ref.results(sw).get("freq")
         if isinstance(r, Exception) or r is None:
             continue
         rr = r.quantity("R", "TE" if abs(sw.angle) < 1e-9 else "avg")[:, 0]
-        ax.plot(r.f / 1e9, _rl(10 * np.log10(np.maximum(rr, 1e-30)), positive), label=ref.name, **style)
+        ax.plot(spectral.x_values(r.f, unit), _rl(10 * np.log10(np.maximum(rr, 1e-30)), positive), label=ref.name,
+                **style)
     if sw.log_f:
         ax.set_xscale("log")
-    ax.set_xlim(x[0], x[-1])
-    ax.set_xlabel(tr("Frequency [GHz]"))
+    spectral.set_xlim(ax, x)
+    ax.set_xlabel(spectral.axis_label(unit))
     ax.set_ylabel(_rl_label(positive))
     ax.set_title(tr("Incidence {a}°", a=f"{sw.angle:g}"), fontsize=10, loc="left")
     ax.grid(True, color="#e3e6eb")
@@ -208,7 +214,7 @@ def _angle_figure(project, positive):
     ax.set_xlim(res.theta[0], res.theta[-1])
     ax.set_xlabel(tr("Incidence angle [°]"))
     ax.set_ylabel(_rl_label(positive))
-    ax.set_title(tr("f = {f} GHz", f=f"{sw.f_at / 1e9:.5g}"), fontsize=10, loc="left")
+    ax.set_title(spectral.fmt_point(sw.f_at, sw.spectral_unit), fontsize=10, loc="left")
     ax.grid(True, color="#e3e6eb")
     ax.legend(loc="best", fontsize=8)
     return _png(fig)
@@ -286,7 +292,7 @@ def build_report(project, rl_positive=False, references=(), tolerance=None, sour
             met = margin is not None and math.isfinite(margin) and margin <= 0
             verdict = (f"<span class=ok>{_e(tr('met'))}</span>" if met else f"<span class=fail>{_e(tr('not met'))}</span>"
                        ) if margin is not None and math.isfinite(margin) else "—"
-            band = (f"{t.f_min / 1e9:.4g}–{t.f_max / 1e9:.4g} GHz" if t.f_max > t.f_min else f"{t.f_min / 1e9:.4g} GHz")
+            band = spectral.fmt_range(t.f_min, t.f_max, p.sweep.spectral_unit)
             ang = f"{t.angle_min:g}–{t.angle_max:g}°" if t.angle_max > t.angle_min else f"{t.angle_min:g}°"
             lim = limits.get(i, {})
             status = {"ok": tr("satisfied"), "violated": tr("thicker needed"), "infeasible": tr("infeasible"),
@@ -322,7 +328,7 @@ def build_report(project, rl_positive=False, references=(), tolerance=None, sour
         r = res.quantity("R", "avg")[:, 0]
         db = 10 * np.log10(np.maximum(r, 1e-30))
         k = int(np.argmin(db))
-        out.append(f"<p>{_e(tr('Best RL {v} dB at {f} GHz', v=f'{_rl(db[k], pos):.1f}', f=f'{res.f[k] / 1e9:.4g}'))}</p>")
+        out.append(f"<p>{_e(tr('Best RL {v} dB at {x}', v=f'{_rl(db[k], pos):.1f}', x=spectral.fmt_value(res.f[k], p.sweep.spectral_unit)))}</p>")
 
     # tolerance
     if tolerance is not None:

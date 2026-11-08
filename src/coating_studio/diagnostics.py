@@ -18,9 +18,10 @@ def collect(project, f):
     p = project
     names = [n for n in p.used_materials() if n in p.materials]
     problems, notes = [], []
+    unit = p.sweep.spectral_unit  # frequencies in the messages follow the project's spectral display unit
     for n in names:
         for iss in check_material(p.materials[n], f, p.resolver):
-            text = f"{n}: {issue_text(iss)}"
+            text = f"{n}: {issue_text(iss, unit=unit)}"
             if iss.level == "info":
                 notes.append(text)
             else:
@@ -32,5 +33,6 @@ def collect(project, f):
     except Exception:  # noqa: BLE001 - the feasibility hint must never break the diagnostics
         pass
     for iss in extra:
-        problems.append(("warning", f"{iss.material}: {issue_text(iss)}" if iss.material else issue_text(iss)))
+        msg = issue_text(iss, unit=unit)
+        problems.append(("warning", f"{iss.material}: {msg}" if iss.material else msg))
     return problems, notes

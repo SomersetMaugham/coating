@@ -80,3 +80,76 @@ def nk_from_eps_mu(eps, mu=1.0):
 
     n = kz_sqrt(np.asarray(eps, dtype=complex) * mu)
     return n.real, -n.imag
+
+
+def fmt_num(x, digits=5):
+    if x == 0:
+        return "0"
+    a = abs(x)
+    if 1e-3 <= a < 1e5:
+        s = f"{x:.{digits}g}"
+    else:
+        s = f"{x:.{max(digits - 2, 2)}e}"
+    return s
+
+
+# -- spectral axis (display only; the engine and the files keep frequencies in Hz) --------------------------
+# unit id -> (kind, scale): "f" frequency x = f / scale; "wl" vacuum wavelength x = c / (f * scale);
+# "wn" wavenumber x = f / (c * scale) with scale 100 for cm^-1.
+SPECTRAL_UNITS = {"GHz": ("f", 1e9), "THz": ("f", 1e12), "um": ("wl", 1e-6), "nm": ("wl", 1e-9),
+                  "cm-1": ("wn", 100.0)}
+SPECTRAL_LABEL = {"GHz": "GHz", "THz": "THz", "um": "µm", "nm": "nm", "cm-1": "cm⁻¹"}
+DEFAULT_SPECTRAL_UNIT = "GHz"
+
+
+def spectral_kind(unit):
+    """"f" (frequency), "wl" (vacuum wavelength) or "wn" (wavenumber); ValueError for an unknown unit."""
+    try:
+        return SPECTRAL_UNITS[unit][0]
+    except KeyError:
+        raise ValueError(f"unknown spectral unit {unit!r}") from None
+
+
+def spectral_reversed(unit):
+    """True when the display value falls as the frequency rises (wavelength units)."""
+    return spectral_kind(unit) == "wl"
+
+
+def to_spectral(f, unit):
+    """Frequency [Hz] (scalar or array, > 0) -> value in the spectral display unit."""
+    from coating_studio.core.constants import C0
+
+    kind, scale = spectral_kind(unit), SPECTRAL_UNITS[unit][1]
+    a = np.asarray(f, dtype=float)
+    if kind != "f" and np.any(a <= 0):
+        raise ValueError("frequencies must be positive")
+    if kind == "f":
+        out = a / scale
+    elif kind == "wl":
+        out = C0 / (a * scale)
+    else:
+        out = a / (C0 * scale)
+    return float(out) if np.ndim(f) == 0 else out
+
+
+def from_spectral(x, unit):
+    """Value in the spectral display unit (> 0) -> frequency [Hz]."""
+    from coating_studio.core.constants import C0
+
+    kind, scale = spectral_kind(unit), SPECTRAL_UNITS[unit][1]
+    a = np.asarray(x, dtype=float)
+    if np.any(a <= 0) or not np.all(np.isfinite(a)):
+        raise ValueError("spectral values must be positive and finite")
+    if kind == "f":
+        out = a * scale
+    elif kind == "wl":
+        out = C0 / (a * scale)
+    else:
+        out = a * scale * C0
+    return float(out) if np.ndim(x) == 0 else out
+
+
+def spectral_bounds(f_lo, f_hi, unit):
+    """(low, high) display values of the frequency interval [f_lo, f_hi] (swapped for wavelengths)."""
+    a, b = to_spectral(f_lo, unit), to_spectral(f_hi, unit)
+    return (min(a, b), max(a, b))

@@ -66,7 +66,42 @@ _ISSUES_EN = {
 }
 
 
-def issue_text(issue, lang: str | None = None) -> str:
+# Issues whose arguments are frequencies [GHz] (the CLI contract); with another spectral display unit the GUI and the
+# report show them through these templates.  (low, high) pairs swap for wavelengths.
+_ISSUES_SPECTRAL = {
+    "out_of_range": "Measured data covers {lo:.4g}-{hi:.4g} {u} but {flo:.4g}-{fhi:.4g} {u} is requested.",
+    "eps_gain": "Passivity: eps'' < 0 (gain) near {f:.4g} {u}.",
+    "mu_gain": "Passivity: mu'' < 0 (gain) near {f:.4g} {u}.",
+    "sweep_outside_data": "Spectral range {flo:.4g}-{fhi:.4g} {u} ({where}) lies outside the measured data "
+                          "{lo:.4g}-{hi:.4g} {u}.",
+}
+_SPECTRAL_PAIRS = (("lo", "hi"), ("flo", "fhi"))
+
+
+def _spectral_args(args, unit):
+    from coating_studio.core.units import SPECTRAL_LABEL, to_spectral
+
+    out = dict(args, u=SPECTRAL_LABEL[unit])
+    if "f" in args:
+        out["f"] = to_spectral(args["f"] * 1e9, unit)
+    for a, b in _SPECTRAL_PAIRS:
+        if a in args and b in args:
+            x, y = to_spectral(args[a] * 1e9, unit), to_spectral(args[b] * 1e9, unit)
+            out[a], out[b] = min(x, y), max(x, y)
+    return out
+
+
+def issue_text(issue, lang: str | None = None, unit: str = "GHz") -> str:
+    """Message of a ``materials.checks.Issue``.  ``unit``: spectral display unit for frequency arguments (the issue
+    itself, and the CLI's ``issue_dict``, keep GHz)."""
+    if unit != "GHz" and issue.code in _ISSUES_SPECTRAL:
+        template = _ISSUES_SPECTRAL[issue.code]
+        if (lang or _lang) == "ko":
+            template = KO.get(template, template)
+        try:
+            return template.format(**_spectral_args(issue.args, unit))
+        except (KeyError, ValueError, TypeError):
+            return template
     template = _ISSUES_EN.get(issue.code, issue.code)
     if (lang or _lang) == "ko":
         template = KO.get(template, template)

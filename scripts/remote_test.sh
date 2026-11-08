@@ -11,7 +11,7 @@
 # The commit goes over as a git bundle, so the Windows machine needs no GitHub access.  sshd there starts with
 # Windows (the user's choice, 2026-11-08); with COAT_TEST_SSHD_START=Manual it is started and stopped by hand.
 # Exit status: 0 only if all four environments ran their tests with no failure and no skipped test; 3 when the host
-# cannot be reached, 4 when the results could not be copied back.
+# cannot be reached, 4 when the results could not be copied back, 6 when another run is in progress.
 set -euo pipefail
 
 HOST="${COAT_TEST_HOST:-coat-win}"
@@ -27,7 +27,9 @@ short="${sha:0:12}"
 out="${COAT_TEST_OUT:-$repo/remote-test-results}/$short"
 work="$(mktemp -d)"
 tmpref="refs/coat-test/$short"
-trap 'rm -rf "$work"; git -C "$repo" update-ref -d "$tmpref" 2>/dev/null || true' EXIT
+lock="${TMPDIR:-/tmp}/coat-remote-test.lock"
+lock_held=0
+trap 'rm -rf "$work"; git -C "$repo" update-ref -d "$tmpref" 2>/dev/null || true; (( lock_held )) && rmdir "$lock"' EXIT
 
 # Every ref is bundled (about 1 MB) and the commit is checked out by hash on the other side.  A temporary ref makes
 # sure the commit is in the bundle even when no branch or tag reaches it; it is removed on exit.
@@ -43,6 +45,13 @@ if (( DRY )); then
   ls -la "$work"
   exit 0
 fi
+
+# One run at a time: two runs would share the Windows folders (run-*, results-*, the venvs) and spoil each other.
+if ! mkdir "$lock" 2>/dev/null; then
+  echo "another scripts/remote_test.sh run is in progress (lock: $lock; remove it only if no run is active)" >&2
+  exit 6
+fi
+lock_held=1
 
 if ! ssh "${ssh_opts[@]}" "$HOST" "exit 0" 2>/dev/null; then
   echo "cannot reach $HOST over ssh. Is the Windows machine on, on the same network, and sshd running?" >&2

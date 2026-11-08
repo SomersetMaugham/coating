@@ -8,6 +8,7 @@ import numpy as np
 from PySide6.QtWidgets import QCheckBox, QComboBox, QLabel
 
 from coating_studio.core.structure import SheetLayer
+from coating_studio.gui import spectral as sp
 from coating_studio.gui.fmt import rl_display
 from coating_studio.gui.plots.base import PlotView
 from coating_studio.gui.widgets.inputs import SciSpinBox
@@ -63,9 +64,11 @@ class _SweepSpinMixin:
     ``sync_controls()`` after every settings change so both editors always agree."""
 
     def _add_sweep_spin(self, label, attr, scale, minimum, maximum, suffix, tip):
+        """``scale`` None: a frequency field shown in the project's spectral unit (``gui.spectral``)."""
         self._sweep_attr, self._sweep_scale = attr, scale
         lab = QLabel(label)
         self.sp_sweep = SciSpinBox(minimum=minimum, maximum=maximum, suffix=suffix)
+        self._sweep_spectral = sp.SpectralInputs(self.sp_sweep) if scale is None else None
         self.sp_sweep.setFixedWidth(92)  # SciSpinBox expands by default
         self.sp_sweep.setToolTip(tip)
         lab.setToolTip(tip)
@@ -76,10 +79,17 @@ class _SweepSpinMixin:
         self.sync_controls()
 
     def _commit_sweep(self, v):
-        value = v * self._sweep_scale
+        value = self._sweep_spectral.value() if self._sweep_spectral else v * self._sweep_scale
         self.ctx.doc.edit_settings(lambda p: setattr(p.sweep, self._sweep_attr, value))
 
     def sync_controls(self):
+        if self._sweep_spectral is not None:
+            sw = self.ctx.project.sweep
+            shown = self._sweep_spectral
+            # Skip no-op updates: this runs re-entrantly while the user is editing this very box.
+            if shown.unit != sw.spectral_unit or shown.value() != getattr(sw, self._sweep_attr):
+                shown.show(sw.spectral_unit, getattr(sw, self._sweep_attr))
+            return
         target = getattr(self.ctx.project.sweep, self._sweep_attr) / self._sweep_scale
         # Skip no-op updates: this runs re-entrantly while the user is editing this very box.
         if not math.isclose(self.sp_sweep.value(), target, rel_tol=1e-12, abs_tol=1e-12):
@@ -161,7 +171,8 @@ class FrequencyView(_SweepSpinMixin, _QuantityMixin, PlotView):
         q = self.cb_q.currentData()
         pos = self.ctx.rl_positive
         ax = fig.add_subplot(111)
-        x = res.f / 1e9
+        unit = sp.unit_of(self.ctx.project)
+        x = sp.x_values(res.f, unit)
         for pol in self._pols():
             ax.plot(x, quantity_values(res, q, pol, pos)[:, 0], label=pol_label(pol), **_style_for(pol, self.ctx.colors))
         problems = self._draw_references(ax, q, pos)
@@ -172,8 +183,8 @@ class FrequencyView(_SweepSpinMixin, _QuantityMixin, PlotView):
         sw = self.ctx.project.sweep
         if sw.log_f:
             ax.set_xscale("log")
-        ax.set_xlim(x[0], x[-1])
-        ax.set_xlabel(tr("Frequency [GHz]"))
+        sp.set_xlim(ax, x)  # ascending even when a wavelength sweep runs high to low
+        ax.set_xlabel(sp.axis_label(unit))
         ax.set_ylabel(quantity_label(q, pos))
         if q != "RL":
             ax.set_ylim(-0.02, 1.02)
@@ -194,14 +205,17 @@ class FrequencyView(_SweepSpinMixin, _QuantityMixin, PlotView):
             y = rl_display(t.goal_db, pos)
             label = tr("Targets") if first else None
             if t.f_max > t.f_min:
-                ax.hlines(y, t.f_min / 1e9, t.f_max / 1e9, colors=c, lw=2.2, alpha=0.75, label=label)
+                x_lo, x_hi = sp.span(t.f_min, t.f_max, sw.spectral_unit)
+                ax.hlines(y, x_lo, x_hi, colors=c, lw=2.2, alpha=0.75, label=label)
             else:
-                ax.plot([t.f_min / 1e9], [y], marker="_", ms=14, mew=2.2, color=c, alpha=0.75, ls="", label=label)
+                ax.plot([sp.x_values(t.f_min, sw.spectral_unit)], [y], marker="_", ms=14, mew=2.2, color=c,
+                        alpha=0.75, ls="", label=label)
             first = False
 
     def _reference_series(self, q, pos):
-        """[(ref, pol or None, label, x [GHz], y)] for the visible references; plus problems."""
+        """[(ref, pol or None, label, x [display unit], y)] for the visible references; plus problems."""
         sw = self.ctx.project.sweep
+        unit = sw.spectral_unit
         pols, suffix = _ref_pols(self._pols(), abs(sw.angle) < 1e-9)
         out, problems = [], []
         for ref in _visible_refs(self.ctx):
@@ -210,14 +224,14 @@ class FrequencyView(_SweepSpinMixin, _QuantityMixin, PlotView):
                     continue
                 y = (-ref.rl_meas_db if pos else ref.rl_meas_db) if q == "RL" else 10 ** (ref.rl_meas_db / 10)
                 # measured data does not follow the sweep angle; say so in the legend
-                out.append((ref, None, f"{ref.name} {tr('(measured)')}", ref.f_meas / 1e9, y))
+                out.append((ref, None, f"{ref.name} {tr('(measured)')}", sp.x_values(ref.f_meas, unit), y))
                 continue
             r = ref.results(sw).get("freq")
             if isinstance(r, Exception):
                 problems.append(f"{ref.name}: {r}")
                 continue
             for pol in pols:
-                out.append((ref, pol, _ref_label(ref, pol, suffix), r.f / 1e9,
+                out.append((ref, pol, _ref_label(ref, pol, suffix), sp.x_values(r.f, unit),
                             quantity_values(r, q, pol, pos)[:, 0]))
         return out, problems
 
@@ -228,7 +242,7 @@ class FrequencyView(_SweepSpinMixin, _QuantityMixin, PlotView):
         return problems
 
     def format_cursor(self, ax, x, y):
-        return tr("f = {f} GHz, value = {v}", f=f"{x:.5g}", v=f"{y:.4g}")
+        return tr("{x}, value = {v}", x=sp.cursor_text(sp.unit_of(self.ctx.project), x), v=f"{y:.4g}")
 
     def data_table(self):
         res = self.ctx.results.get("freq")
@@ -237,13 +251,16 @@ class FrequencyView(_SweepSpinMixin, _QuantityMixin, PlotView):
         q = self.cb_q.currentData()
         pols = ["TE", "TM", "avg"]
         cols = [quantity_values(res, q, p, self.ctx.rl_positive)[:, 0] for p in pols]
-        header = ["f [GHz]"] + [f"{q} {p}" for p in pols]
+        unit = sp.unit_of(self.ctx.project)
+        header = [sp.csv_header(unit)] + [f"{q} {p}" for p in pols]
         # design references share the live grid; measured curves are the user's own data: not exported
         for ref, pol, _label, _x, y in self._reference_series(q, self.ctx.rl_positive)[0]:
             if pol is not None:
                 header.append(f"{q} {pol} ({ref.name})")
                 cols.append(y)
-        return header, [[f"{a:.9g}" for a in row] for row in zip(res.f / 1e9, *cols)]
+        # 10 significant digits in the first column, so a dense sweep stays distinct when read back
+        return header, [[f"{row[0]:.10g}"] + [f"{a:.9g}" for a in row[1:]]
+                        for row in zip(sp.x_values(res.f, unit), *cols)]
 
 
 # ---------------------------------------------------------------------------
@@ -259,8 +276,9 @@ class AngleView(_SweepSpinMixin, _QuantityMixin, PlotView):
                                     "(goal level over their angle range)"))
         self.chk_mask.toggled.connect(lambda _: self.mark_dirty())
         self.controls.insertWidget(self.controls.count() - 1, self.chk_mask)
-        self._add_sweep_spin(tr("Frequency"), "f_at", 1e9, 1e-6, 1e6, "GHz",
-                             tr("Frequency of the angle sweep."))
+        self._add_sweep_spin(tr("Sweep at"), "f_at", None, *sp.INPUT_RANGE, "",
+                             tr("Frequency (or wavelength) of the angle sweep, in the spectral unit of the "
+                                "Analysis settings."))
 
     def draw_plot(self, fig):
         res = self.ctx.results.get("angle")
@@ -282,7 +300,7 @@ class AngleView(_SweepSpinMixin, _QuantityMixin, PlotView):
         ax.set_ylabel(quantity_label(q, pos))
         if q != "RL":
             ax.set_ylim(-0.02, 1.02)
-        ax.set_title(tr("f = {f} GHz", f=f"{res.f[0] / 1e9:.5g}"), fontsize=10, loc="left")
+        ax.set_title(sp.fmt_point(res.f[0], sp.unit_of(self.ctx.project)), fontsize=10, loc="left")
         _legend_if_any(ax, loc="best")
         return (_ref_warning(problems), "warn") if problems else None
 
@@ -375,14 +393,15 @@ class MapView(PlotView):
         lo = max(float(np.nanmin(z)), -60) if not pos else 0
         hi = 0 if not pos else min(float(np.nanmax(z)), 60)
         cmap = "viridis" if not pos else "viridis_r"
-        m = ax.pcolormesh(res.f / 1e9, res.theta, z.T, shading="auto", cmap=cmap, vmin=lo, vmax=hi,
-                          rasterized=True)
+        unit = sp.unit_of(self.ctx.project)
+        xs, zs = sp.ascending(sp.x_values(res.f, unit), z)  # meshes want ascending coordinates
+        m = ax.pcolormesh(xs, res.theta, zs.T, shading="auto", cmap=cmap, vmin=lo, vmax=hi, rasterized=True)
         cb = fig.colorbar(m, ax=ax)
         cb.set_label(quantity_label("RL", pos))
         if self.chk_contour.isChecked():
             levels = sorted([10, 20] if pos else [-20, -10])
             try:
-                cs = ax.contour(res.f / 1e9, res.theta, z.T, levels=levels, colors="white", linewidths=1)
+                cs = ax.contour(xs, res.theta, zs.T, levels=levels, colors="white", linewidths=1)
                 ax.clabel(cs, fmt="%g dB", fontsize=8)
             except ValueError:
                 pass
@@ -390,9 +409,9 @@ class MapView(PlotView):
             self._draw_target_boxes(ax, res, quantity_values(res, "RL", pol, False), pos)
         if self.ctx.project.sweep.log_f:
             ax.set_xscale("log")
-        ax.set_xlim(res.f[0] / 1e9, res.f[-1] / 1e9)
+        sp.set_xlim(ax, xs)
         ax.set_ylim(res.theta[0], res.theta[-1])
-        ax.set_xlabel(tr("Frequency [GHz]"))
+        ax.set_xlabel(sp.axis_label(unit))
         ax.set_ylabel(tr("Incidence angle [°]"))
         ax.grid(False)
         self._z = z
@@ -405,10 +424,12 @@ class MapView(PlotView):
         from matplotlib.patches import Rectangle
 
         c = self.ctx.colors
+        unit = sp.unit_of(self.ctx.project)
         for i, t in enumerate(self.ctx.project.optimization.enabled_targets(), start=1):
-            f_lo, f_hi = t.f_min / 1e9, t.f_max / 1e9
+            # cells are selected in frequency; only the drawing is in the display unit (low to high)
+            fi = (res.f >= t.f_min * (1 - 1e-9)) & (res.f <= t.f_max * (1 + 1e-9))
+            f_lo, f_hi = sp.span(t.f_min, t.f_max, unit) if t.f_max > t.f_min else (sp.x_values(t.f_min, unit),) * 2
             a_lo, a_hi = float(t.angle_min), float(t.angle_max)
-            fi = (res.f / 1e9 >= f_lo * (1 - 1e-9)) & (res.f / 1e9 <= f_hi * (1 + 1e-9))
             ai = (res.theta >= a_lo - 1e-9) & (res.theta <= a_hi + 1e-9)
             cells = rl_internal[np.ix_(fi, ai)]
             color = c.muted if cells.size == 0 else (c.ok if float(np.nanmax(cells)) <= t.goal_db else c.error)
@@ -431,9 +452,10 @@ class MapView(PlotView):
         res = self.ctx.results.get("map")
         if res is None or not hasattr(self, "_z"):
             return ""
-        i = int(np.argmin(np.abs(res.f / 1e9 - x)))
+        unit = sp.unit_of(self.ctx.project)
+        i = int(np.argmin(np.abs(sp.x_values(res.f, unit) - x)))  # x is already in the display unit
         j = int(np.argmin(np.abs(res.theta - y)))
-        return tr("f = {f} GHz, θ = {a}°, RL = {v} dB", f=f"{x:.5g}", a=f"{y:.3g}", v=f"{self._z[i, j]:.2f}")
+        return tr("{x}, θ = {a}°, RL = {v} dB", x=sp.cursor_text(unit, x), a=f"{y:.3g}", v=f"{self._z[i, j]:.2f}")
 
     def data_table(self):
         res = self.ctx.results.get("map")
@@ -441,8 +463,9 @@ class MapView(PlotView):
             return None
         pol = self.cb_pol.currentData()
         z = quantity_values(res, "RL", pol, self.ctx.rl_positive)
-        header = ["f [GHz] \\ theta [deg]"] + [f"{t:.6g}" for t in res.theta]
-        rows = [[f"{fi / 1e9:.9g}"] + [f"{v:.6g}" for v in z[i]] for i, fi in enumerate(res.f)]
+        unit = sp.unit_of(self.ctx.project)
+        header = [sp.csv_header(unit) + " \\ theta [deg]"] + [f"{t:.6g}" for t in res.theta]
+        rows = [[f"{xi:.10g}"] + [f"{v:.6g}" for v in z[i]] for i, xi in enumerate(sp.x_values(res.f, unit))]
         return header, rows
 
 
@@ -459,7 +482,8 @@ class SmithView(PlotView):
             b.toggled.connect(lambda _: self.mark_dirty())
             self.controls.addWidget(b)
             self.pol_boxes[pol] = b
-        self.controls.addWidget(QLabel(tr("Γ locus over the frequency sweep; ● start, ■ stop")))
+        self.lbl_ends = QLabel()
+        self.controls.addWidget(self.lbl_ends)
         self.controls.addStretch(1)
 
     def _grid(self, ax):
@@ -491,6 +515,10 @@ class SmithView(PlotView):
         ax.set_aspect("equal")
         ax.axis("off")
         self._grid(ax)
+        unit = sp.unit_of(self.ctx.project)
+        # the markers sit at the sweep's first and last frequency; name them in the display unit
+        self.lbl_ends.setText(tr("Γ locus over the sweep; ● {a}, ■ {b}", a=sp.fmt_value(res.f[0], unit),
+                                 b=sp.fmt_value(res.f[-1], unit)))
         c = self.ctx.colors
         for k, pol in enumerate(("TE", "TM")):
             if not self.pol_boxes[pol].isChecked():
@@ -535,14 +563,15 @@ class SmithView(PlotView):
         if res is None:
             return None
         rows = []
-        for i, f in enumerate(res.f):
-            row = [f"{f / 1e9:.9g}"]
+        unit = sp.unit_of(self.ctx.project)
+        for i, xi in enumerate(sp.x_values(res.f, unit)):
+            row = [f"{xi:.10g}"]
             for pol in ("TE", "TM"):
                 g = res.pol[pol].gamma[i, 0]
                 z = res.pol[pol].z_in[i, 0]
                 row += [f"{g.real:.9g}", f"{g.imag:.9g}", f"{z.real:.9g}", f"{z.imag:.9g}"]
             rows.append(row)
-        return (["f [GHz]", "Re G TE", "Im G TE", "Re z TE", "Im z TE",
+        return ([sp.csv_header(unit), "Re G TE", "Im G TE", "Re z TE", "Im z TE",
                  "Re G TM", "Im G TM", "Re z TM", "Im z TM"], rows)
 
 
@@ -575,7 +604,9 @@ class AbsorptionView(PlotView):
         a = res.layer_absorption(pol)[:, :, 0]
         r = res.quantity("R", pol)[:, 0]
         t = res.quantity("T", pol)[:, 0]
-        x = res.f / 1e9
+        unit = sp.unit_of(self.ctx.project)
+        x, a, r, t = sp.ascending(sp.x_values(res.f, unit), a.T, r, t)  # stacked areas want ascending x
+        a = a.T
         ax = fig.add_subplot(111)
         labels = self._labels()
         series = list(np.clip(a, 0, None)) + [t, r]
@@ -586,16 +617,16 @@ class AbsorptionView(PlotView):
         ax.stackplot(x, *series, labels=names, colors=cols, alpha=0.85)
         if self.ctx.project.sweep.log_f:
             ax.set_xscale("log")
-        ax.set_xlim(x[0], x[-1])
+        sp.set_xlim(ax, x)
         ax.set_ylim(0, 1)
-        ax.set_xlabel(tr("Frequency [GHz]"))
+        ax.set_xlabel(sp.axis_label(unit))
         ax.set_ylabel(tr("Fraction of incident power"))
         ax.set_title(tr("Incidence {a}°", a=f"{self.ctx.project.sweep.angle:g}"), fontsize=10, loc="left")
         ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), fontsize=8)
         return None
 
     def format_cursor(self, ax, x, y):
-        return tr("f = {f} GHz, value = {v}", f=f"{x:.5g}", v=f"{y:.4g}")
+        return tr("{x}, value = {v}", x=sp.cursor_text(sp.unit_of(self.ctx.project), x), v=f"{y:.4g}")
 
     def data_table(self):
         res = self.ctx.results.get("freq")
@@ -603,10 +634,11 @@ class AbsorptionView(PlotView):
             return None
         pol = self.cb_pol.currentData()
         a = res.layer_absorption(pol)[:, :, 0]
-        header = ["f [GHz]"] + [f"A {n}" for n in self._labels()] + ["T", "R"]
+        unit = sp.unit_of(self.ctx.project)
+        header = [sp.csv_header(unit)] + [f"A {n}" for n in self._labels()] + ["T", "R"]
         rows = []
-        for i, f in enumerate(res.f):
-            rows.append([f"{f / 1e9:.9g}"] + [f"{v:.9g}" for v in a[:, i]]
+        for i, xi in enumerate(sp.x_values(res.f, unit)):
+            rows.append([f"{xi:.10g}"] + [f"{v:.9g}" for v in a[:, i]]
                         + [f"{res.quantity('T', pol)[i, 0]:.9g}", f"{res.quantity('R', pol)[i, 0]:.9g}"])
         return header, rows
 
@@ -652,7 +684,8 @@ class MaterialView(PlotView):
         eps = np.broadcast_to(eps, f.shape)
         mu = np.broadcast_to(mu, f.shape)
         self._data = (f, eps, mu)
-        x = f / 1e9
+        unit = sw.spectral_unit
+        x = sp.x_values(f, unit)
         c = self.ctx.colors
         ax1 = fig.add_subplot(121)
         ax1.plot(x, eps.real, color=c.series[0], label="ε′")
@@ -663,19 +696,20 @@ class MaterialView(PlotView):
         for ax, t in ((ax1, tr("Permittivity")), (ax2, tr("Permeability"))):
             if sw.log_f:
                 ax.set_xscale("log")
-            ax.set_xlim(x[0], x[-1])
-            ax.set_xlabel(tr("Frequency [GHz]"))
+            sp.set_xlim(ax, x)
+            ax.set_xlabel(sp.axis_label(unit))
             ax.set_title(t, fontsize=10, loc="left")
             ax.legend(loc="best")
         return None
 
     def format_cursor(self, ax, x, y):
-        return tr("f = {f} GHz, value = {v}", f=f"{x:.5g}", v=f"{y:.4g}")
+        return tr("{x}, value = {v}", x=sp.cursor_text(sp.unit_of(self.ctx.project), x), v=f"{y:.4g}")
 
     def data_table(self):
         if self._data is None:
             return None
         f, eps, mu = self._data
-        return (["f [GHz]", "eps'", "eps''", "mu'", "mu''"],
-                [[f"{fi / 1e9:.9g}", f"{e.real:.9g}", f"{-e.imag:.9g}", f"{m.real:.9g}", f"{-m.imag:.9g}"]
-                 for fi, e, m in zip(f, eps, mu)])
+        unit = sp.unit_of(self.ctx.project)
+        return ([sp.csv_header(unit), "eps'", "eps''", "mu'", "mu''"],
+                [[f"{xi:.10g}", f"{e.real:.9g}", f"{-e.imag:.9g}", f"{m.real:.9g}", f"{-m.imag:.9g}"]
+                 for xi, e, m in zip(sp.x_values(f, unit), eps, mu)])

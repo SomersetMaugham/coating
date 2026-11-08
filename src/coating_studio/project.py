@@ -14,6 +14,7 @@ import numpy as np
 from coating_studio import __version__
 from coating_studio.comparison import MAX_REFERENCES, ReferenceTrace
 from coating_studio.core.structure import Backing, SheetLayer, SlabLayer, Structure
+from coating_studio.core.units import DEFAULT_SPECTRAL_UNIT, SPECTRAL_UNITS
 from coating_studio.materials.library import builtin_materials
 from coating_studio.materials.models import ConstantMaterial, Material, material_from_dict
 
@@ -46,6 +47,9 @@ class SweepSettings:
     f_at: float = 10e9  # Hz, for angle plots
     map_n_f: int = 161
     map_n_angle: int = 61
+    # Display unit of the spectral axis ("GHz", "THz", "um", "nm", "cm-1"; core.units.SPECTRAL_UNITS).  Display
+    # only: the sweep stays in Hz, so it is not part of key() and needs no schema bump (older apps show GHz).
+    spectral_unit: str = "GHz"
 
     # Grids shared by the live design and pinned references (one place, so they always match).
     def freq_grid(self, n=None):
@@ -463,6 +467,8 @@ class Project:
         mats = [material_from_dict(m) for m in d.get("materials", [])]
         sweep = SweepSettings(**{k: v for k, v in d.get("sweep", {}).items()
                                  if k in SweepSettings.__dataclass_fields__})
+        if sweep.spectral_unit not in SPECTRAL_UNITS:  # a hand-edited or unknown value: show GHz rather than fail
+            sweep.spectral_unit = DEFAULT_SPECTRAL_UNIT
         return cls(name=d.get("name", "Untitled"), materials=mats,
                    structure=Structure.from_dict(d.get("structure", {})),
                    sweep=sweep,

@@ -21,6 +21,7 @@ from coating_studio.examples import EXAMPLES
 from coating_studio.gui.dialogs.materials import MaterialManager
 from coating_studio.gui.dialogs.preferences import PreferencesDialog
 from coating_studio.gui.document import Document
+from coating_studio.gui import spectral
 from coating_studio.gui.fmt import fmt_num
 from coating_studio.gui.icons import icon, refresh_icons, set_icon_colors
 from coating_studio.gui.panels.optimization import OptimizationPanel
@@ -379,6 +380,7 @@ class MainWindow(QMainWindow):
             self.w_layers.select_uid(layers[0].uid)
         self.w_props.set_layer(self.w_layers.selected_uid())
         self._sync_sweep_editors()
+        self._spectral_unit = self.project.sweep.spectral_unit
         self.p_opt.refresh()
         self.p_tol.refresh()
         self.p_tol.invalidate()
@@ -400,8 +402,13 @@ class MainWindow(QMainWindow):
             self.w_props.refresh()  # RLC info shows Zs at the angle-sweep frequency
             self.p_tol.plot.mark_dirty()
             self._sync_sweep_editors()
-            for v in (self.v_freq, self.v_angle, self.v_map):
-                v.mark_dirty()  # target masks
+            unit = self.project.sweep.spectral_unit
+            if unit != getattr(self, "_spectral_unit", unit):
+                self.p_opt.refresh()  # target bands are shown in the spectral unit (only on a unit change, so
+                #                       the panel's own edits do not rebuild it)
+            self._spectral_unit = unit
+            for v in (self.v_freq, self.v_angle, self.v_map, self.v_smith, self.v_abs, self.v_mat):
+                v.mark_dirty()  # target masks; the spectral unit of every spectral axis
         self._timer.start()
 
     def _sync_sweep_editors(self):
@@ -461,7 +468,8 @@ class MainWindow(QMainWindow):
             db = 10 * np.log10(np.maximum(r, 1e-30))
             i = int(np.argmin(db))
             best = -db[i] if self.rl_positive else db[i]
-            parts.insert(0, tr("Best RL {v} dB at {f} GHz", v=f"{best:.1f}", f=fmt_num(res.f[i] / 1e9, 4)))
+            parts.insert(0, tr("Best RL {v} dB at {x}", v=f"{best:.1f}",
+                               x=spectral.fmt_value(res.f[i], p.sweep.spectral_unit)))
         self.lbl_summary.setText("   ·   ".join(parts))
 
     def _update_diagnostics(self):
@@ -828,7 +836,9 @@ class MainWindow(QMainWindow):
             "series RLC circuit Zs = R + jωL + 1/(jωC) (inductive X &gt; 0). The RLC values are "
             "normal-incidence lumped values used for every angle and polarisation - valid for "
             "sub-wavelength unit cells below the grating-lobe onset.<br>"
-            "<b>Units</b>: GHz, mm, degrees, S/m, g/cm³; the engine works in SI."))
+            "<b>Units</b>: GHz, mm, degrees, S/m, g/cm³; the engine works in SI. The spectral axis (plots, sweep "
+            "and band inputs, exports) can show THz, vacuum wavelength in µm or nm, or wavenumber in cm⁻¹ instead "
+            "(Analysis settings); material model parameters stay in GHz."))
 
     # =====================================================================
     # window state

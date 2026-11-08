@@ -748,3 +748,100 @@ def test_export_touchstone_and_report(app, tmp_path):
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()
+
+
+def test_spectral_axis_unit_in_plots_inputs_and_exports(app):
+    """Choosing nm: axes, cursor, exports and band inputs follow; untouched values keep their Hz bit for bit."""
+    from matplotlib.figure import Figure
+
+    from coating_studio.core.constants import C0
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["dualband"][1]())
+    w.recompute()
+    sw0 = w.project.sweep
+    f_min, f_max, f_at = sw0.f_min, sw0.f_max, sw0.f_at
+    t0 = w.project.optimization.targets[1]
+    t_lo, t_hi = t0.f_min, t0.f_max
+    sp = w.w_sweep
+    sp.unit.setCurrentIndex(sp.unit.findData("nm"))  # user picks nm in the Analysis settings
+    sw = w.project.sweep
+    assert sw.spectral_unit == "nm" and (sw.f_min, sw.f_max, sw.f_at) == (f_min, f_max, f_at)  # display only
+    w.recompute()
+    # inputs: start box = short wavelength = f_max; the boxes show nm
+    assert sp.f_min.suffix() == " nm" and sp.f_min.value() == pytest.approx(C0 / f_max * 1e9)
+    assert sp.f_max.value() == pytest.approx(C0 / f_min * 1e9)
+    # editing an unrelated control (or one box) writes the other values back unchanged, bit for bit
+    sp.n_f.setValue(sw.n_f + 1)
+    assert (w.project.sweep.f_min, w.project.sweep.f_max, w.project.sweep.f_at) == (f_min, f_max, f_at)
+    sp.f_min.setValue(C0 / 20e9 * 1e9)  # start (shortest wavelength) -> 20 GHz
+    assert w.project.sweep.f_max == pytest.approx(20e9) and w.project.sweep.f_min == f_min
+    # plots: axis label, ascending limits, cursor, export header and first column
+    w.recompute()
+    fig = Figure()
+    w.v_freq.draw_plot(fig)
+    ax = fig.axes[0]
+    assert ax.get_xlabel() == "Wavelength [nm]"
+    lo, hi = ax.get_xlim()
+    assert lo < hi and lo == pytest.approx(C0 / 20e9 * 1e9)
+    assert w.v_freq.format_cursor(ax, 550.0, -12.0).startswith("λ = 550 nm")
+    header, rows = w.v_freq.data_table()
+    assert header[0] == "lambda [nm]" and float(rows[0][0]) == pytest.approx(C0 / w.project.sweep.f_min * 1e9)
+    for view in (w.v_map, w.v_abs, w.v_mat, w.v_smith):
+        fig = Figure()
+        assert view.draw_plot(fig) is None  # no error banner
+        assert view.data_table()[0][0].startswith("lambda [nm]")
+        if view is not w.v_smith:
+            x0, x1 = fig.axes[0].get_xlim()
+            assert x0 < x1
+    assert "nm" in w.v_smith.lbl_ends.text()
+    # the angle tab's inline box edits f_at in nm too
+    w.v_angle.sync_controls()
+    assert w.v_angle.sp_sweep.suffix() == " nm" and w.v_angle.sp_sweep.value() == pytest.approx(C0 / f_at * 1e9)
+    # optimisation target band: shown in nm, untouched end kept exactly
+    w.p_opt._target_idx = 1
+    w.p_opt.refresh()
+    assert w.p_opt.f_min.suffix() == " nm" and "nm" in w.p_opt.target_summary(w.project.optimization.targets[1])
+    w.p_opt.w_worst.setValue(w.p_opt.w_worst.value() + 0.5)  # an unrelated edit commits the target too
+    t = w.project.optimization.targets[1]
+    assert (t.f_min, t.f_max) == (t_lo, t_hi)
+    # tolerance: enabling the custom band keeps the default band's Hz exactly
+    tol = w.p_tol
+    expected = tol.band.values()
+    tol.chk_band.setChecked(True)
+    s = w.project.tolerance
+    assert (s.band_min, s.band_max) == tuple(expected)
+    # back to GHz
+    sp.unit.setCurrentIndex(sp.unit.findData("GHz"))
+    assert sp.f_min.suffix() == " GHz" and w.project.sweep.f_min == f_min
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()
+
+
+def test_material_editor_shows_measured_data_in_the_spectral_unit(app):
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.dialogs.materials import MaterialManager
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.materials.csvio import parse_csv_text
+    from coating_studio.materials.models import TabulatedMaterial
+
+    f, er, el, mr, ml = parse_csv_text("wl [um],n,k\n0.4,1.47,0\n0.55,1.46,0\n0.8,1.45,0\n")
+    w = MainWindow()
+    p = EXAMPLES["salisbury"][1]()
+    p.add_material(TabulatedMaterial("Silica", f, er, el, mr, ml, source="test"))
+    p.sweep.spectral_unit = "nm"
+    w.doc.set_project(p)
+    dlg = MaterialManager(w.doc, w, select="Silica")
+    assert dlg.t_info.text().startswith("3 points, 400–800 nm")
+    assert dlg.t_tbl.horizontalHeaderItem(0).text() == "λ [nm]"
+    assert [dlg.t_tbl.item(r, 0).text() for r in range(3)] == ["400", "550", "800"]  # ascending wavelength
+    w.doc.edit_settings(lambda pp: setattr(pp.sweep, "spectral_unit", "GHz"))  # follows a unit change
+    assert dlg.t_tbl.horizontalHeaderItem(0).text() == "f [GHz]" and "GHz" in dlg.t_info.text()
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    dlg.close()
+    w.close()

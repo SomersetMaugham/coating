@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from coating_studio.gui.icons import set_button_icon
+from coating_studio.gui import spectral
 from coating_studio.gui.theme import mpl_rc
 from coating_studio.gui.widgets.inputs import muted
 from coating_studio.i18n import tr
@@ -110,7 +111,8 @@ class FitDialog(QDialog):
         with matplotlib.rc_context(mpl_rc(c)):
             self.fig.clear()
             self.fig.set_facecolor(c.base)
-            x = m.f / 1e9
+            unit = spectral.unit_of(self.ctx.project)
+            x = spectral.x_values(m.f, unit)
             f_dense = np.geomspace(m.f[0], m.f[-1], 400)
             fitted = self._fit.material.eps_mu(f_dense, None) if self._fit else None
             for k, (re, loss, sym) in enumerate(((m.eps_re, m.eps_loss, "ε"), (m.mu_re, m.mu_loss, "μ"))):
@@ -119,10 +121,12 @@ class FitDialog(QDialog):
                 ax.plot(x, loss, "s", ms=3, color=c.series[1], label=f"{sym}″ " + tr("data"))
                 if fitted is not None:
                     v = np.broadcast_to(fitted[k], f_dense.shape)
-                    ax.plot(f_dense / 1e9, v.real, color=c.series[0], label=f"{sym}′ " + tr("fit"))
-                    ax.plot(f_dense / 1e9, -v.imag, color=c.series[1], ls="--", label=f"{sym}″ " + tr("fit"))
+                    xd = spectral.x_values(f_dense, unit)
+                    ax.plot(xd, v.real, color=c.series[0], label=f"{sym}′ " + tr("fit"))
+                    ax.plot(xd, -v.imag, color=c.series[1], ls="--", label=f"{sym}″ " + tr("fit"))
                 ax.set_xscale("log" if m.f[-1] / m.f[0] > 20 else "linear")
-                ax.set_xlabel(tr("Frequency [GHz]"))
+                spectral.set_xlim(ax, x)
+                ax.set_xlabel(spectral.axis_label(unit))
                 ax.legend(fontsize=8)
         self.canvas.draw_idle()
 

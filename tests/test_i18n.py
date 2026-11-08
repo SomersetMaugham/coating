@@ -4,18 +4,18 @@ import ast
 import pathlib
 import string
 
-from coating_studio.i18n import _ISSUES_EN
+from coating_studio.i18n import _ISSUES_EN, _ISSUES_SPECTRAL
 from coating_studio.i18n_ko import KO
 
 SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "coating_studio"
 INDIRECT = ["Constant", "Dispersive model", "Measured data", "Mixture (EMA)", "Power law", "Salisbury screen",
             "Dallenbach layer", "Two-layer Jaumann", "Ferrite tile", "Carbon / epoxy mixture",
             "Before optimisation", "Dual-band Jaumann (X + Ku, oblique)",
-            "Circuit-analog absorber (RLC sheet)"]
+            "Circuit-analog absorber (RLC sheet)", "Frequency", "Wavelength", "Wavenumber"]
 
 
 def _strings():
-    out = set(INDIRECT) | set(_ISSUES_EN.values())
+    out = set(INDIRECT) | set(_ISSUES_EN.values()) | set(_ISSUES_SPECTRAL.values())
     for p in SRC.rglob("*.py"):
         for node in ast.walk(ast.parse(p.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "tr" and node.args:

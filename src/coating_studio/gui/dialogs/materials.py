@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from coating_studio.gui.dialogs.fit import FitDialog
+from coating_studio.gui import spectral
 from coating_studio.gui.fmt import fmt_num
 from coating_studio.gui.icons import icon, set_button_icon
 from coating_studio.gui.theme import mpl_rc
@@ -410,7 +411,13 @@ class MaterialManager(QDialog):
         self._load_editor()
 
     def _on_doc_changed(self, kind):
-        if kind != "model" or self._loading:
+        if self._loading:
+            return
+        if kind != "model":
+            # a settings change matters here only when it switches the spectral unit (table, range, preview)
+            unit = spectral.unit_of(self.doc.project)
+            if unit != getattr(self, "_shown_unit", unit):
+                self._load_editor()
             return
         names = list(self.doc.project.materials)
         listed = [self.lst.item(i).text() for i in range(self.lst.count())]
@@ -458,11 +465,19 @@ class MaterialManager(QDialog):
             elif isinstance(m, TabulatedMaterial):
                 self.stack.setCurrentIndex(2)
                 lo, hi = m.f_range
-                self.t_info.setText(tr("{n} points, {lo}–{hi} GHz · source: {src}", n=len(m.f),
-                                       lo=fmt_num(lo / 1e9), hi=fmt_num(hi / 1e9), src=m.source or "—"))
+                unit = spectral.unit_of(self.doc.project)
+                self._shown_unit = unit
+                self.t_info.setText(tr("{n} points, {range} · source: {src}", n=len(m.f),
+                                       range=spectral.fmt_range(lo, hi, unit, 5), src=m.source or "—"))
+                self.t_tbl.setHorizontalHeaderItem(0, QTableWidgetItem(
+                    f"{spectral.symbol(unit)} [{spectral.unit_label(unit)}]"))
+                xs = spectral.x_values(m.f, unit)
+                rows = range(len(m.f))
+                if len(xs) > 1 and xs[0] > xs[-1]:
+                    rows = rows[::-1]  # read-only view: ascending in the display unit (wavelengths reverse)
                 self.t_tbl.setRowCount(len(m.f))
-                for r in range(len(m.f)):
-                    for c, v in enumerate((m.f[r] / 1e9, m.eps_re[r], m.eps_loss[r], m.mu_re[r], m.mu_loss[r])):
+                for r, k in enumerate(rows):
+                    for c, v in enumerate((xs[k], m.eps_re[k], m.eps_loss[k], m.mu_re[k], m.mu_loss[k])):
                         it = QTableWidgetItem(fmt_num(float(v), 6))
                         it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                         self.t_tbl.setItem(r, c, it)
@@ -547,7 +562,8 @@ class MaterialManager(QDialog):
             levels = {i.level for i in issues}
             col = c.error if "error" in levels else c.warn if "warning" in levels else c.muted
             self.lbl_issues.setStyleSheet(f"color: {col}; border: 1px solid {col};")
-            self.lbl_issues.setText("\n".join("• " + issue_text(i) for i in issues))
+            unit = spectral.unit_of(self.doc.project)
+            self.lbl_issues.setText("\n".join("• " + issue_text(i, unit=unit) for i in issues))
             self.lbl_issues.show()
         else:
             self.lbl_issues.hide()
@@ -570,14 +586,17 @@ class MaterialManager(QDialog):
                 ax.text(0.5, 0.5, str(e), ha="center", va="center", color=c.error, wrap=True)
                 self.canvas.draw_idle()
                 return
-            x = f / 1e9
+            unit = sw.spectral_unit
+            self._shown_unit = unit
+            x = spectral.x_values(f, unit)
             for k, (vals, sym) in enumerate(((eps, "ε"), (mu, "μ"))):
                 ax = self.fig.add_subplot(1, 2, k + 1)
                 ax.plot(x, vals.real, color=c.series[0], label=f"{sym}′")
                 ax.plot(x, -vals.imag, color=c.series[1], ls="--", label=f"{sym}″")
                 if sw.log_f:
                     ax.set_xscale("log")
-                ax.set_xlabel(tr("Frequency [GHz]"))
+                spectral.set_xlim(ax, x)
+                ax.set_xlabel(spectral.axis_label(unit))
                 ax.legend(loc="best", fontsize=8)
         self.canvas.draw_idle()
 
