@@ -52,7 +52,7 @@ KO.update({
     "for every angle and polarisation - valid for sub-wavelength unit cells below the grating-lobe onset.<br>"
     "<b>Units</b>: GHz, mm, degrees, S/m, g/cm³; the engine works in SI. The spectral axis (plots, sweep "
     "and band inputs, exports) can show THz, vacuum wavelength in µm or nm, or wavenumber in cm⁻¹ instead "
-    "(Analysis settings); material model parameters stay in GHz.":
+    "(Analysis settings); material model parameters stay in GHz. Thicknesses can be shown in µm or nm.":
         "<b>시간 규약</b>: e<sup>+jωt</sup>; ε = ε′ − jε″, μ = μ′ − jμ″ (ε″, μ″ &gt; 0 이면 손실).<br>"
         "<b>반사손실</b>: RL = 20·log₁₀|Γ| (음수 dB, −10 dB ≈ 90% 흡수). 표시 부호는 환경 설정에서 바꿀 수 "
         "있습니다.<br><b>Γ</b>는 접선 방향 전기장의 반사계수입니다.<br><b>층 순서</b>: 층 스택의 맨 위 행이 "
@@ -62,14 +62,14 @@ KO.update({
         "값으로 모든 입사각과 편광에 그대로 쓰이며, 단위 셀이 파장보다 충분히 작고 회절 로브가 생기기 전까지 "
         "유효합니다.<br><b>단위</b>: GHz, mm, 도, S/m, g/cm³ (엔진 내부는 SI 단위). 스펙트럼 축(그래프, 스윕·대역 "
         "입력, 내보내기)은 해석 설정에서 THz, 진공 파장 µm·nm, 파수 cm⁻¹로 바꿀 수 있습니다. 재료 모델 파라미터는 "
-        "GHz 그대로입니다.",
+        "GHz 그대로입니다. 두께는 µm·nm로도 표시할 수 있습니다.",
 
     # ---- main window -----------------------------------------------------------
     "Untitled": "제목 없음", "Layer stack": "층 스택", "Properties": "속성", "Analysis settings": "해석 설정",
     "Diagnostics": "진단", "Frequency": "주파수", "Angle": "입사각", "Map": "맵", "Smith chart": "Smith 차트",
     "Absorption": "흡수 분해", "Material data": "재료 물성", "Optimisation": "최적화", "Tolerance": "공차 분석",
     "Cannot compute: {e}": "계산할 수 없습니다: {e}",
-    "Thickness {t} mm": "두께 {t} mm", "Areal mass {m} kg/m²": "면밀도 {m} kg/m²",
+    "Thickness {t}": "두께 {t}", "Areal mass {m} kg/m²": "면밀도 {m} kg/m²",
     "Best RL {v} dB at {f} GHz": "최적 RL {v} dB @ {f} GHz",
     "No problems found in the materials used.": "사용 중인 재료에서 문제가 발견되지 않았습니다.",
     "Save changes to “{n}”?": "“{n}”의 변경 내용을 저장할까요?",
@@ -90,7 +90,7 @@ KO.update({
     "Thickness / R": "두께 / R", "Front (incident side) at the top, backing at the bottom.":
         "위가 앞면(입사면), 아래가 뒷면입니다.",
     "Slab": "슬래브", "Resistive sheet": "저항 시트", "Sheet": "시트", "Reorder layers": "층 순서 변경",
-    "PEC": "PEC(금속)", "half-space": "반무한 매질", "Total {t} mm": "총 {t} mm",
+    "PEC": "PEC(금속)", "half-space": "반무한 매질", "Total {t}": "총 {t}",
     "Selected layer": "선택한 층", "Name": "이름", "optional": "선택 사항", "Material": "재료",
     "Edit…": "편집…", "Thickness": "두께", "Resistance R": "저항 R", "Reactance X": "리액턴스 X",
     "Opt.": "최적화",
@@ -440,4 +440,8 @@ KO.update({
     "{x}, value = {v}": "{x}, 값 = {v}",
     "{x}, θ = {a}°, RL = {v} dB": "{x}, θ = {a}°, RL = {v} dB",
     "Γ locus over the sweep; ● {a}, ■ {b}": "스윕에 따른 Γ 궤적; ● {a}, ■ {b}",
+    # thickness display unit (DEVELOPMENT_HISTORY 3.22)
+    "Thickness unit": "두께 단위",
+    "Unit of layer thicknesses in the layer stack, properties, optimisation and report. Display only: the project keeps metres.":
+        "층 스택·속성·최적화·보고서에 쓰는 두께 단위입니다. 표시 전용이며 프로젝트는 m로 저장합니다.",
 })

@@ -14,7 +14,7 @@ import math
 
 import numpy as np
 
-from coating_studio import __version__, diagnostics, spectral
+from coating_studio import __version__, diagnostics, lengths, spectral
 from coating_studio.core.solver import solve
 from coating_studio.core.structure import SheetLayer, SlabLayer
 from coating_studio.i18n import tr
@@ -227,7 +227,7 @@ def _layer_rows(project):
             mat = project.materials.get(ly.material)
             kind = mat.to_dict().get("kind", "") if mat is not None else "?"
             rows.append((i, ly.name, f"{ly.material} <span class=muted>({_e(kind)})</span>",
-                         f"{ly.thickness * 1e3:.4g} mm"))
+                         lengths.fmt_length(ly.thickness, project.sweep.length_unit)))
         elif isinstance(ly, SheetLayer):
             if ly.model == "rlc":
                 spec = f"R = {ly.R:.4g} Ω/sq, L = {ly.L * 1e9:.4g} nH, " + (
@@ -263,7 +263,7 @@ def build_report(project, rl_positive=False, references=(), tolerance=None, sour
     except Exception:  # noqa: BLE001 - an unresolved material only hides the mass
         mass = float("nan")
     out.append(f"<h2>{_e(tr('Summary'))}</h2><table>")
-    out.append(f"<tr><th>{_e(tr('Total thickness'))}</th><td class=num>{p.structure.total_thickness() * 1e3:.4g} mm</td></tr>")
+    out.append(f"<tr><th>{_e(tr('Total thickness'))}</th><td class=num>{lengths.fmt_length(p.structure.total_thickness(), p.sweep.length_unit)}</td></tr>")
     out.append(f"<tr><th>{_e(tr('Areal mass'))}</th><td class=num>{_num(mass)} kg/m²</td></tr>")
     backing = tr("Metal plate (PEC)") if p.structure.backing.kind == "pec" else p.structure.backing.material
     out.append(f"<tr><th>{_e(tr('Backing'))}</th><td>{_e(backing)}</td></tr>")

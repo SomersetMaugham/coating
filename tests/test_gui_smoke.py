@@ -845,3 +845,68 @@ def test_material_editor_shows_measured_data_in_the_spectral_unit(app):
     w.doc.undo_stack.setClean()
     dlg.close()
     w.close()
+
+
+def test_thickness_unit_in_properties_layers_and_optimisation(app):
+    """Choosing nm: thickness boxes, tables and texts follow; untouched values keep their metres bit for bit."""
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["dallenbach"][1]())
+    uid = w.project.structure.layers[0].uid
+    d0 = w.project.structure.layers[0].thickness
+    s0 = w.project.optimization
+    ref0, max0 = s0.thickness_ref, s0.thickness_max
+    sp = w.w_sweep
+    sp.length_unit.setCurrentIndex(sp.length_unit.findData("nm"))
+    assert w.project.sweep.length_unit == "nm" and w.project.structure.layers[0].thickness == d0
+    # properties: the box shows nm, and a 50 nm entry is stored in metres
+    w.w_props.set_layer(uid)
+    assert w.w_props.sp_thick.suffix() == " nm" and w.w_props.sp_thick.value() == pytest.approx(d0 * 1e9)
+    w.w_props.sp_thick.setValue(50.0)
+    assert w.project.structure.layers[0].thickness == pytest.approx(50e-9)
+    # layer table, status bar
+    assert w.w_layers.table.item(0, 3).text() == "50 nm"
+    w.recompute()
+    w._update_summary()
+    assert "50 nm" in w.lbl_summary.text()
+    # optimisation: reference and limit in nm; an unrelated edit keeps them exactly
+    p_opt = w.p_opt
+    assert p_opt.t_ref.suffix() == " nm" and p_opt.t_ref.value() == pytest.approx(ref0 * 1e9)
+    p_opt.w_worst.setValue(p_opt.w_worst.value() + 0.5)
+    s = w.project.optimization
+    assert (s.thickness_ref, s.thickness_max) == (ref0, max0)
+    # a thickness variable: listed in nm, bounds edited in nm are stored in metres
+    w.doc.edit_settings(lambda pp: setattr(pp.optimization, "variables", []))
+    p_opt.refresh()
+    i = next(k for k in range(p_opt.cb_add.count()) if p_opt.cb_add.itemData(k)[-1] == "thickness")
+    assert p_opt.cb_add.itemText(i).endswith("[nm]")
+    p_opt.cb_add.setCurrentIndex(i)
+    p_opt._add_variable()
+    v = w.project.optimization.variables[0]
+    assert (v.lower, v.upper) == pytest.approx((50e-9 / 4, 50e-9 * 4))
+    p_opt._set_bound(tuple(v.path), "upper", "mm", 300.0)  # the table's box edits nm
+    assert w.project.optimization.variables[0].upper == pytest.approx(300e-9)
+    # a zero-thickness layer gets the same unit-sized range from both places
+    from coating_studio.core.units import ZERO_THICKNESS_RANGE
+    w.doc.edit("zero", lambda pp: setattr(pp.structure.layers[0], "thickness", 0.0))
+    w.doc.edit_settings(lambda pp: setattr(pp.optimization, "variables", []))
+    p_opt.refresh()
+    p_opt.cb_add.setCurrentIndex(next(k for k in range(p_opt.cb_add.count())
+                                      if p_opt.cb_add.itemData(k)[-1] == "thickness"))
+    p_opt._add_variable()
+    v = w.project.optimization.variables[0]
+    assert (v.lower, v.upper) == ZERO_THICKNESS_RANGE["nm"]  # was 0-1 m here, 0.1-10 mm in the properties panel
+    w.doc.edit_settings(lambda pp: setattr(pp.optimization, "variables", []))
+    w.w_props.set_layer(uid)
+    w.w_props.opt_thick.setChecked(True)
+    v = w.project.optimization.variables[0]
+    assert (v.lower, v.upper) == ZERO_THICKNESS_RANGE["nm"]
+    # a new slab is sized for the unit
+    w.w_layers.add_slab()
+    assert w.project.structure.layers[w.w_layers.table.currentRow()].thickness == pytest.approx(100e-9)
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()

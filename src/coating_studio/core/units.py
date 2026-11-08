@@ -153,3 +153,31 @@ def spectral_bounds(f_lo, f_hi, unit):
     """(low, high) display values of the frequency interval [f_lo, f_hi] (swapped for wavelengths)."""
     a, b = to_spectral(f_lo, unit), to_spectral(f_hi, unit)
     return (min(a, b), max(a, b))
+
+
+# -- length (layer thickness) display unit (display only; layers and files keep metres) -------------------
+LENGTH_UNITS = {"mm": 1e-3, "um": 1e-6, "nm": 1e-9}
+LENGTH_LABEL = {"mm": "mm", "um": "µm", "nm": "nm"}
+DEFAULT_LENGTH_UNIT = "mm"
+# A new slab layer, and the optimisation range of a layer whose thickness is 0, in a size that suits the unit
+# (a 2 mm default layer next to 100 nm films squeezed every film to the minimum width of the cross-section).
+NEW_SLAB_THICKNESS = {"mm": 2e-3, "um": 1e-6, "nm": 100e-9}
+ZERO_THICKNESS_RANGE = {"mm": (1e-4, 1e-2), "um": (1e-7, 1e-5), "nm": (1e-8, 1e-6)}
+
+
+def length_scale(unit):
+    """Metres per display unit; ValueError for an unknown unit."""
+    try:
+        return LENGTH_UNITS[unit]
+    except KeyError:
+        raise ValueError(f"unknown length unit {unit!r}") from None
+
+
+def to_length(m, unit):
+    """Metres -> display unit."""
+    return m / length_scale(unit)
+
+
+def from_length(x, unit):
+    """Display unit -> metres."""
+    return x * length_scale(unit)

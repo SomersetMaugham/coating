@@ -12,6 +12,7 @@ from coating_studio.core.structure import SheetLayer, SlabLayer
 from coating_studio.gui.fmt import fmt_num
 from coating_studio.gui.icons import icon
 from coating_studio.gui.widgets.cross_section import CrossSectionWidget
+from coating_studio import lengths
 from coating_studio.i18n import tr
 
 
@@ -118,7 +119,7 @@ class LayerStackWidget(QWidget):
                 if isinstance(ly, SlabLayer):
                     kind = ly.name or tr("Slab")
                     what = ly.material
-                    val = f"{fmt_num(ly.thickness * 1e3, 4)} mm"
+                    val = lengths.fmt_length(ly.thickness, lengths.unit_of(self.doc.project))
                     missing = ly.material not in self.doc.project.materials
                 elif ly.model == "rlc":
                     kind = ly.name or tr("RLC sheet")
@@ -175,7 +176,7 @@ class LayerStackWidget(QWidget):
         p = self.doc.project
         mats = [m for m in p.materials if m != p.structure.incident]
         name = "PMI foam" if "PMI foam" in mats else (mats[0] if mats else p.structure.incident)
-        ly = SlabLayer(name, 2e-3, name=tr("Layer"))
+        ly = SlabLayer(name, lengths.new_slab_thickness(p), name=tr("Layer"))  # sized for the length unit
         idx = self._insert_index()
         self.doc.edit(tr("Add slab layer"), lambda pr: pr.structure.layers.insert(idx, ly))
         self.refresh()

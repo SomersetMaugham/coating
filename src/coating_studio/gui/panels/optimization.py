@@ -14,8 +14,9 @@ from PySide6.QtWidgets import (
     QMenu, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from coating_studio import lengths
 from coating_studio.gui import spectral
-from coating_studio.gui.fmt import fmt_num, from_display, param_label, rl_display, to_display, unit_label
+from coating_studio.gui.fmt import fmt_num, param_label, rl_display, unit_label
 from coating_studio.gui.icons import set_button_icon
 from coating_studio.gui.theme import mpl_rc
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
@@ -117,7 +118,10 @@ class OptimizationPanel(QWidget):
         rows = ((tr("Frequency"), self.f_min, self.f_max, self.n_f),
                 (tr("Angle"), self.a_min, self.a_max, self.n_a))
         for r, (lab, a, b, n) in enumerate(rows):
-            ed.addWidget(QLabel(lab), r, 0, Qt.AlignRight)
+            label = QLabel(lab)
+            if r == 0:
+                self.lbl_band = label  # "Frequency" / "Wavelength" / "Wavenumber" (follows the spectral unit)
+            ed.addWidget(label, r, 0, Qt.AlignRight)
             ed.addWidget(a, r, 1)
             ed.addWidget(QLabel("–"), r, 2)
             ed.addWidget(b, r, 3)
@@ -143,7 +147,7 @@ class OptimizationPanel(QWidget):
         self.w_thick = SciSpinBox(minimum=0, maximum=1e6)
         self.w_mass = SciSpinBox(minimum=0, maximum=1e6)
         self.rl_ref = SciSpinBox(minimum=-200, maximum=-0.01, suffix="dB")
-        self.t_ref = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="mm")
+        self.t_ref = SciSpinBox()
         self.m_ref = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="kg/m²")
         rows = [(tr("Worst-case RL in band"), self.w_worst, self.rl_ref),
                 (tr("Mean reflectance |Γ|²"), self.w_mean, muted(tr("uses the RL reference"))),
@@ -154,7 +158,9 @@ class OptimizationPanel(QWidget):
             grid.addWidget(w, r, 1)
             grid.addWidget(ref, r, 2)
         self.chk_tmax = QCheckBox(tr("Thickness limit"))
-        self.t_max = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="mm")
+        self.t_max = SciSpinBox()
+        # thickness reference and limit in the project's length unit; positive, and untouched values keep their metres
+        self.t_inputs = spectral.LengthInputs(self.t_ref, self.t_max, minimum=1e-12)
         grid.addWidget(self.chk_tmax, 5, 0)
         grid.addWidget(self.t_max, 5, 1, 1, 2)
         self.lbl_rl_hint = muted("")
@@ -328,6 +334,7 @@ class OptimizationPanel(QWidget):
             return
         pos = self.ctx.rl_positive
         self.band.show(spectral.unit_of(self.doc.project), t.f_min, t.f_max)
+        self.lbl_band.setText(spectral.quantity_name(spectral.unit_of(self.doc.project)))
         self.n_f.setValue(t.n_f)
         self.a_min.set_value(t.angle_min)
         self.a_max.set_value(t.angle_max)
@@ -395,10 +402,10 @@ class OptimizationPanel(QWidget):
                    "RL is in dB (positive = good).") if pos else
                 tr("Each term is divided by its reference so weights are comparable; "
                    "RL is in dB (negative = good)."))
-            self.t_ref.set_value(s.thickness_ref * 1e3)
+            # the limit box shows 10 mm while no limit is set; enabling it keeps exactly that value
+            self.t_inputs.show(lengths.unit_of(self.doc.project), s.thickness_ref, s.thickness_max or 10e-3)
             self.m_ref.set_value(s.mass_ref)
             self.chk_tmax.setChecked(s.thickness_max is not None)
-            self.t_max.set_value((s.thickness_max or 10e-3) * 1e3)
             self.t_max.setEnabled(s.thickness_max is not None)
             self.maxiter.setValue(s.maxiter)
             self.popsize.setValue(s.popsize)
@@ -418,12 +425,12 @@ class OptimizationPanel(QWidget):
             r = self.tbl.rowCount()
             self.tbl.insertRow(r)
             try:
-                unit = param_unit(p, v.path)
+                unit = param_unit(p, v.path)  # thicknesses ("mm") are shown in the project's length unit
                 label = param_label(self._label(v.path))
-                cur = fmt_num(to_display(get_param(p, v.path), unit))
+                cur = fmt_num(lengths.to_display_unit(get_param(p, v.path), p, unit))
             except (KeyError, AttributeError, IndexError):
                 unit, label, cur = "", tr("(missing) ") + " / ".join(map(str, v.path)), "—"
-            ul = unit_label(unit)
+            ul = unit_label(lengths.display_unit(p, unit))
             it = QTableWidgetItem(label + (f"  [{ul}]" if ul else ""))
             it.setToolTip(it.text())
             it.setFlags(it.flags() & ~Qt.ItemIsEditable)
@@ -435,7 +442,7 @@ class OptimizationPanel(QWidget):
             for col, attr in ((2, "lower"), (3, "upper")):
                 sp = SciSpinBox(digits=5)
                 sp.setFrame(False)
-                sp.set_value(to_display(getattr(v, attr), unit))
+                sp.set_value(lengths.to_display_unit(getattr(v, attr), p, unit))
                 sp.valueEdited.connect(lambda val, path=v.path, a=attr, u=unit: self._set_bound(path, a, u, val))
                 self.tbl.setCellWidget(r, col, sp)
             btn = QPushButton("")
@@ -449,7 +456,7 @@ class OptimizationPanel(QWidget):
         for path, label, unit in available_params(p):
             if tuple(path) in existing:
                 continue
-            ul = unit_label(unit)
+            ul = unit_label(lengths.display_unit(p, unit))
             self.cb_add.addItem(param_label(label) + (f"  [{ul}]" if ul else ""), path)
         self.btn_add.setEnabled(self.cb_add.count() > 0)
         if s.choices:
@@ -480,6 +487,7 @@ class OptimizationPanel(QWidget):
         i = self._target_idx
         pos = self.ctx.rl_positive
         f_lo, f_hi = self.band.values()  # an untouched box keeps its stored Hz value
+        t_ref, t_max = self.t_inputs.values()  # ... and an untouched thickness box its metres
 
         def mut(p):
             s = p.optimization
@@ -492,16 +500,16 @@ class OptimizationPanel(QWidget):
             s.w_worst, s.w_mean = self.w_worst.value(), self.w_mean.value()
             s.w_thickness, s.w_mass = self.w_thick.value(), self.w_mass.value()
             s.rl_ref_db = rl_display(self.rl_ref.value(), self.ctx.rl_positive)
-            s.thickness_ref = self.t_ref.value() * 1e-3
+            s.thickness_ref = t_ref
             s.mass_ref = self.m_ref.value()
-            s.thickness_max = self.t_max.value() * 1e-3 if self.chk_tmax.isChecked() else None
+            s.thickness_max = t_max if self.chk_tmax.isChecked() else None
             s.maxiter, s.popsize = self.maxiter.value(), self.popsize.value()
             s.seed = None if self.seed.value() < 0 else self.seed.value()
             s.polish = self.polish.isChecked()
         self.doc.edit_settings(mut)
 
     def _set_bound(self, path, attr, unit, val):
-        si = from_display(val, unit)
+        si = lengths.from_display_unit(val, self.doc.project, unit)
 
         def mut(p):
             for v in p.optimization.variables:
@@ -524,6 +532,8 @@ class OptimizationPanel(QWidget):
             lo, hi = default_lc_bounds(path[-1], val)  # ratio 100: searched on a log scale
         elif val > 0:
             lo, hi = val / 4, val * 4
+        elif val == 0 and path[-1] == "thickness":
+            lo, hi = lengths.zero_thickness_range(p)  # same as the properties panel's Opt. toggle
         elif val == 0:
             lo, hi = 0.0, 1.0
         else:
@@ -670,7 +680,7 @@ class OptimizationPanel(QWidget):
                 target_rows.append((tr("Target {n}: {s}", n=n, s=summary), f"{self._rl(worst)} dB · {state}"))
         rows = [(tr("Worst-case RL in band"), self._rl(res.terms.worst_db) + " dB"), *target_rows,
                 (tr("Mean reflectance |Γ|²"), fmt_num(res.terms.mean_r, 4)),
-                (tr("Total thickness"), fmt_num(res.terms.thickness * 1e3, 5) + " mm"),
+                (tr("Total thickness"), lengths.fmt_length(res.terms.thickness, lengths.unit_of(p), 5)),
                 (tr("Areal mass"), fmt_num(res.terms.mass, 4) + " kg/m²"),
                 (tr("Objective"), fmt_num(res.terms.objective, 5))]
         for path, val in res.values.items():
@@ -678,8 +688,9 @@ class OptimizationPanel(QWidget):
                 unit = param_unit(p, path)
             except KeyError:
                 unit = ""
-            ul = unit_label(unit)
-            rows.append((param_label(self._label(path)), fmt_num(to_display(val, unit), 6) + (f" {ul}" if ul else "")))
+            ul = unit_label(lengths.display_unit(p, unit))
+            rows.append((param_label(self._label(path)),
+                         fmt_num(lengths.to_display_unit(val, p, unit), 6) + (f" {ul}" if ul else "")))
         for uid, name in res.choices.items():
             try:
                 idx = p.structure.index_of(uid) + 1

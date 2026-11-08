@@ -37,6 +37,11 @@ def axis_label(unit):
     return tr("Frequency [{u}]", u=SPECTRAL_LABEL[unit])
 
 
+def quantity_name(unit):
+    """'Frequency', 'Wavelength' or 'Wavenumber' (translated): the label of an input in this unit."""
+    return tr({"f": "Frequency", "wl": "Wavelength", "wn": "Wavenumber"}[spectral_kind(unit)])
+
+
 def symbol(unit):
     return _SYMBOL[spectral_kind(unit)]
 
