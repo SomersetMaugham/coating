@@ -4,8 +4,11 @@
 # uv and Python 3.10 / 3.13.  See docs/WINDOWS_WSL_TESTING.md.
 set -euo pipefail
 
-sudo apt-get update
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git curl \
+# A freshly started WSL often runs unattended-upgrades first, which holds the dpkg lock for a few minutes:
+# wait for it instead of failing (never delete the lock file).
+APT=(-o DPkg::Lock::Timeout=600)
+sudo apt-get "${APT[@]}" update
+sudo DEBIAN_FRONTEND=noninteractive apt-get "${APT[@]}" install -y git curl \
   libegl1 libgl1 libopengl0 libglib2.0-0 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 libfontconfig1 libdbus-1-3 \
   fonts-nanum
 
