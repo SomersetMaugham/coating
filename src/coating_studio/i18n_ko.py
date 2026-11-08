@@ -407,13 +407,13 @@ KO.update({
     "infeasible": "불가능", "met": "만족", "no capacitor": "커패시터 없음", "not evaluated": "판정 안 함",
     "not met": "미달", "satisfied": "만족", "thicker needed": "더 두꺼워야 함",
     "Export &Touchstone (.s1p)…": "Touchstone 내보내기(.s1p)(&T)…",
-    "Export &report (HTML)…": "보고서 내보내기(HTML)(&R)…",
+    "Export &report (PDF / HTML)…": "보고서 내보내기(PDF / HTML)(&R)…",
     "Export Touchstone": "Touchstone 내보내기", "Export report": "보고서 내보내기",
     "HTML (*.html);;All files (*)": "HTML (*.html);;모든 파일 (*)",
     "Measured data (*.csv *.txt *.dat *.s1p);;All files (*)": "측정 데이터 (*.csv *.txt *.dat *.s1p);;모든 파일 (*)",
     "Polarisation at {a}° (a Touchstone file holds one):": "{a}°에서 내보낼 편광(Touchstone 파일에는 하나만 들어갑니다):",
-    "Save a one-page design report: targets and margins, layer stack, reflection plots, tolerance result and diagnostics":
-        "목표와 마진, 층 구성, 반사 그래프, 공차 결과, 진단을 담은 한 쪽짜리 설계 보고서를 저장합니다",
+    "Save a design report as PDF (A4) or HTML: targets and margins, layer stack, reflection plots, tolerance result and diagnostics":
+        "설계 보고서를 PDF(A4)나 HTML로 저장합니다: 목표와 마진, 층 구성, 반사 그래프, 공차 결과, 진단",
     "Save the reflection coefficient S11 of the frequency sweep as a Touchstone file for circuit and network-analyser tools":
         "주파수 스윕의 반사 계수 S11을 회로 해석·네트워크 분석기 도구용 Touchstone 파일로 저장합니다",
     "Saved {n} frequencies ({pol}) to {p}": "주파수 {n}개({pol})를 {p}에 저장했습니다",
@@ -450,4 +450,6 @@ KO.update({
     "How the sweep points are spread. Even in wavelength suits optical spectra; it is sparse at high frequencies ((f_max/f_min)² wider steps), so a narrow band there may fall between points. Logarithmic also draws a log axis.":
         "스윕 점을 어떻게 나눌지 정합니다. 파장 등간격은 광학 스펙트럼에 맞습니다. 고주파 쪽 간격이 (f_max/f_min)²배 넓어서 그쪽의 좁은 대역은 "
         "점 사이에 빠질 수 있습니다. 로그는 로그 축으로도 그립니다.",
+    # PDF report (DEVELOPMENT_HISTORY 3.24)
+    "PDF (*.pdf)": "PDF (*.pdf)", "HTML (*.html)": "HTML (*.html)",
 })

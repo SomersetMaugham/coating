@@ -172,9 +172,9 @@ class MainWindow(QMainWindow):
         self.a_export_s1p = self._action(tr("Export &Touchstone (.s1p)…"), lambda: self.export_touchstone(), None,
                                          None, tr("Save the reflection coefficient S11 of the frequency sweep as a "
                                                   "Touchstone file for circuit and network-analyser tools"))
-        self.a_export_report = self._action(tr("Export &report (HTML)…"), lambda: self.export_report(), None, None,
-                                            tr("Save a one-page design report: targets and margins, layer stack, "
-                                               "reflection plots, tolerance result and diagnostics"))
+        self.a_export_report = self._action(tr("Export &report (PDF / HTML)…"), lambda: self.export_report(), None, None,
+                                            tr("Save a design report as PDF (A4) or HTML: targets and margins, layer "
+                                               "stack, reflection plots, tolerance result and diagnostics"))
         self.a_quit = self._action(tr("&Quit"), self.close, QKeySequence.Quit)
         self.a_undo = self.doc.undo_stack.createUndoAction(self, tr("&Undo"))
         self.a_undo.setShortcut(QKeySequence.Undo)
@@ -663,15 +663,26 @@ class MainWindow(QMainWindow):
         return path
 
     def export_report(self, path=None):
+        """HTML (one file for a browser) or PDF (A4, laid out by Qt), chosen by the file name or the dialog's filter."""
         from coating_studio.report import write_report
 
         if path is None:
-            path = self._export_path(tr("Export report"), ".html", tr("HTML (*.html);;All files (*)"))
+            f_pdf, f_html = tr("PDF (*.pdf)"), tr("HTML (*.html)")
+            start = os.path.join(self.settings.last_dir, self.project.name + ".pdf")
+            path, chosen = QFileDialog.getSaveFileName(self, tr("Export report"), start, f"{f_pdf};;{f_html}")
             if not path:
                 return None
+            if not path.lower().endswith((".pdf", ".html", ".htm")):  # the typed name has no extension: use the filter
+                path += ".html" if chosen == f_html else ".pdf"
+        kw = dict(rl_positive=self.rl_positive, references=list(self.references), tolerance=self.p_tol.plot.result,
+                  source=self.doc.path)
         try:
-            write_report(path, self.project, rl_positive=self.rl_positive, references=list(self.references),
-                         tolerance=self.p_tol.plot.result, source=self.doc.path)
+            if path.lower().endswith(".pdf"):
+                from coating_studio.gui.report_pdf import write_report_pdf
+
+                write_report_pdf(path, self.project, **kw)
+            else:
+                write_report(path, self.project, **kw)
         except OSError as e:
             QMessageBox.critical(self, tr("Export failed"), str(e))
             return None

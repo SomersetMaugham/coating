@@ -945,3 +945,69 @@ def test_point_spacing_combo_sets_the_sweep_grid(app):
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()
+
+
+def test_report_pdf_pages_text_margins_and_export_choice(app, tmp_path, monkeypatch):
+    from PySide6.QtPdf import QPdfDocument
+
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui import main_window as mw
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.gui.report_pdf import write_report_pdf
+    from coating_studio.tolerance import run_tolerance_targets, tolerance_frequencies
+
+    p = EXAMPLES["dualband"][1]()
+    p.tolerance.n_samples = 6
+    tol = run_tolerance_targets(p, tolerance_frequencies(p), "grid")  # images right after a list (the indent case)
+    out = tmp_path / "r.pdf"
+    n = write_report_pdf(out, p, tolerance=tol)
+    pdf = QPdfDocument()
+    pdf.load(str(out))
+    assert pdf.pageCount() == n >= 2
+    first = pdf.getAllText(0).text()
+    assert first.startswith(p.name) and "Summary" in first and f"1 / {n}" in first
+    # every image ends inside the text width (an overflow is clipped, not drawn in the margin, so measure the
+    # layout): sized by the measured device scale, and not pushed right by a preceding list's indent
+    from PySide6.QtGui import QPdfWriter
+
+    from coating_studio.gui.report_pdf import _image_scale, layout_report
+    writer = QPdfWriter(str(tmp_path / "probe.pdf"))
+    doc, width, _height = layout_report(writer, p, tolerance=tol)
+    scale = _image_scale(writer)
+    block, images = doc.begin(), 0
+    while block.isValid():
+        it = block.begin()
+        while not it.atEnd():
+            frag = it.fragment()
+            if frag.charFormat().isImageFormat():
+                images += 1
+                doc.documentLayout().blockBoundingRect(block)  # lays the block out (lineAt on an unlaid block crashes)
+                layout = block.layout()
+                assert layout.lineCount() > 0
+                x, w_img = layout.lineAt(0).x(), frag.charFormat().toImageFormat().width() * scale
+                assert x >= 0 and x + w_img <= width + 1, (x, w_img, width)  # the block rect alone misses an indent
+            it += 1
+        block = block.next()
+    assert images >= 4  # frequency, angle and two tolerance plots
+    with pytest.raises(OSError):
+        write_report_pdf(tmp_path / "missing" / "r.pdf", p)
+    # no fonts at all (offscreen Qt on Windows without QT_QPA_FONTDIR): an error, not a PDF without text
+    from coating_studio.gui import report_pdf
+    monkeypatch.setattr(report_pdf.QFontDatabase, "families", staticmethod(lambda *a: []))
+    with pytest.raises(OSError, match="no fonts"):
+        write_report_pdf(tmp_path / "nofont.pdf", p)
+    monkeypatch.undo()
+
+    # File > Export report: the dialog's filter decides a name typed without extension
+    w = MainWindow()
+    w.doc.set_project(EXAMPLES["dallenbach"][1]())
+    for chosen, ext in (("PDF (*.pdf)", ".pdf"), ("HTML (*.html)", ".html")):
+        target = tmp_path / f"report_{ext[1:]}"
+        monkeypatch.setattr(mw.QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(target), chosen)))
+        path = w.export_report()
+        assert path == str(target) + ext
+        head = open(path, "rb").read(5)
+        assert head == (b"%PDF-" if ext == ".pdf" else b"<!doc")
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()

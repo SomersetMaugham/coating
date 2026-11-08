@@ -2,6 +2,7 @@
 import re
 
 import numpy as np
+import pytest
 
 from coating_studio.comparison import ReferenceTrace, snapshot_design
 from coating_studio.examples import EXAMPLES
@@ -132,7 +133,23 @@ def test_report_never_imports_qt():
         "p = EXAMPLES['dualband'][1](); p.tolerance.n_samples = 4\n"
         "html = build_report(p, tolerance=run_tolerance_targets(p, tolerance_frequencies(p), 'grid'))\n"
         "assert html.count('data:image/png;base64,') == 4\n"
+        "html = build_report(p, print_layout={'image_width': 600.0, 'font': 'X'})\n"  # the PDF's print variant
+        "assert 'width=\"600.0\"' in html\n"
         "bad = [m for m in sys.modules if m.startswith('PySide6')]\n"
         "assert not bad, bad\n")
     r = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+def test_print_variant_sizes_images_and_keeps_the_browser_html():
+    """The PDF's print variant: sized high-resolution images in their own paragraph, Qt-readable style sheet, wide
+    tables; the browser HTML keeps its own style sheet and unsized images."""
+    p = EXAMPLES["dallenbach"][1]()
+    html = build_report(p)
+    assert "@media print" in html and re.search(r'<img alt="" src=', html) and "width=" not in html.split("<body>")[1]
+    pr = build_report(p, print_layout={"image_width": 640.0, "font": "Malgun Gothic"})
+    assert "@media print" not in pr and 'font-family: "Malgun Gothic"' in pr
+    sizes = re.findall(r'<img alt="" width="([\d.]+)" height="([\d.]+)"', pr)
+    assert len(sizes) == 2 and all(float(w) == 640.0 for w, _h in sizes)
+    assert float(sizes[0][1]) == pytest.approx(640.0 * 3.8 / 8)  # height from the figure's aspect ratio
+    assert '<table width="100%" cellspacing="0">' in pr and '<th width="4%">#</th>' in pr
