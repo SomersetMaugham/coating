@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 
 import math
 
-from coating_studio.core.structure import RLC_MODELS, SlabLayer
+from coating_studio.core.structure import RLC_MODELS, SlabLayer, angle_preset_coeffs, infer_angle_preset
 from coating_studio import lengths
 from coating_studio.gui import spectral
 from coating_studio.gui.fmt import fmt_num
@@ -115,6 +115,22 @@ class PropertiesPanel(QWidget):
         self.sp_C, self.opt_C, self.row_C = self._num_row(1e-9, 1e9, "pF", "C")
         self.row_C.layout().insertWidget(0, self.chk_C)
         form.addRow(tr("Capacitance C"), self.row_C)
+        self.cb_angle = QComboBox()
+        for text, key in ((tr("None"), "none"), (tr("Metal mesh"), "mesh"), (tr("Patch array"), "patch"),
+                          (tr("Custom"), "custom")):
+            self.cb_angle.addItem(text, key)
+        self.cb_angle.setToolTip(tr("How L and C change with the angle. Metal mesh: L in TM; patch array: C in TE; both "
+                                    "as 1 - sin²θ/(2 ε_eff). Only for dense arrays, before grating lobes appear. "
+                                    "Custom values come from a file or design spec."))
+        self.cb_angle.activated.connect(self._on_angle)
+        form.addRow(tr("Angle dependence"), self.cb_angle)
+        self.sp_eps_eff = SciSpinBox(minimum=1.0, maximum=1e6)
+        self.sp_eps_eff.setToolTip(tr("Effective permittivity around the grid: (ε_r + 1)/2 on a substrate, ε_r when "
+                                      "embedded, 1 in free space."))
+        self.sp_eps_eff.valueEdited.connect(self._on_eps_eff)
+        form.addRow(tr("Effective ε"), self.sp_eps_eff)
+        self.lbl_angle = muted()
+        form.addRow(tr("Coefficients"), self.lbl_angle)
         self.lbl_info = muted()
         form.addRow("", self.lbl_info)
         self._form = form
@@ -191,9 +207,12 @@ class PropertiesPanel(QWidget):
                 self.ed_name.setText(ly.name)
                 slab = isinstance(ly, SlabLayer)
                 rlc = not slab and ly.is_rlc
+                preset, eps_eff = infer_angle_preset(ly) if rlc else ("none", None)
                 for w, vis in ((self.row_material, slab), (self.row_thick, slab), (self.row_model, not slab),
                                (self.row_R, not slab), (self.row_X, not slab and not rlc),
-                               (self.row_L, rlc), (self.row_C, rlc)):
+                               (self.row_L, rlc), (self.row_C, rlc), (self.cb_angle, rlc),
+                               (self.sp_eps_eff, rlc and preset in ("mesh", "patch")),
+                               (self.lbl_angle, rlc and preset == "custom")):
                     w.setVisible(vis)
                     self._form.labelForField(w).setVisible(vis)
                 if slab:
@@ -243,6 +262,12 @@ class PropertiesPanel(QWidget):
                         self.opt_C.setEnabled(has_c)
                         self.sp_C.set_value((ly.C if has_c else 0.05e-12) * 1e12)
                         self.opt_C.setChecked(self._has_var("C"))
+                        self.cb_angle.setCurrentIndex(self.cb_angle.findData(preset))
+                        self.cb_angle.model().item(self.cb_angle.findData("custom")).setEnabled(preset == "custom")
+                        if eps_eff is not None:
+                            self.sp_eps_eff.set_value(eps_eff)
+                        if preset == "custom":
+                            self.lbl_angle.setText(", ".join(f"{k} {v:+.3g}" for k, v in ly.angle_dict().items() if v))
                         self.lbl_info.setText(self._rlc_info(ly, p))
                     else:
                         self.lbl_info.setText(tr("Free-space impedance is 376.7 Ω/sq."))
@@ -309,6 +334,10 @@ class PropertiesPanel(QWidget):
                         z=f"{zs.real:.4g} {'+' if zs.imag >= 0 else '−'} {abs(zs.imag):.4g}j"))
         if f0 is not None and not (p.sweep.f_min <= f0 <= p.sweep.f_max):
             parts.append(tr("f₀ is outside the frequency sweep."))
+        if ly.has_angle:
+            parts.append(tr("These values are at normal incidence."))
+            if ((ly.a_l_te or ly.a_l_tm) and ly.L <= 0) or ((ly.a_c_te or ly.a_c_tm) and ly.C is None):
+                parts.append(tr("The angle dependence has no element to act on."))
         return "\n".join(parts)
 
     def _on_model(self, _index):
@@ -322,10 +351,30 @@ class PropertiesPanel(QWidget):
                 return
             was_constant = ly.model == "constant"
             ly.model = model
+            if model == "constant":
+                ly.set_angle({})
             if was_constant and model in RLC_MODELS and ly.L == 0 and ly.C is None:
                 ly.L, ly.C = 5e-9, 0.05e-12  # f0 ~ 10 GHz; R is kept
             _drop_missing_vars(p, ly)
         self.doc.edit(tr("Change sheet model"), mut)
+
+    def _set_angle(self, preset, eps_eff, merge_key=None):
+        uid = self.uid
+        self.doc.edit(tr("Change angle dependence"),
+                      lambda p: p.structure.layer_by_uid(uid).set_angle(angle_preset_coeffs(preset, eps_eff)),
+                      merge_key=merge_key)
+
+    def _on_angle(self, _index):
+        preset = self.cb_angle.currentData()
+        if self._loading or self.uid is None or preset == "custom":
+            return
+        self._set_angle(preset, self.sp_eps_eff.value())
+
+    def _on_eps_eff(self, value):
+        preset = self.cb_angle.currentData()
+        if self._loading or self.uid is None or preset not in ("mesh", "patch"):
+            return
+        self._set_angle(preset, value, merge_key=("layer", self.uid, "angle_eps_eff"))
 
     def _on_capacitor(self, on):
         if self._loading or self.uid is None:

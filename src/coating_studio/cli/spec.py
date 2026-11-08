@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 
 from coating_studio.cli.output import CliError
-from coating_studio.core.structure import SHEET_MODELS, Backing, SheetLayer, SlabLayer, Structure
+from coating_studio.core.structure import SHEET_MODELS, parse_angle, Backing, SheetLayer, SlabLayer, Structure
 from coating_studio.core.units import (
     DEFAULT_LENGTH_UNIT, DEFAULT_SPECTRAL_UNIT, DISPLAY_SCALE, LENGTH_UNITS, SPECTRAL_UNITS, from_display, to_display,
 )
@@ -82,6 +82,8 @@ def project_to_spec(project: Project) -> dict:
             layers.append({"name": ly.name, "sheet": {"model": ly.model, "R_ohm": ly.R, "X_ohm": ly.X,
                                                       "L_nh": to_display(ly.L, "nH"),
                                                       "C_pf": None if ly.C is None else to_display(ly.C, "pF")}})
+            if ly.has_angle:
+                layers[-1]["sheet"]["angle"] = ly.angle_dict()
         else:
             layers.append({"name": ly.name, "sheet": {"model": "constant", "R_ohm": ly.R, "X_ohm": ly.X}})
     b = project.structure.backing
@@ -259,6 +261,13 @@ def spec_to_project(spec: dict, base_dir=".") -> tuple[Project, list]:
                 ly.L = from_display(float(_num(sh, "L_nh", f"{path}.sheet", 0.0)), "nH")
                 c = _num(sh, "C_pf", f"{path}.sheet")
                 ly.C = None if c is None else from_display(float(c), "pF")
+                if sh.get("angle") is not None:
+                    try:
+                        ly.set_angle(parse_angle(sh["angle"]))
+                    except ValueError as e:
+                        raise spec_error(f"{path}.sheet.angle", str(e)) from None
+            elif sh.get("angle") is not None:
+                raise spec_error(f"{path}.sheet.angle", "only RLC sheets have an angle dependence")
         else:
             mat = d.get("material")
             if mat not in p.materials:

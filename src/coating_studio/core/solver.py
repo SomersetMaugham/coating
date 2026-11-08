@@ -186,8 +186,14 @@ def solve(structure: Structure, materials, f, theta_deg=0.0, pols=("TE", "TM"),
                     if not ly.R > 0 or ly.L < 0 or (ly.C is not None and not ly.C > 0):
                         raise SolverError("RLC sheet needs R > 0, L >= 0 and C > 0")
                     # independent R / L / C factors so a tolerance can shift the resonance
-                    zs = ly.impedance_at(f, p.get("sheet_R", p.get("sheet", 1.0)), p.get("sheet_L", 1.0),
-                                         p.get("sheet_C", 1.0))[:, None]
+                    scale_l, scale_c = p.get("sheet_L", 1.0), p.get("sheet_C", 1.0)
+                    if ly.has_angle:
+                        g_l, g_c = ly.angle_scales(pol, (kx / k0) ** 2)
+                        scale_l, scale_c = scale_l * g_l, scale_c * g_c
+                        for active, scale, what in ((ly.L > 0, scale_l, "L"), (ly.C is not None, scale_c, "C")):
+                            if active and not np.all(np.isfinite(scale) & (scale > 0)):
+                                raise SolverError(f"the angle dependence makes {what} non-positive at some angle")
+                    zs = ly.impedance_at(f[:, None], p.get("sheet_R", p.get("sheet", 1.0)), scale_l, scale_c)
                 else:
                     zs = ly.impedance * p.get("sheet", 1.0)
                 if np.any(np.abs(zs) < 1e-9):

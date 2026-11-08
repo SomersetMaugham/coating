@@ -851,7 +851,8 @@ class MainWindow(QMainWindow):
             "series RLC circuit Zs = R + jωL + 1/(jωC) (inductive X &gt; 0), or a parallel RLC circuit "
             "1/Zs = 1/R + jωC + 1/(jωL). The RLC values are "
             "normal-incidence lumped values used for every angle and polarisation - valid for "
-            "sub-wavelength unit cells below the grating-lobe onset.<br>"
+            "sub-wavelength unit cells below the grating-lobe onset. An optional angle dependence scales L and C "
+            "with sin²θ.<br>"
             "<b>Units</b>: GHz, mm, degrees, S/m, g/cm³; the engine works in SI. The spectral axis (plots, sweep "
             "and band inputs, exports) can show THz, vacuum wavelength in µm or nm, or wavenumber in cm⁻¹ instead "
             "(Analysis settings); material model parameters stay in GHz. Thicknesses can be shown in µm or nm."))
