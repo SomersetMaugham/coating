@@ -88,7 +88,9 @@ exception, and it falls back if Qt is missing.
 - **`comparison.py`**: comparison curves (pinned design snapshots, measured CSV/.s1p curves); saved in the `.coat`.
 - **`diagnostics.py`**: the material / mixture / Rozanov checks shown in the GUI's diagnostics panel and the report.
 - **`touchstone.py`**: `.s1p` export of S11 (reference R = the incident medium's modal wave impedance) and import.
-- **`report.py`**: the one-file HTML design report (matplotlib Agg; the CLI does not import it).
+- **`report.py`**: the one-file HTML design report (matplotlib Agg; the CLI does not import it). With
+  `print_layout=...` it produces the print variant that `gui/report_pdf.py` lays out with Qt into an A4 PDF (the page
+  drawing and the measured image scale are explained there).
 - **`spectral.py`**: the spectral axis in the project's display unit (`SweepSettings.spectral_unit`: GHz, THz, vacuum
   wavelength µm/nm, wavenumber cm⁻¹; conversions in `core/units.py`). Plots, texts and exports of the GUI and the report
   go through it; `gui/spectral.py` adds the input boxes. Display only: the engine, files and CLI numbers stay in Hz/GHz.
