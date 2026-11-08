@@ -16,7 +16,7 @@ from coating_studio.materials import ConstantMaterial
 from coating_studio.materials.csvio import load_csv
 
 VAL = Path(__file__).resolve().parents[1] / "examples" / "validation"
-REF = json.loads((VAL / "reference.json").read_text())
+REF = json.loads((VAL / "reference.json").read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("grade", sorted(REF["laird_eccosorb_mf"]["vendor_dB_per_cm"]))
@@ -95,3 +95,9 @@ def test_restart_from_a_good_design_never_gets_worse_with_many_material_combinat
     p.optimization.maxiter, p.optimization.popsize, p.optimization.seed, p.optimization.polish = 2, 5, 1, False
     res = optimize(p, throttle_s=0.0)
     assert res.terms.objective <= start + 1e-12
+
+
+def test_reference_data_reads_as_utf8():
+    # reference.json holds non-ASCII text.  Read without an encoding, Windows (cp949 locale) turned "Bogotá" into
+    # "Bogot찼" (found by scripts/remote_test.sh); this only fails there, which is what the remote run is for.
+    assert "Bogotá" in json.dumps(REF, ensure_ascii=False)

@@ -39,7 +39,7 @@ def summary(r):
 
 
 def main(plot=None, n_mc=300):
-    t2 = json.loads((HERE / "reference.json").read_text())["kumar2021"]["table2"]
+    t2 = json.loads((HERE / "reference.json").read_text(encoding="utf-8"))["kumar2021"]["table2"]
     rng = np.random.default_rng(1)
     curves = {}
     print(f"{'':5} {'t_m':>4} | {'tool: f_peak  RLmin   BW':>25} | {'paper calc':>17} | {'MEASURED':>17} | MC 90 % (f_peak, BW)")

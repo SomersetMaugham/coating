@@ -25,7 +25,7 @@ from coating_studio.core.units import power_to_db
 from coating_studio.materials.models import ConstantMaterial, DispersiveMaterial, PowerLawMaterial, make_term
 
 HERE = Path(__file__).resolve().parent
-BM = json.loads((HERE / "reference.json").read_text())["michielssen1993"]
+BM = json.loads((HERE / "reference.json").read_text(encoding="utf-8"))["michielssen1993"]
 REPRODUCED_DB = 0.05  # published designs carry 3-decimal thicknesses; this covers the rounding
 
 
