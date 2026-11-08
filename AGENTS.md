@@ -30,7 +30,16 @@ created with `conda create -n coat-py310 python=3.10` and `pip install -e ".[dev
 for e in coat-py310 coat-py313; do QT_QPA_PLATFORM=offscreen conda run -n $e python -m pytest -q; done
 ```
 
-Local runs cover macOS only; Windows and Linux are checked only when the user starts CI. On this Mac (macOS 27),
+Windows and Linux run on the Windows machine next to the Mac (native Windows and its WSL distro, Python 3.10
+and 3.13 each), started from the Mac over a hardened ssh setup described in `docs/WINDOWS_WSL_TESTING.md`:
+
+```bash
+scripts/remote_test.sh [REF]   # exit 0 only if all four environments pass with no skipped test
+```
+
+Its sshd starts manually: the user starts it on Windows before a run and stops it afterwards, so ask them first.
+Before a merge, run it when the Windows machine is available; when it is not, say in the PR that only macOS was
+checked. Do not weaken the setup's security settings (key-only login, firewall limited to the Mac's IP). On this Mac (macOS 27),
 the pip SciPy wheel for Python 3.10 fails to load (`__thread_bss` zero-fill section error), so `coat-py310` uses
 SciPy from conda-forge (`conda install -n coat-py310 -c conda-forge "scipy<1.16"`). The version comes from
 `src/coating_studio/__init__.py` (hatch).
