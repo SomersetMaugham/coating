@@ -7,6 +7,7 @@ does not import this module (it stays matplotlib-free).
 from __future__ import annotations
 
 import base64
+import contextvars
 import datetime
 import html
 import io
@@ -42,6 +43,29 @@ img { max-width: 100%; } ul { padding-left: 1.3em; }
 """
 
 
+# Print variant (``build_report(print_layout=...)``, used by gui/report_pdf.py): Qt's rich text reads only part of CSS
+# (no max-width, no @media, no page-break avoid), so the PDF gets its own style sheet, explicit text and border colours
+# (a dark GUI palette must not leak onto white paper), full-width wide tables and sized high-resolution images.
+_PRINT = contextvars.ContextVar("report_print_layout", default=None)
+PRINT_DPI = 200
+_PRINT_CSS = """
+body {{ font-family: "{font}"; color: #111827; }}
+h1 {{ font-size: 16pt; color: #111827; }} h2 {{ font-size: 12.5pt; color: #111827; margin-top: 14pt; }}
+p, li, td, th {{ color: #111827; }} .meta {{ color: #5f6b7a; }}
+table {{ border-collapse: collapse; margin-top: 4pt; margin-bottom: 4pt; }}
+th, td {{ border: 1px solid #c9ced6; padding: 3px 6px; vertical-align: top; }}
+th {{ background-color: #f3f4f6; }} td.num {{ text-align: right; }}
+.ok {{ color: #15803d; font-weight: 600; }} .fail {{ color: #c0262d; font-weight: 600; }} .muted {{ color: #5f6b7a; }}
+"""
+
+
+def _table(wide=False):
+    """Opening tag of a report table: full page width for wide tables in the print variant."""
+    if _PRINT.get() is None:
+        return "<table>"
+    return '<table width="100%" cellspacing="0">' if wide else '<table cellspacing="0">'
+
+
 def _e(x):
     return html.escape(str(x))
 
@@ -61,8 +85,17 @@ def _png(fig):
 
     FigureCanvasAgg(fig)
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=110)
-    return '<img alt="" src="data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode("ascii") + '">'
+    layout = _PRINT.get()
+    fig.savefig(buf, format="png", dpi=PRINT_DPI if layout else 110)
+    data = base64.b64encode(buf.getvalue()).decode("ascii")
+    if layout is None:
+        return '<img alt="" src="data:image/png;base64,' + data + '">'
+    # Qt needs both sizes: with the width alone it keeps the image's own height (blank space below)
+    w_in, h_in = fig.get_size_inches()
+    width = layout["image_width"]
+    # in a paragraph of its own: right after a list, Qt otherwise keeps the list's indent and the image overflows
+    return (f'<p style="margin-left:0; text-indent:0"><img alt="" width="{width:.1f}" '
+            f'height="{width * h_in / w_in:.1f}" src="data:image/png;base64,{data}"></p>')
 
 
 def _rl_label(positive):
@@ -238,9 +271,19 @@ def _layer_rows(project):
     return rows
 
 
-def build_report(project, rl_positive=False, references=(), tolerance=None, source=""):
+def build_report(project, rl_positive=False, references=(), tolerance=None, source="", print_layout=None):
     """HTML text of the design report.  ``references``: visible comparison curves to draw; ``tolerance``: the last
-    ToleranceResult / CornerResult (or None); ``source``: the file path to show."""
+    ToleranceResult / CornerResult (or None); ``source``: the file path to show.  ``print_layout``: None for the
+    browser HTML, or {"image_width": width of a full-width image in the target layout's units, "font": family} for
+    the print variant that gui/report_pdf.py lays out with Qt."""
+    token = _PRINT.set(print_layout)
+    try:
+        return _build_report(project, rl_positive, references, tolerance, source, print_layout)
+    finally:
+        _PRINT.reset(token)
+
+
+def _build_report(project, rl_positive, references, tolerance, source, print_layout):
     from coating_studio.mplfonts import configure_matplotlib_fonts
 
     configure_matplotlib_fonts()  # Korean axis labels
@@ -250,7 +293,8 @@ def build_report(project, rl_positive=False, references=(), tolerance=None, sour
         tr("Reflection loss is 20·log₁₀|Γ| in dB (negative, lower is better).")
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     out = [f"<!doctype html><html><head><meta charset='utf-8'><title>{_e(p.name)}</title>"
-           f"<style>{_CSS}</style></head><body>",
+           f"<style>{_CSS if print_layout is None else _PRINT_CSS.format(font=print_layout.get('font', 'sans-serif'))}"
+           "</style></head><body>",
            f"<h1>{_e(p.name)}</h1>",
            f"<p class=meta>{_e(tr('Coating Studio {v} design report', v=__version__))} · {_e(now)}"
            + (f" · {_e(source)}" if source else "") + "</p>"]
@@ -262,7 +306,7 @@ def build_report(project, rl_positive=False, references=(), tolerance=None, sour
         mass = p.areal_mass()
     except Exception:  # noqa: BLE001 - an unresolved material only hides the mass
         mass = float("nan")
-    out.append(f"<h2>{_e(tr('Summary'))}</h2><table>")
+    out.append(f"<h2>{_e(tr('Summary'))}</h2>{_table()}")
     out.append(f"<tr><th>{_e(tr('Total thickness'))}</th><td class=num>{lengths.fmt_length(p.structure.total_thickness(), p.sweep.length_unit)}</td></tr>")
     out.append(f"<tr><th>{_e(tr('Areal mass'))}</th><td class=num>{_num(mass)} kg/m²</td></tr>")
     backing = tr("Metal plate (PEC)") if p.structure.backing.kind == "pec" else p.structure.backing.material
@@ -285,7 +329,7 @@ def build_report(project, rl_positive=False, references=(), tolerance=None, sour
             limits = {r["target"]: r for r in target_limits(p)}
         except Exception:  # noqa: BLE001 - the bound is a hint only
             limits = {}
-        out.append("<table><tr>" + "".join(f"<th>{_e(h)}</th>" for h in (
+        out.append(_table(wide=True) + "<tr>" + "".join(f"<th>{_e(h)}</th>" for h in (
             tr("Target"), tr("Band"), tr("Angles"), tr("Polarisation"), tr("Goal"), tr("Worst RL"), tr("Margin"),
             tr("Rozanov bound"))) + "</tr>")
         for i, (t, (worst, margin)) in enumerate(zip(targets, per_target)):
@@ -308,8 +352,9 @@ def build_report(project, rl_positive=False, references=(), tolerance=None, sour
 
     # layers
     out.append(f"<h2>{_e(tr('Layer stack'))}</h2>")
-    out.append(f"<p class=muted>{_e(tr('Layer 1 faces the incident wave.'))}</p><table><tr>"
-               + "".join(f"<th>{_e(h)}</th>" for h in ("#", tr("Layer"), tr("Material / sheet"), tr("Thickness")))
+    out.append(f"<p class=muted>{_e(tr('Layer 1 faces the incident wave.'))}</p>{_table(wide=True)}<tr>"
+               + ('<th width="4%">#</th>' if print_layout else "<th>#</th>")  # a full-width table spreads "#" too
+               + "".join(f"<th>{_e(h)}</th>" for h in (tr("Layer"), tr("Material / sheet"), tr("Thickness")))
                + "</tr>")
     for i, name, what, thick in _layer_rows(p):
         out.append(f"<tr><td class=num>{i}</td><td>{_e(name)}</td><td>{what}</td><td class=num>{thick}</td></tr>")
