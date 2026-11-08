@@ -40,6 +40,7 @@ Coating Studio의 기능은 지금 GUI로만 쓸 수 있습니다. 코딩 에이
 | `materials` (v5) | 내장 재료 목록: 이름, 종류, note, 명세에 그대로 쓸 수 있는 재료 dict, 최적화 가능한 파라미터와 단위 | 13.7절 |
 | `fit` (v6) | 측정 CSV를 Debye/Lorentz 분산 모델로 맞춰 재료 dict와 잔차를 냄 | 13.8절 |
 | `invert-filler` (v7) | 복합재 측정 CSV에서 충전재의 유효 파라미터를 역산해 CSV로 씀 | 13.9절 |
+| `fss-grid` (v8) | 메시·패치 치수에서 L 또는 C와 각도 계수, 유효 한계를 계산 | 13.10절 |
 
 (v3) `check`는 활성 목표마다 Rozanov 한계 판정(`result.limits`)을 함께 냅니다. `solve`·`optimize`·`tolerance`·`check`는 공통 옵션 `--journal DIR --note TEXT`를 받습니다.
 
@@ -841,6 +842,17 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
 
 **Argon 리뷰**: 지적 14개를 코드와 실험으로 확인해 대부분 반영했습니다. 답변의 Bruggeman 미분 공식은 계수가 틀려(3이 아니라 9) 중앙차분과 대조해 고쳤습니다.
 
+### 13.10 (v8) FSS 격자 치수에서 L·C: `fss-grid`
+조밀한 금속 메시와 패치 배열은 치수에서 L·C를 해석적으로 구할 수 있습니다(Luukkonen 2008, 식 3·4·5·6·8·9). 계산은 `fss.py`(Qt 없음)에 있고 치수는 저장하지 않습니다. L·C가 최적화로 바뀌는 순간 치수와 어긋나기 때문이며, 일회성 계산기이므로 파일 형식은 바뀌지 않습니다.
+
+- **식**: 메시 L = μ₀D/(2π)·ln(1/sin(πw/(2D)))(w: 스트립 폭, ε_eff와 무관), 패치 C = (2ε₀ε_eff D/π)·ln(1/sin(πw/(2D)))(w: 패치 사이 **간격**). 각도 계수는 메시 `L_TM`, 패치 `C_TE` = −1/(2ε_eff).
+- **명령**: `coating-cli fss-grid --pattern {mesh,patch} --period-mm D (--strip-width-mm W | --gap-mm G) --eps-eff E`. 메시는 스트립 폭, 패치는 간격만 받습니다. 플래그를 나눈 이유: 패치 폭을 간격 자리에 넣어도 `0 < w < D`를 통과해 C가 150배 틀리기 때문입니다. 값에 기본값이 없고, 잘못된 값은 `bound`와 같이 usage(종료 2)입니다.
+- **결과**: `L_h`, `C_f`(해당 없으면 null), `angle`, `period_m`, `width_m`, `eps_eff`, `width_ratio`, `caution_limit_hz`, `dense_limit_hz`, `sheet`(명세 단위의 조각), `assumptions`. `sheet`는 `{"L_nh", "C_pf": null, "angle"}`(메시) 또는 `{"L_nh": 0, "C_pf", "angle"}`(패치)로, 순수한 메시·패치를 뜻합니다. `model`과 `R_ohm`은 사용자가 정합니다. 식은 이상 도체 기준이므로 R을 지어내지 않습니다. `width_ratio > 0.5`면 경고 `wide_geometry`.
+- **유효 한계**: `dense_limit_hz` = 0.5·c/(D√ε_eff), `caution_limit_hz` = 0.3·c/(D√ε_eff). 식 4의 조건은 k_eff D ≪ 2π이므로 k_eff D = 2π를 한계로 쓰면 회절 로브를 놓칩니다(D = 10 mm, ε_r = 4에서 k_eff D = 2π는 19 GHz, 기판 로브는 0°에서 15 GHz). ε_eff = (ε_r+1)/2이면 √(2ε_r+2) ≥ √ε_r+1이므로 0.5 한계는 어느 각도의 로브보다도 낮습니다. 0.3은 경험적 기준입니다.
+- **가정**: 정사각 격자, 이상 도체, 주축 평면 입사, w ≪ D, 두꺼운 유전체에서의 ε_eff.
+- **GUI**: RLC 시트 속성의 "From grid dimensions…". 치수는 프로젝트의 두께 단위로 받고, 기본 적용은 시트를 순수하게 만듭니다(메시: C 제거, 패치: L = 0, 다른 쪽 계수 제거). 남은 소자가 있으면 메시의 리액턴스 부호까지 뒤집히기 때문입니다. "Keep the other element"로 유지할 수 있습니다. 스윕과 활성 목표의 최대 주파수를 한 번만 비교합니다. 새 값이 기존 L·C 변수 범위 밖이면 범위 재설정을 제안합니다(기본 켬). 그대로 두면 최적화기가 시작값을 범위 안으로 잘라 치수에서 얻은 값을 잃습니다.
+- **한계**: 패치의 C는 ε_eff에 비례하지만, 적용 뒤 패널에서 ε_eff를 바꾸면 각도 계수만 바뀝니다. 스트립 배열(식 10·11)은 프리셋 되짚기에서 패치와 구별되지 않아 넣지 않았습니다.
+
 ## 부록 A. (v5) 재료 dict 형식 (`.coat`·명세 공통, SI, 접미사 없음)
 모든 종류 공통: `kind`, `name`, `density`(kg/m³, 혼합 재료에는 없음 — 성분에서 계산), `note`.
 
@@ -962,4 +974,12 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
  "prediction": {"at_fractions": [0.1, 0.3], "fraction_sensitivity": {"rms_eps": 0.05, "rms_mu": 0.04},
                 "model_disagreement": {"rms_eps": 0.08, "rms_mu": 0.03}, "model_disagreement_reason": null},
  "validation": [{"csv": "comp30.csv", "fraction": 0.3, "n_points": 171, "rms_eps": 0.02, "rms_mu": 0.03}]}
+```
+
+`fss-grid --pattern patch --period-mm 5 --gap-mm 0.5 --eps-eff 2.2`
+```json
+{"pattern": "patch", "period_m": 0.005, "width_m": 0.0005, "eps_eff": 2.2, "width_ratio": 0.1, "L_h": null, "C_f": 1.15e-13,
+ "angle": {"C_TE": -0.2273}, "caution_limit_hz": 1.21e10, "dense_limit_hz": 2.02e10,
+ "sheet": {"L_nh": 0.0, "C_pf": 0.115, "angle": {"C_TE": -0.2273}},
+ "assumptions": ["dense square lattice", "ideal conductors", "incidence in a principal plane", "width or gap much smaller than the period", "eps_eff = (eps_r + 1)/2 needs a dielectric thick compared with the period"]}
 ```

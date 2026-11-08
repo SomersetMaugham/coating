@@ -157,6 +157,27 @@ KO.update({
         "커패시터 켜기/끄기. 커패시터가 없으면 직렬 시트는 유도성 격자(R + jωL)가 되고, 병렬 시트는 용량성 가지가 없어집니다.",
     "Parallel RLC": "병렬 RLC", "no inductor": "인덕터 없음",
     "None": "없음", "Custom": "사용자 지정",
+    "From grid dimensions": "격자 치수에서 계산", "From grid dimensions…": "격자 치수에서 계산…", "Pattern": "패턴",
+    "Period D": "주기 D", "Strip width w": "스트립 폭 w", "Gap between patches w": "패치 사이 간격 w",
+    "Keep the other element": "다른 소자 유지", "Apply grid dimensions": "격자 치수 적용",
+    "Reset its optimisation range around the new value": "새 값 주변으로 최적화 범위 재설정",
+    "Off: a mesh removes C and a patch removes L, so the sheet is the one the formula describes.":
+        "끄면 메시는 C를, 패치는 L을 제거해 식이 설명하는 시트가 됩니다.",
+    "Dense square lattice of ideal conductors, incidence in a principal plane, width or gap much smaller than the period. ε_eff = (ε_r + 1)/2 needs a dielectric thick compared with the period. The dimensions are not saved.":
+        "이상 도체의 조밀한 정사각 격자, 주축 평면 입사, 주기보다 훨씬 작은 폭 또는 간격을 가정합니다. ε_eff = (ε_r + 1)/2는 주기에 비해 두꺼운 유전체가 필요합니다. 치수는 저장되지 않습니다.",
+    "The width must be positive and smaller than the period.": "폭은 양수이고 주기보다 작아야 합니다.",
+    "R stays at {r} Ω/sq; the formula is for ideal conductors.": "R은 {r} Ω/sq로 유지됩니다. 이 식은 이상 도체 기준입니다.",
+    "Valid well below {limit}; caution above {caution}.": "{limit}보다 충분히 낮은 주파수에서 유효합니다. {caution} 이상에서는 주의하십시오.",
+    "The sweep or a target reaches {f}, above the validity limit (checked once, now).":
+        "스윕이나 목표가 {f}까지 이르러 유효 한계를 넘습니다 (지금 한 번만 확인).",
+    "The sweep or a target reaches {f}, in the caution range (checked once, now).":
+        "스윕이나 목표가 {f}까지 이르러 주의 구간에 듭니다 (지금 한 번만 확인).",
+    "The width is more than half of the period; the formula assumes it is much smaller.":
+        "폭이 주기의 절반을 넘습니다. 이 식은 훨씬 작은 폭을 가정합니다.",
+    "Changes only the angle coefficients: a capacitance computed from grid dimensions is not recalculated.":
+        "각도 계수만 바꿉니다. 격자 치수에서 계산한 커패시턴스는 다시 계산되지 않습니다.",
+    "Compute L or C and the angle dependence from the dimensions of a metal mesh or patch array.":
+        "금속 메시나 패치 배열의 치수에서 L 또는 C와 각도 의존을 계산합니다.",
     "Metal mesh": "금속 메시", "Patch array": "패치 배열", "Angle dependence": "각도 의존", "Effective ε": "유효 ε",
     "Coefficients": "계수", "angle coefficients": "각도 계수", "Change angle dependence": "각도 의존 변경",
     "These values are at normal incidence.": "이 값들은 수직 입사 기준입니다.",

@@ -165,6 +165,14 @@ def build_parser():
     inv.add_argument("--validate", nargs=2, action="append", default=[], metavar=("CSV", "FRACTION"),
                      help="composite at another loading, to test the prediction (same fraction basis as above)")
 
+    fg = sp.add_parser("fss-grid", help="L or C of a dense metal mesh or patch array from its dimensions")
+    fg.add_argument("--pattern", required=True, choices=("mesh", "patch"))
+    fg.add_argument("--period-mm", type=float, required=True)
+    width = fg.add_mutually_exclusive_group(required=True)
+    width.add_argument("--strip-width-mm", type=float, help="mesh: width of the strips")
+    width.add_argument("--gap-mm", type=float, help="patch array: gap between the patches, not their width")
+    fg.add_argument("--eps-eff", type=float, required=True, help="(eps_r + 1)/2 on a substrate, 1 in free space")
+
     bu = sp.add_parser("build", help="build a .coat project from a design spec (JSON)")
     bu.add_argument("spec")
     bu.add_argument("--output", "-o", required=True)
@@ -213,6 +221,8 @@ def _run(args, control):
         return C.cmd_invert_filler(args.composite, args.output, args.model, args.density_filler, args.fraction,
                                    args.fraction_wt, args.density_matrix, args.matrix_csv, args.matrix_eps,
                                    args.matrix_mu, args.name, args.clamp_nonpassive, args.validate, args.force)
+    if c == "fss-grid":
+        return C.cmd_fss_grid(args.pattern, args.period_mm, args.strip_width_mm, args.gap_mm, args.eps_eff)
     if c == "build":
         return C.cmd_build(args.spec, args.output, args.force)
     if c == "spec":

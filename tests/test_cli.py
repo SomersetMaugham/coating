@@ -64,7 +64,8 @@ def test_cli_never_imports_qt_or_matplotlib(tmp_path):
         p = {str(path)!r}
         for argv in (["examples", "save", "salisbury", "-o", p, "--force"], ["info", p], ["check", p],
                      ["solve", p, "--targets"], ["optimize", p, "--maxiter", "3", "--seed", "1"],
-                     ["tolerance", p, "--n-samples", "5"], ["examples", "list"], *{invert_argv!r}):
+                     ["tolerance", p, "--n-samples", "5"], ["examples", "list"], *{invert_argv!r},
+                     ["fss-grid", "--pattern", "mesh", "--period-mm", "5", "--strip-width-mm", "0.5", "--eps-eff", "1"]):
             assert main(argv, stdout=io.StringIO(), stderr=io.StringIO()) == 0, argv
         bad = [m for m in sys.modules if m.startswith(("PySide6", "matplotlib"))]
         assert not bad, bad

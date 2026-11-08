@@ -64,6 +64,8 @@ would silently use the old file). Prefer a new file name per trial (`d1.coat`, `
   RLC sheets take an optional `"angle": {"L_TE": 0, "L_TM": -0.25, "C_TE": 0, "C_TM": 0}`: L or C of that polarisation becomes value × (1 + a·s²), s² = n_inc² sin²θ.
   A metal mesh has `L_TM` = −1/(2 ε_eff), a patch array `C_TE` = −1/(2 ε_eff), ε_eff = (ε_r + 1)/2 for a grid on a substrate. Use it only for dense arrays (no grating lobes), and ask the user
   for the pattern: do not assume one. The other coefficients are not published values.
+  `coating-cli fss-grid --pattern mesh --period-mm D --strip-width-mm W --eps-eff E` (or `--pattern patch ... --gap-mm G`, the gap between patches, not their width) computes L or C and the coefficient from dimensions the user
+  gave you. Merge `result.sheet` into the sheet and choose `model` and `R_ohm` with the user: the formulas are for ideal conductors, so do not invent R. Stay below `dense_limit_hz`, and mention `caution_limit_hz` and `assumptions`.
 - Tolerance values (`tolerance.thickness`, `eps`, `mu`, `sheet`, `eps_loss`, `mu_loss`) are relative (0.05 = 5 %),
   1 σ for `"normal"`, ± half-width for `"uniform"`. `tolerance.loss_correlation` (−1…1, default 0) correlates each
   layer's real-part and loss errors (ε′ with ε″, μ′ with μ″) where a loss tolerance is set; use it only when the

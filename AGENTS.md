@@ -54,7 +54,7 @@ parameters. Use the CLI, not the GUI, for the search; the design rationale is in
 ## Architecture
 
 Layers are kept strictly separate. Nothing under `core/`, `materials/`, `optimize/`, `cli/`, `project.py`,
-`tolerance.py`, `limits.py`, `comparison.py`, `diagnostics.py`, `touchstone.py`, `report.py`, `spectral.py`, `lengths.py` or `mplfonts.py` may import Qt (or matplotlib, for `cli/`; a test checks this). Only `gui/` uses PySide6. `i18n.detect_system_language` is the one
+`tolerance.py`, `limits.py`, `comparison.py`, `diagnostics.py`, `fss.py`, `touchstone.py`, `report.py`, `spectral.py`, `lengths.py` or `mplfonts.py` may import Qt (or matplotlib, for `cli/`; a test checks this). Only `gui/` uses PySide6. `i18n.detect_system_language` is the one
 exception, and it falls back if Qt is missing.
 
 - **`core/`**: the physics engine. `solve(structure, materials, f, theta_deg)` returns a

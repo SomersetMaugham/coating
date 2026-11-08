@@ -126,11 +126,18 @@ class PropertiesPanel(QWidget):
         form.addRow(tr("Angle dependence"), self.cb_angle)
         self.sp_eps_eff = SciSpinBox(minimum=1.0, maximum=1e6)
         self.sp_eps_eff.setToolTip(tr("Effective permittivity around the grid: (ε_r + 1)/2 on a substrate, ε_r when "
-                                      "embedded, 1 in free space."))
+                                      "embedded, 1 in free space.") + "\n"
+                                   + tr("Changes only the angle coefficients: a capacitance computed from grid "
+                                        "dimensions is not recalculated."))
         self.sp_eps_eff.valueEdited.connect(self._on_eps_eff)
         form.addRow(tr("Effective ε"), self.sp_eps_eff)
         self.lbl_angle = muted()
         form.addRow(tr("Coefficients"), self.lbl_angle)
+        self.btn_grid = QPushButton(tr("From grid dimensions…"))
+        self.btn_grid.setToolTip(tr("Compute L or C and the angle dependence from the dimensions of a metal mesh or "
+                                    "patch array."))
+        self.btn_grid.clicked.connect(self._on_grid)
+        form.addRow("", self.btn_grid)
         self.lbl_info = muted()
         form.addRow("", self.lbl_info)
         self._form = form
@@ -210,11 +217,13 @@ class PropertiesPanel(QWidget):
                 preset, eps_eff = infer_angle_preset(ly) if rlc else ("none", None)
                 for w, vis in ((self.row_material, slab), (self.row_thick, slab), (self.row_model, not slab),
                                (self.row_R, not slab), (self.row_X, not slab and not rlc),
-                               (self.row_L, rlc), (self.row_C, rlc), (self.cb_angle, rlc),
+                               (self.row_L, rlc), (self.row_C, rlc), (self.cb_angle, rlc), (self.btn_grid, rlc),
                                (self.sp_eps_eff, rlc and preset in ("mesh", "patch")),
                                (self.lbl_angle, rlc and preset == "custom")):
                     w.setVisible(vis)
-                    self._form.labelForField(w).setVisible(vis)
+                    label = self._form.labelForField(w)
+                    if label is not None:  # a row added with no label has none
+                        label.setVisible(vis)
                 if slab:
                     self.cb_material.clear()
                     self.cb_material.addItems(names)
@@ -357,6 +366,29 @@ class PropertiesPanel(QWidget):
                 ly.L, ly.C = 5e-9, 0.05e-12  # f0 ~ 10 GHz; R is kept
             _drop_missing_vars(p, ly)
         self.doc.edit(tr("Change sheet model"), mut)
+
+    def _on_grid(self):
+        from coating_studio.gui.dialogs.fss_grid import FssGridDialog
+        dlg = FssGridDialog(self.doc.project, self.doc.project.structure.layer_by_uid(self.uid), self)
+        if dlg.exec():
+            self.apply_grid(dlg)
+
+    def apply_grid(self, dlg):
+        """Apply an accepted dialog as one undoable edit."""
+        from coating_studio.fss import apply_to_sheet
+        uid, element, keep = self.uid, dlg.element, dlg.chk_keep.isChecked()
+        reset = dlg.chk_bounds.isChecked()
+
+        def mut(p):
+            ly = p.structure.layer_by_uid(uid)
+            apply_to_sheet(ly, element, keep)
+            _drop_missing_vars(p, ly)
+            attr = "L" if element.pattern == "mesh" else "C"
+            value = getattr(ly, attr)
+            for v in p.optimization.variables:
+                if reset and tuple(v.path) == ("layer", uid, attr) and not v.lower <= value <= v.upper:
+                    v.lower, v.upper = default_lc_bounds(attr, value)
+        self.doc.edit(tr("Apply grid dimensions"), mut)
 
     def _set_angle(self, preset, eps_eff, merge_key=None):
         uid = self.uid

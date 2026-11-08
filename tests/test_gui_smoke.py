@@ -620,6 +620,111 @@ def test_angle_dependence_editing(app):
     w.close()
 
 
+def test_grid_dimensions_dialog(app):
+    """The dialog computes without changing anything; applying is one undoable edit."""
+    from coating_studio.core.units import to_length
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.fss import grid_element
+    from coating_studio.gui.dialogs.fss_grid import FssGridDialog
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.project import ContinuousVariable
+    from PySide6.QtWidgets import QDialogButtonBox
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["cara"][1]())
+    sheet = w.project.structure.layers[0]
+    w.w_layers.select_uid(sheet.uid)
+    pp = w.w_props
+    pp.set_layer(sheet.uid)
+    assert pp.btn_grid.isVisibleTo(pp)
+
+    def dialog():
+        return FssGridDialog(w.project, w.project.structure.layers[0], pp)
+
+    r, l0, c0 = sheet.R, sheet.L, sheet.C
+    d = dialog()
+    ok = d.bb.button(QDialogButtonBox.Ok)
+    assert d.form.labelForField(d.sp_width).text() == "Strip width w" and ok.isEnabled()
+    d.cb_pattern.setCurrentIndex(d.cb_pattern.findData("patch"))
+    assert d.form.labelForField(d.sp_width).text() == "Gap between patches w"
+    assert "C = " in d.lbl_result.text() and "pF" in d.lbl_result.text()
+    assert w.project.structure.layers[0].L == l0  # nothing changes until it is applied
+    d.sp_width.setValue(6.0)
+    assert not ok.isEnabled() and "smaller than the period" in d.lbl_result.text()
+    d.sp_width.setValue(0.5)
+    d.sp_eps.setValue(2.2)
+    assert ok.isEnabled()
+    d._accept()
+    el = grid_element("patch", 5e-3, 0.5e-3, 2.2)
+    assert d.element.C == pytest.approx(el.C, rel=1e-12)
+    depth = w.doc.undo_stack.count()
+    pp.apply_grid(d)
+    sheet = w.project.structure.layers[0]
+    assert (sheet.R, sheet.L) == (r, 0.0) and sheet.C == pytest.approx(el.C, rel=1e-12)
+    assert sheet.a_c_te == pytest.approx(el.angle["C_TE"]) and pp.cb_angle.currentData() == "patch"
+    assert pp.sp_eps_eff.value() == pytest.approx(2.2) and w.doc.undo_stack.count() == depth + 1
+    w.doc.undo_stack.undo()
+    sheet = w.project.structure.layers[0]
+    assert (sheet.L, sheet.C, sheet.angle_dict()) == (l0, c0, None)
+    # a value outside the variable's range offers a reset, on by default; the variables stay consistent
+    pp.set_layer(sheet.uid)
+    uid = sheet.uid
+    w.doc.edit("x", lambda p: setattr(p.optimization, "variables",
+                                      [ContinuousVariable(("layer", uid, "L"), 0.5e-9, 1e-9),
+                                       ContinuousVariable(("layer", uid, "C"), 0.01e-12, 0.1e-12)]))
+    d = dialog()
+    assert d.chk_bounds.isVisibleTo(d) and d.chk_bounds.isChecked()
+    d._accept()
+    pp.apply_grid(d)
+    paths = {tuple(v.path)[2]: v for v in w.project.optimization.variables}
+    new_l = w.project.structure.layers[0].L
+    assert "C" not in paths and paths["L"].lower <= new_l <= paths["L"].upper  # no capacitor left, range follows
+    w.doc.undo_stack.undo()
+    d = dialog()
+    d.chk_bounds.setChecked(False)
+    d._accept()
+    pp.apply_grid(d)
+    v = [x for x in w.project.optimization.variables if tuple(x.path)[2] == "L"][0]
+    assert (v.lower, v.upper) == (0.5e-9, 1e-9)  # declined
+    w.doc.undo_stack.undo()
+    # keep the other element
+    d = dialog()
+    d.chk_keep.setChecked(True)
+    d._accept()
+    pp.apply_grid(d)
+    assert w.project.structure.layers[0].C == c0
+    w.doc.undo_stack.undo()
+    # warnings against the sweep and the enabled targets
+    d = dialog()
+    w.project.sweep.f_max = 2e9
+    for t in w.project.optimization.targets:
+        t.f_min, t.f_max = 2e9, 3e9
+    d._update()
+    assert d.lbl_warn.text() == ""
+    w.project.optimization.targets[0].f_max = el.caution_hz * 1.1 * 1.5
+    d.sp_eps.setValue(1.0)
+    d._update()
+    assert "reaches" in d.lbl_warn.text()
+    d.sp_width.setValue(4.0)
+    assert "more than half" in d.lbl_warn.text()
+    # the dimensions follow the project's length unit, and the limit its spectral unit
+    w.project.sweep.length_unit, w.project.sweep.spectral_unit = "um", "um"
+    d = dialog()
+    assert d.sp_period.suffix().strip() == "µm" and d.sp_period.value() == pytest.approx(to_length(5e-3, "um"))
+    assert "µm" in d.lbl_result.text() and "GHz" not in d.lbl_result.text()
+    d._accept()
+    assert d.element.period == pytest.approx(5e-3)
+    # only RLC sheets have the button
+    w.project.sweep.length_unit, w.project.sweep.spectral_unit = "mm", "GHz"
+    slab = w.project.structure.layers[1]
+    pp.set_layer(slab.uid)
+    assert not pp.btn_grid.isVisibleTo(pp)
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()
+
+
 def test_loss_tolerance_panel(app):
     """Independent ε″/μ″ tolerances: default rows with Follow checkboxes and an 8-column table (with ρ)."""
     from coating_studio.examples import EXAMPLES
