@@ -48,7 +48,7 @@ KO.update({
     "<b>Layer order</b>: the top row of the layer stack faces the incident wave.<br><b>TE</b>: E perpendicular "
     "to the plane of incidence; <b>TM</b>: H perpendicular. Average = unpolarised power average.<br>"
     "<b>Resistive sheet</b>: shunt impedance Zs = R + jX in Ω/sq (free space ≈ 376.7 Ω/sq), or a series RLC "
-    "circuit Zs = R + jωL + 1/(jωC) (inductive X &gt; 0). The RLC values are normal-incidence lumped values used "
+    "circuit Zs = R + jωL + 1/(jωC) (inductive X &gt; 0), or a parallel RLC circuit 1/Zs = 1/R + jωC + 1/(jωL). The RLC values are normal-incidence lumped values used "
     "for every angle and polarisation - valid for sub-wavelength unit cells below the grating-lobe onset.<br>"
     "<b>Units</b>: GHz, mm, degrees, S/m, g/cm³; the engine works in SI. The spectral axis (plots, sweep "
     "and band inputs, exports) can show THz, vacuum wavelength in µm or nm, or wavenumber in cm⁻¹ instead "
@@ -58,7 +58,7 @@ KO.update({
         "있습니다.<br><b>Γ</b>는 접선 방향 전기장의 반사계수입니다.<br><b>층 순서</b>: 층 스택의 맨 위 행이 "
         "입사파를 마주합니다.<br><b>TE</b>: 전기장이 입사면에 수직, <b>TM</b>: 자기장이 입사면에 수직. "
         "평균 = 비편광 전력 평균.<br><b>저항 시트</b>: 병렬 임피던스 Zs = R + jX [Ω/sq] (자유공간 ≈ 376.7 Ω/sq) "
-        "또는 직렬 RLC 회로 Zs = R + jωL + 1/(jωC) (유도성 X &gt; 0). RLC 값은 수직 입사 기준의 집중 소자 "
+        "또는 직렬 RLC 회로 Zs = R + jωL + 1/(jωC) (유도성 X &gt; 0), 병렬 RLC 회로 1/Zs = 1/R + jωC + 1/(jωL). RLC 값은 수직 입사 기준의 집중 소자 "
         "값으로 모든 입사각과 편광에 그대로 쓰이며, 단위 셀이 파장보다 충분히 작고 회절 로브가 생기기 전까지 "
         "유효합니다.<br><b>단위</b>: GHz, mm, 도, S/m, g/cm³ (엔진 내부는 SI 단위). 스펙트럼 축(그래프, 스윕·대역 "
         "입력, 내보내기)은 해석 설정에서 THz, 진공 파장 µm·nm, 파수 cm⁻¹로 바꿀 수 있습니다. 재료 모델 파라미터는 "
@@ -153,8 +153,14 @@ KO.update({
     "Zs({f} GHz) = {z} Ω/sq": "Zs({f} GHz) = {z} Ω/sq",
     "f₀ is outside the frequency sweep.": "f₀가 주파수 스윕 범위 밖에 있습니다.",
     "Series RLC sheet: R {r} Ω/sq, L {l} nH, C {c}": "직렬 RLC 시트: R {r} Ω/sq, L {l} nH, C {c}",
-    "Capacitor on/off. Without a capacitor the sheet is an inductive grid (R + jωL).":
-        "커패시터 켜기/끄기. 커패시터가 없으면 유도성 격자(R + jωL)가 됩니다.",
+    "Capacitor on/off. Without a capacitor a series sheet is an inductive grid (R + jωL) and a parallel sheet has no capacitive branch.":
+        "커패시터 켜기/끄기. 커패시터가 없으면 직렬 시트는 유도성 격자(R + jωL)가 되고, 병렬 시트는 용량성 가지가 없어집니다.",
+    "Parallel RLC": "병렬 RLC", "no inductor": "인덕터 없음",
+    "Resistive, no reactive elements": "저항성 (리액턴스 소자 없음)",
+    "In a parallel RLC sheet, 0 means no inductor.": "병렬 RLC 시트에서는 0이면 인덕터가 없습니다.",
+    "Parallel RLC sheet: R {r} Ω/sq, L {l}, C {c}": "병렬 RLC 시트: R {r} Ω/sq, L {l}, C {c}",
+    "Parallel RLC: 1/Zs = 1/R + jωC + 1/(jωL); the sheet opens at resonance, as slot and aperture patterns do.":
+        "병렬 RLC: 1/Zs = 1/R + jωC + 1/(jωL). 슬롯·개구형 패턴처럼 공진에서 시트가 열립니다.",
     "Series RLC: Zs = R + jωL + 1/(jωC), the equivalent circuit of a patterned (circuit-analog / FSS) layer. "
     "The circuit values are normal-incidence lumped values used for every angle and polarisation - valid for "
     "sub-wavelength unit cells.":

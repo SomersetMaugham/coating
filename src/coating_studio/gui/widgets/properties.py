@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 
 import math
 
-from coating_studio.core.structure import SlabLayer
+from coating_studio.core.structure import RLC_MODELS, SlabLayer
 from coating_studio import lengths
 from coating_studio.gui import spectral
 from coating_studio.gui.fmt import fmt_num
@@ -91,10 +91,13 @@ class PropertiesPanel(QWidget):
         self.cb_model = QComboBox()
         self.cb_model.addItem(tr("Constant (R + jX)"), "constant")
         self.cb_model.addItem(tr("Series RLC"), "rlc")
+        self.cb_model.addItem(tr("Parallel RLC"), "parallel_rlc")
         self.cb_model.setToolTip(tr("Series RLC: Zs = R + jωL + 1/(jωC), the equivalent circuit of a patterned "
                                     "(circuit-analog / FSS) layer. The circuit values are normal-incidence "
                                     "lumped values used for every angle and polarisation - valid for "
-                                    "sub-wavelength unit cells."))
+                                    "sub-wavelength unit cells.") + "\n"
+                                 + tr("Parallel RLC: 1/Zs = 1/R + jωC + 1/(jωL); the sheet opens at resonance, as "
+                                      "slot and aperture patterns do."))
         self.cb_model.activated.connect(self._on_model)
         form.addRow(tr("Model"), self.cb_model)
         self.row_model = self.cb_model
@@ -103,9 +106,11 @@ class PropertiesPanel(QWidget):
         self.sp_X, self.opt_X, self.row_X = self._num_row(-1e9, 1e9, "Ω/sq", "X")
         form.addRow(tr("Reactance X"), self.row_X)
         self.sp_L, self.opt_L, self.row_L = self._num_row(0.0, 1e6, "nH", "L")
+        self.sp_L.setToolTip(tr("In a parallel RLC sheet, 0 means no inductor."))
         form.addRow(tr("Inductance L"), self.row_L)
         self.chk_C = QCheckBox()  # no text: the row label says "Capacitance C" and the panel is narrow
-        self.chk_C.setToolTip(tr("Capacitor on/off. Without a capacitor the sheet is an inductive grid (R + jωL)."))
+        self.chk_C.setToolTip(tr("Capacitor on/off. Without a capacitor a series sheet is an inductive grid (R + jωL) "
+                                 "and a parallel sheet has no capacitive branch."))
         self.chk_C.toggled.connect(self._on_capacitor)
         self.sp_C, self.opt_C, self.row_C = self._num_row(1e-9, 1e9, "pF", "C")
         self.row_C.layout().insertWidget(0, self.chk_C)
@@ -185,7 +190,7 @@ class PropertiesPanel(QWidget):
             if ly is not None:
                 self.ed_name.setText(ly.name)
                 slab = isinstance(ly, SlabLayer)
-                rlc = not slab and ly.model == "rlc"
+                rlc = not slab and ly.is_rlc
                 for w, vis in ((self.row_material, slab), (self.row_thick, slab), (self.row_model, not slab),
                                (self.row_R, not slab), (self.row_X, not slab and not rlc),
                                (self.row_L, rlc), (self.row_C, rlc)):
@@ -223,7 +228,7 @@ class PropertiesPanel(QWidget):
                         it.setCheckState(Qt.Checked if n in chosen else Qt.Unchecked)
                         self.lst_cand.addItem(it)
                 else:
-                    self.cb_model.setCurrentIndex(1 if rlc else 0)
+                    self.cb_model.setCurrentIndex(max(0, self.cb_model.findData(ly.model)))
                     self.sp_R.set_value(ly.R)
                     self.sp_X.set_value(ly.X)
                     self.opt_R.setChecked(self._has_var("R"))
@@ -231,6 +236,7 @@ class PropertiesPanel(QWidget):
                     if rlc:
                         self.sp_L.set_value(ly.L * 1e9)
                         self.opt_L.setChecked(self._has_var("L"))
+                        self.opt_L.setEnabled(ly.has_param("L"))
                         has_c = ly.C is not None
                         self.chk_C.setChecked(has_c)
                         self.sp_C.setEnabled(has_c)
@@ -290,8 +296,10 @@ class PropertiesPanel(QWidget):
         parts = []
         f0 = ly.resonance()
         if f0 is not None:
-            q = math.sqrt(ly.L / ly.C) / ly.R
+            q = ly.R * math.sqrt(ly.C / ly.L) if ly.model == "parallel_rlc" else math.sqrt(ly.L / ly.C) / ly.R
             parts.append(tr("f₀ = {f} GHz · Q = {q}", f=fmt_num(f0 / 1e9, 4), q=fmt_num(q, 3)))
+        elif ly.model == "parallel_rlc" and ly.C is None and ly.L <= 0:
+            parts.append(tr("Resistive, no reactive elements"))
         elif ly.C is None:
             parts.append(tr("Inductive grid (no resonance)"))
         else:
@@ -312,8 +320,9 @@ class PropertiesPanel(QWidget):
             ly = p.structure.layer_by_uid(uid)
             if ly.model == model:
                 return
+            was_constant = ly.model == "constant"
             ly.model = model
-            if model == "rlc" and ly.L == 0 and ly.C is None:
+            if was_constant and model in RLC_MODELS and ly.L == 0 and ly.C is None:
                 ly.L, ly.C = 5e-9, 0.05e-12  # f0 ~ 10 GHz; R is kept
             _drop_missing_vars(p, ly)
         self.doc.edit(tr("Change sheet model"), mut)
@@ -339,8 +348,13 @@ class PropertiesPanel(QWidget):
         label = {"thickness": tr("Change thickness"), "R": tr("Change sheet resistance"),
                  "X": tr("Change sheet reactance"), "L": tr("Change sheet inductance"),
                  "C": tr("Change sheet capacitance")}[attr]
-        self.doc.edit(label, lambda p: setattr(p.structure.layer_by_uid(uid), attr, value),
-                      merge_key=("layer", uid, attr))
+
+        def mut(p):
+            ly = p.structure.layer_by_uid(uid)
+            setattr(ly, attr, value)
+            if attr == "L":  # a parallel sheet loses its L variable when L goes to 0 (no inductor)
+                _drop_missing_vars(p, ly)
+        self.doc.edit(label, mut, merge_key=("layer", uid, attr))
 
     def _on_opt(self, attr, on):
         if self._loading or self.uid is None:

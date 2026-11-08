@@ -121,21 +121,29 @@ class LayerStackWidget(QWidget):
                     what = ly.material
                     val = lengths.fmt_length(ly.thickness, lengths.unit_of(self.doc.project))
                     missing = ly.material not in self.doc.project.materials
-                elif ly.model == "rlc":
+                elif ly.is_rlc:
+                    parallel = ly.model == "parallel_rlc"
+                    mark = "∥" if parallel else ""
                     kind = ly.name or tr("RLC sheet")
                     # compact for the narrow dock: the resonance next to the type, R as the value;
                     # R, L and C in full are in the tooltip
                     f0 = ly.resonance()
                     if f0 is not None:
-                        what = f"RLC · f₀ {fmt_num(f0 / 1e9, 3)} GHz"
+                        what = f"RLC∥ f₀ {fmt_num(f0 / 1e9, 3)} GHz" if parallel else f"RLC · f₀ {fmt_num(f0 / 1e9, 3)} GHz"
+                    elif parallel and ly.C is None and ly.L <= 0:
+                        what = f"R{mark}"
                     elif ly.C is None:
-                        what = f"RL · {fmt_num(ly.L * 1e9, 3)} nH"
+                        what = f"RL{mark} · {fmt_num(ly.L * 1e9, 3)} nH"
                     else:
-                        what = f"RC · {fmt_num(ly.C * 1e12, 3)} pF"
+                        what = f"RC{mark} · {fmt_num(ly.C * 1e12, 3)} pF"
                     val = f"{fmt_num(ly.R, 4)} Ω/sq"
-                    tip = tr("Series RLC sheet: R {r} Ω/sq, L {l} nH, C {c}", r=fmt_num(ly.R, 5),
-                             l=fmt_num(ly.L * 1e9, 5),
-                             c=f"{fmt_num(ly.C * 1e12, 5)} pF" if ly.C is not None else tr("none"))
+                    c_text = f"{fmt_num(ly.C * 1e12, 5)} pF" if ly.C is not None else tr("none")
+                    if parallel:
+                        tip = tr("Parallel RLC sheet: R {r} Ω/sq, L {l}, C {c}", r=fmt_num(ly.R, 5), c=c_text,
+                                 l=f"{fmt_num(ly.L * 1e9, 5)} nH" if ly.L > 0 else tr("none"))
+                    else:
+                        tip = tr("Series RLC sheet: R {r} Ω/sq, L {l} nH, C {c}", r=fmt_num(ly.R, 5),
+                                 l=fmt_num(ly.L * 1e9, 5), c=c_text)
                     if f0 is not None:
                         tip += "\n" + tr("f₀ = {f} GHz", f=fmt_num(f0 / 1e9, 4))
                     missing = False

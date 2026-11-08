@@ -222,6 +222,10 @@ def validate_settings(project: Project, s: OptimizationSettings):
             get_param(project, v.path)
         except (KeyError, AttributeError, IndexError):
             raise OptimizationError(f"variable {v.path} no longer exists") from None
+        if tuple(v.path[0::2]) == ("layer", "L") and v.lower <= 0 \
+                and project.structure.layer_by_uid(v.path[1]).model == "parallel_rlc":
+            # L -> 0+ shorts the sheet while L = 0 means no inductor: the range must not reach that jump
+            raise OptimizationError(f"variable {v.path}: the lower bound of a parallel L must be above zero")
     for c in s.choices:
         if not c.candidates:
             raise OptimizationError("material choice without candidates")

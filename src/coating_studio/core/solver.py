@@ -182,7 +182,7 @@ def solve(structure: Structure, materials, f, theta_deg=0.0, pols=("TE", "TM"),
                 zref = zc
                 store[idx] = ("slab", zc, kz, d, gb)
             elif isinstance(ly, SheetLayer):
-                if ly.model == "rlc":
+                if ly.is_rlc:
                     if not ly.R > 0 or ly.L < 0 or (ly.C is not None and not ly.C > 0):
                         raise SolverError("RLC sheet needs R > 0, L >= 0 and C > 0")
                     # independent R / L / C factors so a tolerance can shift the resonance

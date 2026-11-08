@@ -496,6 +496,68 @@ def test_rlc_sheet_editing(app):
     w.close()
 
 
+def test_parallel_rlc_sheet_editing(app):
+    """Parallel-RLC sheets: the model switch, f0 and Q, and L = 0 as "no inductor"."""
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["cara"][1]())
+    sheet = w.project.structure.layers[0]
+    w.w_layers.select_uid(sheet.uid)
+    pp = w.w_props
+    pp.set_layer(sheet.uid)
+    r, l, c = sheet.R, sheet.L, sheet.C
+    i = pp.cb_model.findData("parallel_rlc")
+    pp.cb_model.setCurrentIndex(i)
+    pp.cb_model.activated.emit(i)
+    sheet = w.project.structure.layers[0]
+    assert sheet.model == "parallel_rlc" and (sheet.L, sheet.C) == (l, c)  # series -> parallel keeps the values
+    pp.set_layer(sheet.uid)
+    assert pp.cb_model.currentData() == "parallel_rlc" and pp.row_L.isVisibleTo(pp) and not pp.row_X.isVisibleTo(pp)
+    q = fmt_q = r * (c / l) ** 0.5
+    from coating_studio.gui.fmt import fmt_num
+    assert f"Q = {fmt_num(fmt_q, 3)}" in pp.lbl_info.text() and q > 0
+    assert w.w_layers.table.item(0, 2).text().startswith("RLC∥ f₀")
+    assert "L 4 nH" in w.w_layers.table.item(0, 3).toolTip()
+    # L = 0 removes the inductor, its optimisation variable and the Opt. box, in one undoable edit
+    paths = lambda: [tuple(v.path) for v in w.project.optimization.variables]  # noqa: E731
+    pp.opt_L.setChecked(True)
+    assert ("layer", sheet.uid, "L") in paths() and pp.opt_L.isEnabled()
+    pp.sp_L.setValue(0.0)
+    sheet = w.project.structure.layers[0]
+    assert sheet.L == 0.0 and ("layer", sheet.uid, "L") not in paths()
+    assert not pp.opt_L.isEnabled() and not pp.opt_L.isChecked()
+    assert w.w_layers.table.item(0, 2).text().startswith("RC∥")
+    w.w_layers.refresh()
+    assert "L none" in w.w_layers.table.item(0, 3).toolTip() or "L 없음" in w.w_layers.table.item(0, 3).toolTip()
+    pp.chk_C.setChecked(False)
+    sheet = w.project.structure.layers[0]
+    assert sheet.C is None and "Resistive, no reactive" in pp.lbl_info.text()
+    assert w.w_layers.table.item(0, 2).text() == "R∥"
+    # an RLC sheet that was deliberately emptied keeps its values when the model is switched
+    i = pp.cb_model.findData("rlc")
+    pp.cb_model.setCurrentIndex(i)
+    pp.cb_model.activated.emit(i)
+    sheet = w.project.structure.layers[0]
+    assert sheet.model == "rlc" and sheet.L == 0.0 and sheet.C is None
+    # from a constant sheet the parallel model starts near 10 GHz, like the series one
+    w.w_layers.add_sheet()
+    new = [ly for ly in w.project.structure.layers if ly.uid != sheet.uid and hasattr(ly, "model")][-1]
+    pp.set_layer(new.uid)
+    i = pp.cb_model.findData("parallel_rlc")
+    pp.cb_model.setCurrentIndex(i)
+    pp.cb_model.activated.emit(i)
+    new = w.project.structure.layer_by_uid(new.uid)
+    assert (new.L, new.C) == (5e-9, 0.05e-12)
+    w.recompute()
+    assert w.results.get("freq") is not None, w.result_error
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()
+
+
 def test_loss_tolerance_panel(app):
     """Independent ε″/μ″ tolerances: default rows with Follow checkboxes and an 8-column table (with ρ)."""
     from coating_studio.examples import EXAMPLES
