@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 import math
 
 from coating_studio.core.structure import SlabLayer
+from coating_studio.gui import spectral
 from coating_studio.gui.fmt import fmt_num
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
 from coating_studio.i18n import tr
@@ -294,7 +295,7 @@ class PropertiesPanel(QWidget):
         else:
             parts.append(tr("Capacitive, no resonance"))
         zs = complex(ly.impedance_at([p.sweep.f_at])[0])
-        parts.append(tr("Zs({f} GHz) = {z} Ω/sq", f=fmt_num(p.sweep.f_at / 1e9, 4),
+        parts.append(tr("Zs({x}) = {z} Ω/sq", x=spectral.fmt_value(p.sweep.f_at, p.sweep.spectral_unit),
                         z=f"{zs.real:.4g} {'+' if zs.imag >= 0 else '−'} {abs(zs.imag):.4g}j"))
         if f0 is not None and not (p.sweep.f_min <= f0 <= p.sweep.f_max):
             parts.append(tr("f₀ is outside the frequency sweep."))

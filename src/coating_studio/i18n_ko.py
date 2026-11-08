@@ -50,7 +50,9 @@ KO.update({
     "<b>Resistive sheet</b>: shunt impedance Zs = R + jX in Ω/sq (free space ≈ 376.7 Ω/sq), or a series RLC "
     "circuit Zs = R + jωL + 1/(jωC) (inductive X &gt; 0). The RLC values are normal-incidence lumped values used "
     "for every angle and polarisation - valid for sub-wavelength unit cells below the grating-lobe onset.<br>"
-    "<b>Units</b>: GHz, mm, degrees, S/m, g/cm³; the engine works in SI.":
+    "<b>Units</b>: GHz, mm, degrees, S/m, g/cm³; the engine works in SI. The spectral axis (plots, sweep "
+    "and band inputs, exports) can show THz, vacuum wavelength in µm or nm, or wavenumber in cm⁻¹ instead "
+    "(Analysis settings); material model parameters stay in GHz.":
         "<b>시간 규약</b>: e<sup>+jωt</sup>; ε = ε′ − jε″, μ = μ′ − jμ″ (ε″, μ″ &gt; 0 이면 손실).<br>"
         "<b>반사손실</b>: RL = 20·log₁₀|Γ| (음수 dB, −10 dB ≈ 90% 흡수). 표시 부호는 환경 설정에서 바꿀 수 "
         "있습니다.<br><b>Γ</b>는 접선 방향 전기장의 반사계수입니다.<br><b>층 순서</b>: 층 스택의 맨 위 행이 "
@@ -58,7 +60,9 @@ KO.update({
         "평균 = 비편광 전력 평균.<br><b>저항 시트</b>: 병렬 임피던스 Zs = R + jX [Ω/sq] (자유공간 ≈ 376.7 Ω/sq) "
         "또는 직렬 RLC 회로 Zs = R + jωL + 1/(jωC) (유도성 X &gt; 0). RLC 값은 수직 입사 기준의 집중 소자 "
         "값으로 모든 입사각과 편광에 그대로 쓰이며, 단위 셀이 파장보다 충분히 작고 회절 로브가 생기기 전까지 "
-        "유효합니다.<br><b>단위</b>: GHz, mm, 도, S/m, g/cm³ (엔진 내부는 SI 단위).",
+        "유효합니다.<br><b>단위</b>: GHz, mm, 도, S/m, g/cm³ (엔진 내부는 SI 단위). 스펙트럼 축(그래프, 스윕·대역 "
+        "입력, 내보내기)은 해석 설정에서 THz, 진공 파장 µm·nm, 파수 cm⁻¹로 바꿀 수 있습니다. 재료 모델 파라미터는 "
+        "GHz 그대로입니다.",
 
     # ---- main window -----------------------------------------------------------
     "Untitled": "제목 없음", "Layer stack": "층 스택", "Properties": "속성", "Analysis settings": "해석 설정",
@@ -416,4 +420,24 @@ KO.update({
     "Show a measured reflection-loss curve (CSV or Touchstone .s1p) on the Frequency tab":
         "측정한 반사 손실 곡선(CSV 또는 Touchstone .s1p)을 주파수 탭에 표시합니다",
     "Touchstone (*.s1p);;All files (*)": "Touchstone (*.s1p);;모든 파일 (*)",
+    # spectral axis display unit (DEVELOPMENT_HISTORY 3.21)
+    "Best RL {v} dB at {x}": "최고 RL {v} dB ({x})",
+    "Frequency (or wavelength) of the angle sweep, in the spectral unit of the Analysis settings.":
+        "각도 스윕의 주파수(또는 파장). 해석 설정의 스펙트럼 단위를 따릅니다.",
+    "Frequency [{u}]": "주파수 [{u}]", "Wavelength [{u}]": "파장 [{u}]", "Wavenumber [{u}]": "파수 [{u}]",
+    "Wavelength": "파장", "Wavenumber": "파수",
+    "Measured data covers {lo:.4g}-{hi:.4g} {u} but {flo:.4g}-{fhi:.4g} {u} is requested.":
+        "측정 데이터는 {lo:.4g}-{hi:.4g} {u} 범위인데 {flo:.4g}-{fhi:.4g} {u}를 요청했습니다.",
+    "Passivity: eps'' < 0 (gain) near {f:.4g} {u}.": "수동성: {f:.4g} {u} 부근에서 ε″ < 0 (이득).",
+    "Passivity: mu'' < 0 (gain) near {f:.4g} {u}.": "수동성: {f:.4g} {u} 부근에서 μ″ < 0 (이득).",
+    "Spectral range {flo:.4g}-{fhi:.4g} {u} ({where}) lies outside the measured data {lo:.4g}-{hi:.4g} {u}.":
+        "스펙트럼 범위 {flo:.4g}-{fhi:.4g} {u}({where})가 측정 데이터 {lo:.4g}-{hi:.4g} {u} 밖에 있습니다.",
+    "Spectral axis": "스펙트럼 축", "Sweep at": "스윕 위치",
+    "Unit of the spectral axis in plots, inputs and exports. Wavelengths are vacuum wavelengths (c/f). Display only: the project keeps frequencies.":
+        "그래프·입력·내보내기에 쓰는 스펙트럼 축 단위입니다. 파장은 진공 파장(c/f)입니다. 표시 전용이며 프로젝트는 주파수로 저장합니다.",
+    "Zs({x}) = {z} Ω/sq": "Zs({x}) = {z} Ω/sq",
+    "{n} points, {range} · source: {src}": "{n}점, {range} · 출처: {src}",
+    "{x}, value = {v}": "{x}, 값 = {v}",
+    "{x}, θ = {a}°, RL = {v} dB": "{x}, θ = {a}°, RL = {v} dB",
+    "Γ locus over the sweep; ● {a}, ■ {b}": "스윕에 따른 Γ 궤적; ● {a}, ■ {b}",
 })

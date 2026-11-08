@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QFormLayout, QGroupBox, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QGroupBox, QLabel, QSpinBox, QVBoxLayout, QWidget
 
+from coating_studio.core.units import SPECTRAL_UNITS
+from coating_studio.gui.spectral import SpectralInputs, unit_label
 from coating_studio.gui.widgets.inputs import SciSpinBox
 from coating_studio.i18n import tr
+
+_UNIT_NAMES = {"GHz": "Frequency", "THz": "Frequency", "um": "Wavelength", "nm": "Wavelength", "cm-1": "Wavenumber"}
 
 
 class SweepPanel(QWidget):
@@ -20,12 +24,18 @@ class SweepPanel(QWidget):
         g1 = QGroupBox(tr("Frequency sweep"))
         f1 = QFormLayout(g1)
         f1.setLabelAlignment(Qt.AlignRight)
-        self.f_min = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="GHz")
-        self.f_max = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="GHz")
+        self.f_min = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="")
+        self.f_max = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="")
         self.n_f = QSpinBox()
         self.n_f.setRange(2, 20001)
         self.log_f = QCheckBox(tr("Logarithmic frequency axis"))
         self.angle = SciSpinBox(minimum=0.0, maximum=89.9, suffix="°")
+        self.unit = QComboBox()
+        for u in SPECTRAL_UNITS:  # names are translated indirectly (tests/test_i18n.py INDIRECT)
+            self.unit.addItem(f"{tr(_UNIT_NAMES[u])} [{unit_label(u)}]", u)
+        self.unit.setToolTip(tr("Unit of the spectral axis in plots, inputs and exports. Wavelengths are vacuum "
+                                "wavelengths (c/f). Display only: the project keeps frequencies."))
+        f1.addRow(tr("Spectral axis"), self.unit)
         f1.addRow(tr("Start"), self.f_min)
         f1.addRow(tr("End"), self.f_max)
         f1.addRow(tr("Points"), self.n_f)
@@ -40,11 +50,12 @@ class SweepPanel(QWidget):
         self.a_max = SciSpinBox(minimum=0.0, maximum=89.9, suffix="°")
         self.n_a = QSpinBox()
         self.n_a.setRange(2, 2001)
-        self.f_at = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="GHz")
+        self.f_at = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="")
         f2.addRow(tr("From"), self.a_min)
         f2.addRow(tr("To"), self.a_max)
         f2.addRow(tr("Points"), self.n_a)
-        f2.addRow(tr("Frequency"), self.f_at)
+        self.lbl_at = QLabel(tr("Frequency"))  # "Wavelength" / "Wavenumber" in those units (refresh)
+        f2.addRow(self.lbl_at, self.f_at)
         lay.addWidget(g2)
 
         g3 = QGroupBox(tr("Frequency × angle map"))
@@ -58,7 +69,10 @@ class SweepPanel(QWidget):
         f3.addRow(tr("Angle points"), self.map_na)
         lay.addWidget(g3)
         lay.addStretch(1)
+        self.band = SpectralInputs(self.f_min, self.f_max)
+        self.at = SpectralInputs(self.f_at)
 
+        self.unit.currentIndexChanged.connect(self._commit)
         for w in (self.f_min, self.f_max, self.angle, self.a_min, self.a_max, self.f_at):
             w.valueEdited.connect(self._commit)
         for w in (self.n_f, self.n_a, self.map_nf, self.map_na):
@@ -70,15 +84,16 @@ class SweepPanel(QWidget):
         s = self.doc.project.sweep
         self._loading = True
         try:
-            self.f_min.set_value(s.f_min / 1e9)
-            self.f_max.set_value(s.f_max / 1e9)
+            self.unit.setCurrentIndex(max(self.unit.findData(s.spectral_unit), 0))
+            self.band.show(s.spectral_unit, s.f_min, s.f_max)
             self.n_f.setValue(s.n_f)
             self.log_f.setChecked(s.log_f)
             self.angle.set_value(s.angle)
             self.a_min.set_value(s.angle_min)
             self.a_max.set_value(s.angle_max)
             self.n_a.setValue(s.n_angle)
-            self.f_at.set_value(s.f_at / 1e9)
+            self.at.show(s.spectral_unit, s.f_at)
+            self.lbl_at.setText(tr(_UNIT_NAMES[s.spectral_unit]))
             self.map_nf.setValue(s.map_n_f)
             self.map_na.setValue(s.map_n_angle)
         finally:
@@ -87,7 +102,9 @@ class SweepPanel(QWidget):
     def _commit(self, *_):
         if self._loading:
             return
-        f_min, f_max = self.f_min.value() * 1e9, self.f_max.value() * 1e9
+        f_min, f_max = self.band.values()  # only an edited box is converted; the other keeps its Hz value
+        f_at = self.at.value()
+        unit = self.unit.currentData()
         a_min, a_max = self.a_min.value(), self.a_max.value()
         if f_max <= f_min or a_max <= a_min:
             return  # wait until the range is valid
@@ -98,6 +115,7 @@ class SweepPanel(QWidget):
             s.log_f = self.log_f.isChecked()
             s.angle = self.angle.value()
             s.angle_min, s.angle_max, s.n_angle = a_min, a_max, self.n_a.value()
-            s.f_at = self.f_at.value() * 1e9
+            s.f_at = f_at
+            s.spectral_unit = unit
             s.map_n_f, s.map_n_angle = self.map_nf.value(), self.map_na.value()
         self.doc.edit_settings(mut)

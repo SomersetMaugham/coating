@@ -12,7 +12,7 @@ import os
 
 from coating_studio.cli.output import CliError
 from coating_studio.core.structure import Backing, SheetLayer, SlabLayer, Structure
-from coating_studio.core.units import DISPLAY_SCALE, from_display, to_display
+from coating_studio.core.units import DEFAULT_SPECTRAL_UNIT, DISPLAY_SCALE, SPECTRAL_UNITS, from_display, to_display
 from coating_studio.limits import measured_range
 from coating_studio.materials.csvio import CsvFormatError, load_csv
 from coating_studio.materials.library import builtin_materials
@@ -88,6 +88,8 @@ def project_to_spec(project: Project) -> dict:
     sweep = {"f_ghz": _f_pair(sw.f_min, sw.f_max), "n_f": sw.n_f, "log_f": sw.log_f, "angle_deg": sw.angle,
              "f_at_ghz": to_display(sw.f_at, "GHz"), "angle_range_deg": [sw.angle_min, sw.angle_max],
              "n_angle": sw.n_angle, "map_n_f": sw.map_n_f, "map_n_angle": sw.map_n_angle}
+    if sw.spectral_unit != DEFAULT_SPECTRAL_UNIT:
+        sweep["spectral_unit"] = sw.spectral_unit  # GUI display unit only; every number above stays in GHz
     s = project.optimization
     targets = [{"name": t.name, "f_ghz": _f_pair(t.f_min, t.f_max), "n_f": t.n_f,
                 "angle_deg": [t.angle_min, t.angle_max], "n_angle": t.n_angle, "pols": list(t.pols),
@@ -288,6 +290,10 @@ def spec_to_project(spec: dict, base_dir=".") -> tuple[Project, list]:
             sw.angle = float(_num(d, "angle_deg", "sweep"))
         if "f_at_ghz" in d:
             sw.f_at = from_display(float(_num(d, "f_at_ghz", "sweep")), "GHz")
+        if "spectral_unit" in d:
+            if d["spectral_unit"] not in SPECTRAL_UNITS:
+                raise spec_error("sweep.spectral_unit", f"must be one of {', '.join(SPECTRAL_UNITS)}")
+            sw.spectral_unit = d["spectral_unit"]
         a = _pair(d, "angle_range_deg", "sweep")
         if a:
             sw.angle_min, sw.angle_max = a

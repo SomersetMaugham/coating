@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from coating_studio.core.structure import SheetLayer, SlabLayer
+from coating_studio.gui import spectral
 from coating_studio.gui.fmt import rl_display
 from coating_studio.gui.icons import set_button_icon
 from coating_studio.gui.plots.base import PlotView
@@ -50,7 +51,8 @@ class TolerancePlot(PlotView):
         r = self.result
         pos = self.ctx.rl_positive
         c = self.ctx.colors
-        ax.set_xlabel(tr("Frequency [GHz]"))
+        unit = spectral.unit_of(self.ctx.project)
+        ax.set_xlabel(spectral.axis_label(unit))
         ax.set_ylabel(tr("Reflection loss [dB] (higher is better)") if pos
                       else tr("Reflection loss [dB] (lower is better)"))
         if r is None:
@@ -68,14 +70,14 @@ class TolerancePlot(PlotView):
         s = result_settings(r, project)  # the settings of the run, not the current ones
         draw_tolerance_band(ax, r, s.target_db, result_band(r, project), s.lower_pct, s.upper_pct,
                             {"spread": c.series[0], "nominal": c.series[1], "target": c.muted, "band": c.series[2]},
-                            pos, project.sweep.log_f)
+                            pos, project.sweep.log_f, unit)
         ax.legend(loc="best")
         ax.set_title(title or tr("Yield {y:.1f}% ({s})", y=100 * r.yield_fraction, s=samples_text(r, s)),
                      fontsize=10, loc="left", wrap=True)  # long joint-yield titles wrap instead of being clipped
         return None
 
     def format_cursor(self, ax, x, y):
-        return tr("f = {f} GHz, value = {v}", f=f"{x:.5g}", v=f"{y:.4g}")
+        return tr("{x}, value = {v}", x=spectral.cursor_text(spectral.unit_of(self.ctx.project), x), v=f"{y:.4g}")
 
     def data_table(self):
         r = self.result
@@ -87,9 +89,10 @@ class TolerancePlot(PlotView):
         nom, med = rl_display(r.nominal_db, pos), rl_display(r.median_db, pos)
         # A sign flip reverses the order of the percentile band; keep lower <= median <= upper.
         lo, hi = (rl_display(r.upper_db, pos), rl_display(r.lower_db, pos)) if pos else (r.lower_db, r.upper_db)
-        return (["f [GHz]", "nominal [dB]", "median [dB]", "lower [dB]", "upper [dB]"],
-                [[f"{a / 1e9:.9g}", f"{b:.6g}", f"{c:.6g}", f"{d:.6g}", f"{e:.6g}"]
-                 for a, b, c, d, e in zip(r.f, nom, med, lo, hi)])
+        unit = spectral.unit_of(self.ctx.project)
+        return ([spectral.csv_header(unit), "nominal [dB]", "median [dB]", "lower [dB]", "upper [dB]"],
+                [[f"{a:.10g}", f"{b:.6g}", f"{c:.6g}", f"{d:.6g}", f"{e:.6g}"]
+                 for a, b, c, d, e in zip(spectral.x_values(r.f, unit), nom, med, lo, hi)])
 
 
 class TolerancePanel(QWidget):
@@ -196,8 +199,9 @@ class TolerancePanel(QWidget):
         for pkey, lab in (("avg", tr("Average")), ("TE", "TE"), ("TM", "TM")):
             self.pol.addItem(lab, pkey)
         self.chk_band = QCheckBox(tr("Custom yield band"))
-        self.b_lo = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="GHz")
-        self.b_hi = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="GHz")
+        self.b_lo = SciSpinBox()
+        self.b_hi = SciSpinBox()
+        self.band = spectral.SpectralInputs(self.b_lo, self.b_hi)  # in the project's spectral unit
         self.lbl_target = QLabel(tr("Target RL (≤)"))
         f.addRow(self.lbl_target, self.target)
         f.addRow(tr("Incidence angle"), self.angle)
@@ -293,9 +297,9 @@ class TolerancePanel(QWidget):
             self.pol.setCurrentIndex({"avg": 0, "TE": 1, "TM": 2}.get(s.pol, 0))
             has_band = s.band_min is not None and s.band_max is not None
             self.chk_band.setChecked(has_band)
-            lo, hi = yield_band(p)
-            self.b_lo.set_value(lo / 1e9)
-            self.b_hi.set_value(hi / 1e9)
+            # shows the default band (the targets') until a custom one is set; enabling the custom band then keeps
+            # exactly these Hz values (SpectralInputs writes back untouched boxes unchanged)
+            self.band.show(spectral.unit_of(p), *yield_band(p))
             self.b_lo.setEnabled(has_band)
             self.b_hi.setEnabled(has_band)
             layers = p.structure.layers
@@ -348,8 +352,9 @@ class TolerancePanel(QWidget):
             s.target_db = rl_display(self.target.value(), self.ctx.rl_positive)
             s.angle = self.angle.value()
             s.pol = self.pol.currentData()
-            if band and self.b_hi.value() > self.b_lo.value():
-                s.band_min, s.band_max = self.b_lo.value() * 1e9, self.b_hi.value() * 1e9
+            f_lo, f_hi = self.band.values()
+            if band and f_hi > f_lo:
+                s.band_min, s.band_max = f_lo, f_hi
             elif not band:
                 s.band_min = s.band_max = None
         self.doc.edit_settings(mut)

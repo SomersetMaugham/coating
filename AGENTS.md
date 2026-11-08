@@ -54,7 +54,7 @@ parameters. Use the CLI, not the GUI, for the search; the design rationale is in
 ## Architecture
 
 Layers are kept strictly separate. Nothing under `core/`, `materials/`, `optimize/`, `cli/`, `project.py`,
-`tolerance.py`, `limits.py`, `comparison.py`, `diagnostics.py`, `touchstone.py`, `report.py` or `mplfonts.py` may import Qt (or matplotlib, for `cli/`; a test checks this). Only `gui/` uses PySide6. `i18n.detect_system_language` is the one
+`tolerance.py`, `limits.py`, `comparison.py`, `diagnostics.py`, `touchstone.py`, `report.py`, `spectral.py` or `mplfonts.py` may import Qt (or matplotlib, for `cli/`; a test checks this). Only `gui/` uses PySide6. `i18n.detect_system_language` is the one
 exception, and it falls back if Qt is missing.
 
 - **`core/`**: the physics engine. `solve(structure, materials, f, theta_deg)` returns a
@@ -89,6 +89,9 @@ exception, and it falls back if Qt is missing.
 - **`diagnostics.py`**: the material / mixture / Rozanov checks shown in the GUI's diagnostics panel and the report.
 - **`touchstone.py`**: `.s1p` export of S11 (reference R = the incident medium's modal wave impedance) and import.
 - **`report.py`**: the one-file HTML design report (matplotlib Agg; the CLI does not import it).
+- **`spectral.py`**: the spectral axis in the project's display unit (`SweepSettings.spectral_unit`: GHz, THz, vacuum
+  wavelength µm/nm, wavenumber cm⁻¹; conversions in `core/units.py`). Plots, texts and exports of the GUI and the report
+  go through it; `gui/spectral.py` adds the input boxes. Display only: the engine, files and CLI numbers stay in Hz/GHz.
 - **`cli/`**: `coating-cli`. `commands.py` holds one plain function per command (result dict or `CliError`);
   `output.py` the JSON envelope, value sanitising and the exception → error-code table; `progress.py`
   cancellation (one stop event for Ctrl-C/SIGTERM/`--timeout`; call `optimize` with `throttle_s=0`);
