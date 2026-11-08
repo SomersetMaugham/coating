@@ -145,6 +145,26 @@ def build_parser():
     fi.add_argument("--mu-const-loss", action="store_true")
     fi.add_argument("--density", type=float, default=1000.0)
 
+    inv = sp.add_parser("invert-filler", help="effective filler table from one measured composite (see the playbook)",
+                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    inv.add_argument("composite", help="CSV measured on the composite")
+    inv.add_argument("--output", "-o", required=True, help="filler CSV to write")
+    inv.add_argument("--force", action="store_true", help="overwrite an existing output (never an input file)")
+    inv.add_argument("--model", required=True, choices=("maxwell_garnett", "bruggeman"))
+    inv.add_argument("--density-filler", type=float, required=True, metavar="KG_M3")
+    inv.add_argument("--density-matrix", type=float, metavar="KG_M3", help="needed with --fraction-wt")
+    load = inv.add_mutually_exclusive_group(required=True)
+    load.add_argument("--fraction", help="volume fraction of the filler in the measured composite")
+    load.add_argument("--fraction-wt", help="weight fraction instead")
+    matrix = inv.add_mutually_exclusive_group(required=True)
+    matrix.add_argument("--matrix-csv", metavar="CSV")
+    matrix.add_argument("--matrix-eps", type=float, nargs=2, metavar=("RE", "LOSS"))
+    inv.add_argument("--matrix-mu", type=float, nargs=2, metavar=("RE", "LOSS"), help="default 1 0")
+    inv.add_argument("--name", help="material name (default: the output file name)")
+    inv.add_argument("--clamp-nonpassive", action="store_true", help="set a small negative loss to 0 instead of failing")
+    inv.add_argument("--validate", nargs=2, action="append", default=[], metavar=("CSV", "FRACTION"),
+                     help="composite at another loading, to test the prediction (same fraction basis as above)")
+
     bu = sp.add_parser("build", help="build a .coat project from a design spec (JSON)")
     bu.add_argument("spec")
     bu.add_argument("--output", "-o", required=True)
@@ -189,6 +209,10 @@ def _run(args, control):
     if c == "fit":
         return C.cmd_fit(args.csv, args.name, args.eps_debye, args.eps_lorentz, args.sigma, args.eps_const_loss,
                          args.mu_debye, args.mu_lorentz, args.mu_const_loss, args.density)
+    if c == "invert-filler":
+        return C.cmd_invert_filler(args.composite, args.output, args.model, args.density_filler, args.fraction,
+                                   args.fraction_wt, args.density_matrix, args.matrix_csv, args.matrix_eps,
+                                   args.matrix_mu, args.name, args.clamp_nonpassive, args.validate, args.force)
     if c == "build":
         return C.cmd_build(args.spec, args.output, args.force)
     if c == "spec":

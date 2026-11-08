@@ -27,7 +27,7 @@ from coating_studio.limits import (
 )
 from coating_studio.materials.checks import Issue, check_material, is_builtin_demo
 from coating_studio.materials.library import builtin_materials
-from coating_studio.materials.models import MaterialCycleError, MixtureMaterial
+from coating_studio.materials.models import INVERTED_PREFIX, ConstantMaterial, MaterialCycleError, MixtureMaterial
 from coating_studio.optimize.optimizer import (
     MAX_ENUMERATED_COMBOS, OptimizationError, apply_result, evaluate_terms, optimize, preflight,
 )
@@ -755,16 +755,21 @@ def cmd_bound(f_lo_ghz, f_hi_ghz, goal_db, mu_s=1.0):
                           "assumptions": ["normal incidence", "PEC backing", "air incident"]})
 
 
-def cmd_fit(csv_path, name=None, eps_debye=1, eps_lorentz=0, sigma=False, eps_const_loss=False, mu_debye=0,
-            mu_lorentz=0, mu_const_loss=False, density=1000.0):
+def _read_measured(csv_path, name=None, density=1000.0):
+    """Load a measured CSV; a missing or malformed file is an input error (exit 3)."""
     from coating_studio.materials.csvio import CsvFormatError, load_csv
-    from coating_studio.materials.fitting import FitSpec, fit_dispersive
     try:
-        tab = load_csv(csv_path, name=name or os.path.splitext(os.path.basename(csv_path))[0], density=density)
+        return load_csv(csv_path, name=name or os.path.splitext(os.path.basename(csv_path))[0], density=density)
     except FileNotFoundError:
         raise CliError("file_not_found", f"{csv_path}: no such file", 3, {"path": str(csv_path)}) from None
     except (CsvFormatError, ValueError, OSError) as e:
         raise CliError("invalid_value", f"{csv_path}: {e}", 3, {"path": str(csv_path), "csv_error": str(e)}) from None
+
+
+def cmd_fit(csv_path, name=None, eps_debye=1, eps_lorentz=0, sigma=False, eps_const_loss=False, mu_debye=0,
+            mu_lorentz=0, mu_const_loss=False, density=1000.0):
+    from coating_studio.materials.fitting import FitSpec, fit_dispersive
+    tab = _read_measured(csv_path, name, density)
     f = tab.f
     eps, mu = tab.eps_mu(f, lambda n: None)
     mu_spec = FitSpec(n_debye=mu_debye, n_lorentz=mu_lorentz, fit_const_loss=mu_const_loss) \
@@ -783,6 +788,10 @@ def cmd_fit(csv_path, name=None, eps_debye=1, eps_lorentz=0, sigma=False, eps_co
         setattr(fr.material, side, kept)
     fr.material.note = f"{FITTED_PREFIX} {os.path.basename(csv_path)}, {f[0] / 1e9:g}-{f[-1] / 1e9:g} GHz"
     warnings = []
+    if isinstance(tab.note, str) and tab.note.startswith(INVERTED_PREFIX):
+        fr.material.note = f"{fr.material.note}; {tab.note}"
+        warnings.append(warning("fit_of_inverted", "this table holds effective filler values tied to a mixing rule; "
+                                "a static permeability extrapolated from it is not a measured property"))
     if pruned:
         warnings.append(warning("fit_terms_dropped", f"{pruned} fitted term(s) with negligible strength were dropped"))
     if mu_spec is None and np.any(np.abs(mu - 1) > 1e-6):
@@ -792,6 +801,118 @@ def cmd_fit(csv_path, name=None, eps_debye=1, eps_lorentz=0, sigma=False, eps_co
             warnings.append(warning("fit_poor", f"{side} residual {rms:.3g} (relative); try more terms"))
     return CommandResult({"material": fr.material.to_dict(), "rms_eps": fr.rms_eps, "rms_mu": fr.rms_mu,
                           "data_range_hz": [f[0], f[-1]]}, warnings=warnings)
+
+
+WARN_RMS = 0.10  # relative error above which a prediction check is worth a warning
+
+
+def cmd_invert_filler(composite, output, model, density_filler, fraction=None, fraction_wt=None, density_matrix=None,
+                      matrix_csv=None, matrix_eps=None, matrix_mu=None, name=None, clamp_nonpassive=False, validate=(),
+                      force=False):
+    """Effective filler table from one measured composite (docs/CLI_PLAN.md, section 13.9)."""
+    from coating_studio.cli.spec import wt_to_vol
+    from coating_studio.materials.csvio import to_csv_text
+    from coating_studio.materials.inversion import (
+        ILL_CONDITIONED, invert_filler, prediction_checks, provenance_note, validation_errors,
+    )
+
+    def bad(message, **details):
+        return CliError("invalid_value", message, 3, details)
+
+    def volume(value, what):
+        try:
+            v = float(value)
+        except ValueError:
+            raise bad(f"{what}: {value!r} is not a number") from None
+        if not 0.0 < v < 1.0:
+            raise bad(f"{what}: must be between 0 and 1, got {v:g}")
+        return v if fraction_wt is None else wt_to_vol(v, density_filler, density_matrix)
+
+    if density_filler <= 0:
+        raise bad("--density-filler must be positive")
+    if fraction_wt is not None and (density_matrix is None or density_matrix <= 0):
+        raise bad("--fraction-wt needs a positive --density-matrix")
+    if matrix_mu is not None and matrix_eps is None:
+        raise bad("--matrix-mu goes with --matrix-eps; a matrix CSV carries its own mu")
+    inputs = [composite] + ([matrix_csv] if matrix_csv else []) + [v[0] for v in validate]
+    if any(os.path.abspath(output) == os.path.abspath(i) for i in inputs):
+        raise bad(f"{output} is one of the input files; --force does not overwrite measurements", path=str(output))
+    check_output_path(output, force)
+    phi = volume(fraction if fraction_wt is None else fraction_wt, "fraction")
+    checks = [(path, volume(value, f"--validate {path}")) for path, value in validate]
+
+    comp = _read_measured(composite)
+    if matrix_csv:
+        matrix = _read_measured(matrix_csv, "matrix")
+        label = os.path.basename(matrix_csv)
+    else:
+        matrix = ConstantMaterial("matrix", matrix_eps[0], matrix_eps[1], *(matrix_mu or (1.0, 0.0)))
+        label = f"eps {matrix_eps[0]:g}-{matrix_eps[1]:g}j"
+        if matrix_mu:
+            label += f" mu {matrix_mu[0]:g}-{matrix_mu[1]:g}j"
+    f = comp.f
+    eps, mu = comp.eps_mu(f, None)
+    try:
+        eps_m, mu_m = matrix.eps_mu(f, None)
+    except MODEL_ERRORS as e:
+        raise model_error(e) from None
+    res = invert_filler(f, eps, mu, eps_m, mu_m, phi, model, clamp_nonpassive)
+    diag = {"fraction": phi, "model": model, "n_points": int(f.size), "data_range_hz": [float(f[0]), float(f[-1])],
+            "amplification": res.amplification_stats(), "ill_conditioned_points": res.ill_conditioned_points,
+            "negative_real_points": res.negative_real_points, "gain_points": res.gain_points,
+            "outside_model_points": res.outside_model_points, "branch_points": res.branch_points,
+            "clamped_points": res.clamped_points, "roundtrip_max": res.roundtrip_max}
+    if not res.ok:
+        raise CliError("inversion_nonphysical",
+                       f"{res.gain_points} point(s) with gain, {res.outside_model_points} beyond what the {model} rule "
+                       f"can represent, {res.branch_points} on another root: no usable filler table exists for this "
+                       "data and rule. Do not invent values; try the other rule, or measure more loadings.",
+                       4, {**diag, "clampable_points": res.clampable_points})
+
+    note = provenance_note(os.path.basename(composite), model, phi, label)
+    display_name = name or os.path.splitext(os.path.basename(output))[0]
+    filler = res.to_tabulated(display_name, density_filler, note=note, source=os.path.basename(output))
+    prediction = prediction_checks(res, eps, mu, eps_m, mu_m)
+    validation = []
+    for path, phi_v in checks:
+        tab = _read_measured(path)
+        e_v, m_v = tab.eps_mu(tab.f, None)
+        try:
+            errors = validation_errors(filler, matrix, tab.f, e_v, m_v, phi_v, model)
+        except MODEL_ERRORS as e:
+            raise model_error(e) from None
+        validation.append({"csv": str(path), "fraction": phi_v, **errors})
+
+    warnings = []
+
+    def over(values):
+        return max(values) > WARN_RMS
+
+    if res.ill_conditioned_points:
+        warnings.append(warning("filler_ill_conditioned",
+                                f"at {res.ill_conditioned_points} point(s) measurement errors grow more than "
+                                f"{ILL_CONDITIONED:g}-fold in the filler values; trust predictions, not the values"))
+    if res.negative_real_points:
+        warnings.append(warning("filler_negative_real", f"{res.negative_real_points} point(s) have Re <= 0"))
+    if res.clamped_points:
+        worst = max(np.nanmax(c.roundtrip[c.clamped], initial=0.0) for c in (res.eps, res.mu))
+        warnings.append(warning("nonpassive_clamped", f"loss set to 0 at {res.clamped_points} point(s); "
+                                f"the composite there is reproduced only to {worst:.3g}"))
+    for key, code, text in (("fraction_sensitivity", "fraction_sensitive", "a 10 % loading error moves predictions"),
+                            ("model_disagreement", "model_disagreement", "the other mixing rule predicts differently")):
+        if prediction[key] and over(prediction[key].values()):
+            warnings.append(warning(code, f"{text} by more than {WARN_RMS:.0%}"))
+    if not validation:
+        warnings.append(warning("no_validation", "no composite at another loading was given (--validate); "
+                                "predictions at other loadings are untested"))
+    for v in validation:
+        if over([v["rms_eps"], v["rms_mu"]]):
+            warnings.append(warning("validation_poor", f"{v['csv']}: prediction error above {WARN_RMS:.0%}"))
+
+    write_text(output, f"# {note}\n" + to_csv_text(f, res.eps.value, res.mu.value))
+    material = {"name": display_name, "csv": os.path.abspath(output), "density": float(density_filler), "note": note}
+    return CommandResult({"output_path": str(output), "material": material, **diag, "prediction": prediction,
+                          "validation": validation}, warnings=warnings)
 
 
 # ---------------------------------------------------------------------------

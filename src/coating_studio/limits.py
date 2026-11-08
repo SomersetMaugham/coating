@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import itertools
 import math
+import re
 
 import numpy as np
 
@@ -18,6 +19,7 @@ from coating_studio.core.constants import C0
 from coating_studio.core.structure import SlabLayer
 from coating_studio.materials.checks import Issue
 from coating_studio.materials.models import (
+    INVERTED_PREFIX,
     ConstantMaterial, DispersiveMaterial, MaterialCycleError, MixtureMaterial, TabulatedMaterial, bruggeman,
     maxwell_garnett,
 )
@@ -195,7 +197,47 @@ def _conductive(mat, resolver, f):
     except Exception:  # noqa: BLE001
         return False
     e = complex(eps[0])
-    return e.real > 0 and -e.imag / e.real > 1
+    return -e.imag > 0 and (e.real <= 0 or -e.imag / e.real > 1)
+
+
+_INVERTED = re.compile(INVERTED_PREFIX + r".*?; model=(\w+); fraction=([0-9.eE+-]+)")
+
+
+def inversion_provenance(material):
+    """``(model, fraction)`` of an ``invert-filler`` table from its note, or None.  Found anywhere in the note, because
+    ``fit`` keeps it after its own prefix."""
+    m = _INVERTED.search(material.note) if isinstance(material.note, str) else None
+    return (m.group(1), float(m.group(2))) if m else None
+
+
+def inverted_filler_issues(project: Project, m, lo_v, hi_v):
+    """Warnings for mixture ``m`` (fraction range ``lo_v``-``hi_v``) if its inclusion is an inverted table."""
+    try:
+        prov = inversion_provenance(project.resolver(m.inclusion))
+    except KeyError:
+        return []
+    if prov is None:
+        return []
+    model, phi0 = prov
+    issues = []
+    if m.model != model:
+        issues.append(Issue("warning", "inverted_filler_model", m.name,
+                            {"inclusion": m.inclusion, "extracted": model, "model": m.model}))
+    lo, hi = 0.5 * phi0, min(1.0, 1.5 * phi0)
+    if lo_v < lo * (1 - 1e-9) or hi_v > hi * (1 + 1e-9):
+        issues.append(Issue("warning", "inverted_filler_fraction", m.name,
+                            {"inclusion": m.inclusion, "phi0": phi0, "lo": lo, "hi": hi,
+                             "fraction_lo": lo_v, "fraction_hi": hi_v}))
+    return issues
+
+
+def _inverted_direct_issues(project: Project, names):
+    """Inverted tables used as a layer, a layer candidate or the matrix of a mixture rather than as an inclusion."""
+    used = {getattr(ly, "material", None) for ly in project.structure.layers}
+    used |= {c for ch in project.optimization.choices for c in ch.candidates}
+    used |= {m.matrix for m in project.materials.values() if isinstance(m, MixtureMaterial)}
+    return [Issue("warning", "inverted_filler_direct", n, {}) for n, mat in project.materials.items()
+            if n in used and (names is None or n in names) and inversion_provenance(mat) is not None]
 
 
 def mixture_range_issues(project: Project, f_ref, names=None):
@@ -211,6 +253,7 @@ def mixture_range_issues(project: Project, f_ref, names=None):
             continue
         lo_v, hi_v = ranges.get(m.name, (m.fraction, m.fraction))
         lo_v, hi_v = min(lo_v, m.fraction), max(hi_v, m.fraction)
+        issues += inverted_filler_issues(project, m, lo_v, hi_v)
         if m.model == "bruggeman":
             try:
                 inc = project.resolver(m.inclusion)
@@ -226,7 +269,7 @@ def mixture_range_issues(project: Project, f_ref, names=None):
         if hit:
             issues.append(Issue("warning", "mixture_fraction_range", m.name,
                                 {"model": m.model, "lo": lo, "hi": hi, "fraction_lo": lo_v, "fraction_hi": hi_v}))
-    return issues
+    return issues + _inverted_direct_issues(project, names)
 
 
 # ---------------------------------------------------------------------------

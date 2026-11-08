@@ -258,6 +258,12 @@ KO.update({
         "목표 {target}: 설계의 mu_s x d가 {design_mm:.3g} mm인데 최소 {required_mm:.3g} mm가 필요합니다(Rozanov 한계, 수직 입사).",
     "Target {target}: even the optimisation ranges reach only {max_mm:.3g} mm of mu_s x d; at least {required_mm:.3g} mm is needed (Rozanov bound, normal incidence).":
         "목표 {target}: 최적화 범위를 다 써도 mu_s x d가 {max_mm:.3g} mm에 그칩니다. 최소 {required_mm:.3g} mm가 필요합니다(Rozanov 한계, 수직 입사).",
+    "{inclusion} was inverted with the {extracted} rule, but this mixture uses {model}; its values only mean something with the rule they came from.":
+        "{inclusion}은(는) {extracted} 규칙으로 역산했는데 이 혼합 재료는 {model}을(를) 씁니다. 역산한 값은 그 규칙에서만 의미가 있습니다.",
+    "Fraction {fraction_lo:.3g}-{fraction_hi:.3g} leaves {lo:.3g}-{hi:.3g}, the range around the loading {phi0:.3g} at which {inclusion} was inverted.":
+        "분율 {fraction_lo:.3g}-{fraction_hi:.3g}이(가) {inclusion}을(를) 역산한 함량 {phi0:.3g} 주변의 범위 {lo:.3g}-{hi:.3g}을(를) 벗어납니다.",
+    "Effective values tied to a mixing rule, not a measured material; use them only as the filler of a mixture.":
+        "혼합 규칙에 묶인 유효값이며 측정한 재료가 아닙니다. 혼합 재료의 충전재로만 쓰십시오.",
     "Fraction {fraction_lo:.3g}-{fraction_hi:.3g} reaches {lo:.3g}-{hi:.3g}, where the {model} model is unreliable.":
         "분율 {fraction_lo:.3g}-{fraction_hi:.3g}이(가) {model} 모델을 믿기 어려운 구간 {lo:.3g}-{hi:.3g}에 들어갑니다.",
     "Frequencies {flo:.4g}-{fhi:.4g} GHz ({where}) lie outside the measured data {lo:.4g}-{hi:.4g} GHz.":

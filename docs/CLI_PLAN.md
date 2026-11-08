@@ -39,6 +39,7 @@ Coating Studio의 기능은 지금 GUI로만 쓸 수 있습니다. 코딩 에이
 | `journal` (v3) | 실험 기록 폴더 요약(시도 목록, 최선 설계) | 13.3절 |
 | `materials` (v5) | 내장 재료 목록: 이름, 종류, note, 명세에 그대로 쓸 수 있는 재료 dict, 최적화 가능한 파라미터와 단위 | 13.7절 |
 | `fit` (v6) | 측정 CSV를 Debye/Lorentz 분산 모델로 맞춰 재료 dict와 잔차를 냄 | 13.8절 |
+| `invert-filler` (v7) | 복합재 측정 CSV에서 충전재의 유효 파라미터를 역산해 CSV로 씀 | 13.9절 |
 
 (v3) `check`는 활성 목표마다 Rozanov 한계 판정(`result.limits`)을 함께 냅니다. `solve`·`optimize`·`tolerance`·`check`는 공통 옵션 `--journal DIR --note TEXT`를 받습니다.
 
@@ -529,7 +530,7 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
 | N2 `no_valid_design`의 종료 코드 | **4 유지** + `error.details.first_failure`(7절 `optimize`) | 설정은 유효하나 모든 평가가 계산 실패 → 원인은 모델. 첫 실패 원인을 주면 에이전트가 고칠 곳을 앎 |
 | N7 혼합 모델 경고 구간 | **v1은 0.25~0.40(Bruggeman 전도성)·> 0.30(MG) 유지** | 경고일 뿐 계산을 막지 않음. 구간은 이슈 `args`에 들어 있어 근거가 생기면 바꾸기 쉬움 |
 | N8 `--corners` 비용 | **기본 표본 수를 줄이지 않음** | 모의 실행에서 공차 분석은 몇 초. 수율 추정 정확도가 더 중요. `--n-samples`로 조절 가능 |
-| N9 측정 복합재에서 충전재 물성 역산 | **v1 범위 밖** | 함량별 CSV를 재료 후보로 두기 / 추가 측정 요청 경로로 처리(13.8절). 수요가 확인되면 MG 해석적 역변환부터 검토 |
+| N9 측정 복합재에서 충전재 물성 역산 | **v1 범위 밖 → (v7) `invert-filler`로 구현**(13.9절) | 처음에는 함량별 CSV를 재료 후보로 두기 / 추가 측정 요청 경로로 처리(13.8절). 13.9절의 MG·Bruggeman 해석적 역변환으로 처리 |
 | N10 피팅 모델의 정적 μ로 Rozanov 판정 | **외삽 μs에서는 판정을 `violated`보다 올리지 않음**(13.4·13.8절) | 측정 범위 밖 외삽값은 "불가능하니 멈춤"의 근거로 약함. 경고로만 알리고 `note`에 외삽임을 적음 |
 
 ## 13. (v3) 에이전트 실험 루프
@@ -784,7 +785,7 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
 - **측정 CSV(Tabulated)는 그 시편 하나의 데이터**입니다. 두께는 바꿀 수 있지만 함량(배합비)은 바꿀 수 없습니다. 함량을 탐색하려면:
   1. **함량별 측정 CSV가 여러 개** → 각각 재료로 등록하고 층의 재료 후보(`choices`)로 둡니다. 이 경우 재료 이름에 함량을 넣어도 됩니다(값이 고정이므로, 13.2절 이름 규칙의 예외).
   2. **성분 재료 데이터가 있음**(매트릭스, 충전재 각각의 ε·μ) → 혼합 재료 + `fraction_wt`/`fraction` 변수. 혼합 모델 오차가 있으므로 결과는 실제 시편을 만들어 다시 측정해 확인해야 한다고 보고합니다.
-  3. **둘 다 없음** → 두께만 최적화하고, 함량 탐색에는 추가 측정(또는 N9의 역산 기능)이 필요하다고 보고합니다. **성분 물성을 짐작해 만들지 않습니다.**
+  3. **둘 다 없음** → 매트릭스 물성과 실제 함량을 알면 `invert-filler`(13.9절)로 충전재 유효값을 구합니다. 그것도 없으면 두께만 최적화하고, 함량 탐색에는 추가 측정이 필요하다고 보고합니다. **성분 물성을 짐작해 만들지 않습니다.**
 - **`coating-cli fit CSV [--name N] [--eps-debye K] [--eps-lorentz K] [--sigma] [--eps-const-loss] [--mu-debye K] [--mu-lorentz K] [--mu-const-loss] [--density RHO]`**
   - `materials/fitting.fit_dispersive`를 부릅니다(Debye·Lorentz 항은 인과적이라 측정 범위 밖에서도 계산은 됨).
   - 결과: `material`(부록 A의 `dispersive` dict, 명세에 그대로 사용), `rms_eps`, `rms_mu`(최대 |ε|·|μ| 대비 상대 잔차), `data_range_hz`, `warnings`.
@@ -793,6 +794,50 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
     (N10 결정) 외삽 μs가 들어간 판정은 `infeasible`로 올리지 않고 **`violated`까지만** 냅니다(경고 `rozanov_limit`). 플레이북의 "`infeasible`이면 멈춤"이 외삽값만으로 발동하지 않게 하기 위해서입니다.
     피팅 재료는 `fit`이 붙이는 note 접두사 `"fitted:"`(예: `"fitted: ci_sheet.csv, 1-8 GHz"`)로 알아봅니다.
   - `fit`은 측정 데이터를 대체하지 않습니다. 플레이북은 맞춘 모델을 쓸 때 사용자 확인을 받게 합니다(13.5절 1단계).
+
+### 13.9 (v7) 충전재 유효 파라미터 역산: `invert-filler` (N9)
+복합재 한 시편의 측정 CSV, 매트릭스 물성, 함량, 혼합 모델에서 충전재의 **혼합 모델에 묶인 유효 파라미터**를 주파수별 표로 구합니다. 결과는 `MixtureMaterial`의 `inclusion`으로 쓰고, `fraction`을 연속 변수로 최적화합니다. 따로 측정한 충전재 물성이 아닙니다.
+
+**시제품에서 정해진 방향** (합성 데이터, 1 % 복소 잡음):
+- 충전재 값 자체는 악조건입니다. 잡음이 2~14 %(ε=30−5j), 2~35 %(100−20j), 전도성 충전재에서는 사실상 100 %로 커집니다.
+- 그래도 같은 모델로 다른 함량(φ/2, 1.5φ)을 예측한 복합재 값은 대개 0.2~2 % 오차입니다. 큰 위험은 **모델 불일치**(Bruggeman 데이터를 MG로 처리: 비전도성 1~17 %, 전도성 φ≥0.2에서 12~100 %)입니다. 함량 입력 오차(0.20→0.22)도 예측을 5~7 % 흔듭니다.
+- 저장소에 같은 재료계의 함량별 실측 세트가 없어 합성 데이터로만 검증합니다.
+
+**역변환** (단일 비율로 계산해 중간값 넘침을 피함, ε·μ 공용, 0 < φ < 1):
+- MG: ei = em·[φ(e+2em)+2(e−em)] / [φ(e+2em)−(e−em)], β = (e−em)/[φ(e+2em)]
+- Bruggeman: ei = e·[φ(em+2e)−2(1−φ)(em−e)] / [φ(em+2e)+(1−φ)(em−e)], g = −(1−φ)(em−e)/[φ(em+2e)]
+
+**점별 판정** (`materials/inversion.py`, Qt 없음):
+- `outside_model`: Re β 또는 Re g ≥ 1 − 1e-9. 복합재 값이 그 모델이 수동 충전재로 낼 수 있는 차폐 한계를 넘은 것입니다. 왕복 오차와 수동성 검사를 모두 통과하면서도 다른 함량에서 극점(1 − φβ = 0)에 가까워지므로 별도로 잡습니다(Argon 지적, 실험으로 확인).
+- `gain`: 손실이 음수(허수부 > 1e-12·max(|값|, 1), `checks.check_material`과 같은 허용치). 허용치 안의 부호 잡음은 0으로 둡니다.
+- `branch`: 왕복 오차 > 1e-6. Bruggeman의 근 선택이 다른 가지로 갔다는 뜻입니다.
+- 위 셋 중 하나라도 있으면 기본은 오류 `inversion_nonphysical`(종료 4)이고 파일을 쓰지 않습니다. `error.details`에 점 수, 범위, 증폭률을 모두 넣습니다.
+- `--clamp-nonpassive`는 **`gain`이면서 Re(ei) > 0이고 `outside_model`이 아닌 점만** 손실을 0으로 자릅니다. Re(ei)의 부호가 뒤집힌 점을 자르면 표의 선형 보간이 Fröhlich 극점을 지나 예측이 격자 사이에서 수십 배 튑니다(실험: 최대 45배). 이런 점은 옵션을 줘도 오류입니다.
+- 전도성 충전재처럼 식별이 안 되는 데이터는 대개 이 오류로 끝납니다. 값을 만들어 내지 않고, 함량별 측정이나 성분 데이터가 필요하다고 보고합니다.
+
+**진단 지표**:
+- `amplification`: κ = |∂ei/∂e|·|e/ei|(해석식, 측정 오차가 충전재 값에 몇 배로 커지는지). 복합재와 매트릭스가 같은 채널(예: μ=1)은 제외합니다. κ > 20이면 경고 `filler_ill_conditioned`.
+- κ는 예측 오차를 말해 주지 않으므로 예측 지표를 함께 냅니다. φ₀/2, min(1.5φ₀, 0.95)에서 (a) `fraction_sensitivity`: φ₀를 ±10 % 바꿔 다시 역산했을 때의 예측 변화, (b) `model_disagreement`: 다른 혼합 모델로 역산·예측했을 때의 차이(다른 모델이 판정에 걸리면 null과 이유). 0.10 초과 시 경고.
+- `validation[]`: `--validate CSV FRACTION`으로 다른 함량의 측정과 비교합니다. rms는 `fitting`과 같게 √mean|예측−측정|² / max|측정|. 겹치는 점이 2개 미만이면 오류, 0.10 초과면 `validation_poor`. 검증이 없으면 `no_validation`.
+- Re(ei) < 0 점은 금속성 충전재에서 있을 수 있어 오류로 하지 않고 경고 `filler_negative_real`.
+
+**명령**: `coating-cli invert-filler COMPOSITE.csv -o FILLER.csv --model {maxwell_garnett,bruggeman} --density-filler R (--fraction V | --fraction-wt W --density-matrix R) (--matrix-csv F | --matrix-eps RE LOSS [--matrix-mu RE LOSS]) [--name N] [--clamp-nonpassive] [--validate CSV FRACTION]... [--force]`
+- 모델·매트릭스·함량·충전재 밀도는 모두 필수이고 기본값이 없습니다. 재료 값을 지어내지 않기 위해서입니다(밀도를 기본값으로 두면 `fraction_wt`와 질량 목적함수가 조용히 틀어집니다). 내장 재료(데모 값)는 매트릭스로 받지 않습니다.
+- `--validate`의 FRACTION은 주 함량과 같은 기준(`--fraction-wt`를 쓰면 무게 분율)입니다. 결과의 `fraction`은 어느 쪽으로 넣어도 부피 분율입니다.
+- `-o`는 필수이고, 어떤 입력 CSV와도 같은 경로면 `--force`가 있어도 거부합니다. CSV 읽기 오류는 `fit`과 같이 종료 3입니다.
+- 결과의 `material.csv`는 절대 경로입니다. 명세는 상대 경로를 명세 폴더 기준으로 풀기 때문에, 그대로 붙여도 깨지지 않게 합니다.
+
+**출처 보존** (`SCHEMA_VERSION` 유지): note `inverted: comp.csv; model=bruggeman; fraction=0.2; matrix=...`를 CSV 머리 주석에도 씁니다. `load_csv`가 이 주석을 `note`로 읽으므로 GUI 가져오기와 `{"name","csv"}` 명세에서도 유지됩니다. `fit`은 이 표식을 지우지 않고(`fitted: …; inverted: …`) 경고 `fit_of_inverted`를 냅니다.
+
+**진단 경고** (`limits.mixture_range_issues` 안, 그래서 `check`, CLI `optimize` 사전 점검, GUI 진단 패널에 뜸):
+- `inverted_filler_model`: 혼합 재료의 모델이 역산 때와 다름.
+- `inverted_filler_fraction`: 분율이나 `fraction` 변수 범위가 [0.5φ₀, min(1, 1.5φ₀)] 밖(상대 허용치 1e-9).
+- `inverted_filler_direct`: 역산 재료를 층, 층 재료 후보, 혼합의 매트릭스로 직접 사용.
+- 함께 고침: `_conductive`가 Re ε ≤ 0인 재료를 전도성에서 빠뜨려 퍼콜레이션 경고가 사라지던 문제.
+
+**미룬 것**: GUI 역산 대화상자(CSV 가져오기·혼합 재료·진단 경고는 GUI에서 그대로 동작), 여러 함량 CSV의 동시 역산, 비구형 형상 인자. 표를 평활화하거나 Debye로 맞추면 φ₀에서의 재현이 깨지므로 기본값으로 하지 않습니다.
+
+**Argon 리뷰**: 지적 14개를 코드와 실험으로 확인해 대부분 반영했습니다. 답변의 Bruggeman 미분 공식은 계수가 틀려(3이 아니라 9) 중앙차분과 대조해 고쳤습니다.
 
 ## 부록 A. (v5) 재료 dict 형식 (`.coat`·명세 공통, SI, 접미사 없음)
 모든 종류 공통: `kind`, `name`, `density`(kg/m³, 혼합 재료에는 없음 — 성분에서 계산), `note`.
@@ -904,4 +949,15 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
 {"material": {"kind": "dispersive", "name": "CI sheet fit", "eps_inf": 14.2, "eps_loss": 0.4, "sigma": 0.0, "eps_terms": [],
               "mu_inf": 1.0, "mu_loss": 0.0, "mu_terms": [{"type": "debye", "delta": 2.8, "f0": 2.1e9}], "density": 1000.0, "note": "fitted: ci_sheet.csv, 1-8 GHz"},
  "rms_eps": 0.012, "rms_mu": 0.031, "data_range_hz": [1e9, 8e9]}
+```
+
+`invert-filler comp.csv -o filler.csv --model bruggeman --fraction 0.2 --density-filler 7800 --matrix-eps 3 0.03`
+```json
+{"output_path": "filler.csv", "material": {"name": "filler", "csv": "/abs/filler.csv", "density": 7800.0, "note": "inverted: comp.csv; model=bruggeman; fraction=0.2; matrix=eps 3-0.03j"},
+ "fraction": 0.2, "model": "bruggeman", "n_points": 171, "data_range_hz": [1e9, 18e9],
+ "amplification": {"eps": {"median": 6.1, "max": 9.4}, "mu": {"median": 3.2, "max": 5.0}},
+ "ill_conditioned_points": 0, "negative_real_points": 0, "gain_points": 0, "outside_model_points": 0, "branch_points": 0, "clamped_points": 0, "roundtrip_max": 3e-15,
+ "prediction": {"at_fractions": [0.1, 0.3], "fraction_sensitivity": {"rms_eps": 0.05, "rms_mu": 0.04},
+                "model_disagreement": {"rms_eps": 0.08, "rms_mu": 0.03}, "model_disagreement_reason": null},
+ "validation": [{"csv": "comp30.csv", "fraction": 0.3, "n_points": 171, "rms_eps": 0.02, "rms_mu": 0.03}]}
 ```

@@ -30,7 +30,7 @@ import re
 import numpy as np
 
 from coating_studio.core.constants import C0
-from coating_studio.materials.models import TabulatedMaterial, eps_from_nk
+from coating_studio.materials.models import INVERTED_PREFIX, TabulatedMaterial, eps_from_nk
 
 _FREQ_UNITS = {"thz": 1e12, "ghz": 1e9, "mhz": 1e6, "khz": 1e3}
 _LEN_UNITS = {"nm": 1e-9, "um": 1e-6, "µm": 1e-6, "μm": 1e-6, "mm": 1e-3, "cm": 1e-2, "m": 1.0}
@@ -212,6 +212,15 @@ def parse_csv_text(text: str):
     return f, arr[:, 1], arr[:, 2], np.ones(len(f)), np.zeros(len(f))
 
 
+def _inverted_note(text):
+    """The provenance comment of a table made by ``invert-filler``, so a plain CSV import keeps it."""
+    for ln in text.splitlines():
+        comment = ln.strip().lstrip("#").strip() if ln.lstrip().startswith("#") else ""
+        if comment.startswith(INVERTED_PREFIX):
+            return comment
+    return ""
+
+
 def load_csv(path, name=None, density=1000.0) -> TabulatedMaterial:
     import os
 
@@ -219,7 +228,8 @@ def load_csv(path, name=None, density=1000.0) -> TabulatedMaterial:
         text = fh.read()
     f, er, el, mr, ml = parse_csv_text(text)
     name = name or os.path.splitext(os.path.basename(path))[0]
-    return TabulatedMaterial(name, f, er, el, mr, ml, source=os.path.basename(path), density=density)
+    return TabulatedMaterial(name, f, er, el, mr, ml, source=os.path.basename(path), density=density,
+                             note=_inverted_note(text))
 
 
 def to_csv_text(f, eps, mu) -> str:

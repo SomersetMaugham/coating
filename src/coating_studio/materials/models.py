@@ -20,6 +20,9 @@ from coating_studio.core.constants import EPS0
 DEFAULT_DENSITY = 1000.0  # kg/m^3
 
 
+INVERTED_PREFIX = "inverted:"  # note prefix (and CSV comment) of a table made by ``coating-cli invert-filler``
+
+
 class OutOfRangeError(ValueError):
     """Tabulated data evaluated outside its measured frequency range."""
 
