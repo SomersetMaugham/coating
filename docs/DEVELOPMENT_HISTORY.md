@@ -141,7 +141,11 @@ CI를 돌리지 못해 PR #10–#13을 macOS에서만 확인하고 머지했습�
   - WSL을 오랜만에 켜자 자동 보안 업데이트가 dpkg 잠금을 잡은 채 38분간 설치 전 계산에서 멈춰 있었습니다(CPU 시간 = 실행 시간,
     로그 정지, dpkg 없음). `bootstrap_wsl.sh`는 잠금을 10분까지 기다리게 했고, 멈춘 경우의 판단법과 안전한 중지 방법을 안내문에 적었습니다.
   - WSL 사용자 암호를 몰라 `wsl -u root passwd`로 다시 정했습니다(안내문에 추가).
-  - 결과: Windows Python 3.10(numpy 2.2.6, scipy 1.15.3, PySide6 6.12.0)과 3.13(numpy 2.5.4, scipy 1.18.1)에서 214개 모두 통과, 건너뜀 0.
+  - 멈춘 업데이트는 `kill -TERM`을 받고도("SIGTERM received, will stop") 계산을 이어 가서, dpkg가 없고 설치 기록이 없는 것을 확인한
+    뒤 `kill -KILL`로 끝냈습니다. 판단 기준을 안내문에 적었습니다.
+  - 결과(커밋 `b74310d`): **Windows·WSL Linux × Python 3.10·3.13 네 환경 모두 215개 통과, 실패·오류·건너뜀 0, 경고 0**
+    (Windows 3.10.16/3.13.1, Linux 3.10.22/3.13.18; numpy 2.2.6·2.5.4, scipy 1.15.3·1.18.1, PySide6 6.12.0). 맥의 py3.10·3.13과 합쳐
+    CI와 같은 3 OS × 2 Python을 Actions 사용 시간 없이 처음으로 모두 확인했습니다.
 - **검증**: 셸 스크립트 문법, 맥 스크립트 dry-run, bundle → 해시 checkout(분리된 커밋 포함), `linux_test.sh`를 맥에서
   Python 3.13으로 끝까지 실행(212개 통과, 건너뜀 0)과 checkout 실패 경로. **PowerShell 스크립트는 이 맥에 PowerShell이 없어
   실행하지 못했고**, Windows에서의 첫 실행이 첫 검증입니다. 맥 테스트는 214개, py3.10·3.13 통과.
