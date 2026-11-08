@@ -101,6 +101,10 @@ def main():
         verdict = "reproduced" if ok else "NOT reproduced"
         print(f"  {d['name'] + ' [' + d['source'] + ']':64s} {d['grid_step_GHz']:5.1f} {d['published_dB']:10.3f} "
               f"{got:9.3f} {diff:+7.3f}  {verdict}")
+    print("\nMichielssen's own 0.2-2 GHz designs (report only: the printed values are coarse, see original_tables):")
+    for d in BM["designs_lf"]:
+        got = max_reflection(mats, d["layers"], 0.01, band=(0.2, 2.0))
+        print(f"  {d['name'] + ' [' + d['source'] + ']':64s} {d['published_dB']:10.3f} {got:9.3f} {got - d['published_dB']:+7.3f}")
     print("\nBenchmark B (3 layers, 0.85-5.4 GHz; the paper does not state its grid, 0.01 GHz used here):")
     for d in BM["designs_3layer"]:
         got = max_reflection(mats, d["layers"], 0.01, band=(0.85, 5.4))
