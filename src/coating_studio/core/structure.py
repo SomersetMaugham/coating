@@ -27,7 +27,8 @@ class SlabLayer:
                 "material": self.material, "thickness": self.thickness}
 
 
-SHEET_MODELS = ("constant", "rlc")
+RLC_MODELS = ("rlc", "parallel_rlc")
+SHEET_MODELS = ("constant",) + RLC_MODELS
 
 
 @dataclass
@@ -39,6 +40,8 @@ class SheetLayer:
     (inductive reactance > 0); ``C = None`` means no capacitor (inductive grid).  The circuit values
     are normal-incidence lumped values: the same Zs is used for every angle and polarisation, which is
     an approximation for real periodic patterns (valid for sub-wavelength unit cells).
+    model "parallel_rlc": 1/Zs = 1/R + j(wC - 1/(wL)), the same kind of lumped values; the sheet opens (Zs = R) at
+    resonance, as slot and aperture patterns do.  ``L = 0`` means no inductor and ``C = None`` no capacitor.
     """
 
     R: float
@@ -47,8 +50,12 @@ class SheetLayer:
     uid: str = field(default_factory=new_uid)
     kind: str = "sheet"
     model: str = "constant"
-    L: float = 0.0  # H, rlc only
-    C: float | None = None  # F, rlc only; None = no capacitor
+    L: float = 0.0  # H, RLC models only
+    C: float | None = None  # F, RLC models only; None = no capacitor
+
+    @property
+    def is_rlc(self) -> bool:
+        return self.model in RLC_MODELS
 
     @property
     def impedance(self) -> complex:
@@ -58,17 +65,25 @@ class SheetLayer:
     def impedance_at(self, f, scale_r=1.0, scale_l=1.0, scale_c=1.0):
         """Sheet impedance at frequencies ``f`` [Hz] (array of the same shape, complex)."""
         f = np.asarray(f, dtype=float)
-        if self.model != "rlc":
+        if not self.is_rlc:
             return np.full(f.shape, complex(self.R, self.X))
         w = 2.0 * np.pi * f
+        if self.model == "parallel_rlc":
+            r = self.R * scale_r
+            b = np.zeros(f.shape)  # susceptance; r / (1 + j r b) keeps Zs == R exactly when there is no L or C
+            if self.L > 0:
+                b = b - 1.0 / (w * self.L * scale_l)
+            if self.C is not None:
+                b = b + w * self.C * scale_c
+            return r / (1.0 + 1j * r * b)
         x = w * (self.L * scale_l)
         if self.C is not None:
             x = x - 1.0 / (w * self.C * scale_c)
         return self.R * scale_r + 1j * x
 
     def resonance(self):
-        """Series resonance f0 [Hz], or None (no capacitor or no inductance)."""
-        if self.model != "rlc" or self.C is None or self.L <= 0:
+        """Resonance f0 [Hz], series or parallel, or None (no capacitor or no inductance)."""
+        if not self.is_rlc or self.C is None or self.L <= 0:
             return None
         return 1.0 / (2.0 * np.pi * np.sqrt(self.L * self.C))
 
@@ -76,11 +91,11 @@ class SheetLayer:
         if attr == "R":
             return True
         if attr == "X":
-            return self.model != "rlc"
+            return not self.is_rlc
         if attr == "L":
-            return self.model == "rlc"
+            return self.model == "rlc" or (self.model == "parallel_rlc" and self.L > 0)
         if attr == "C":
-            return self.model == "rlc" and self.C is not None
+            return self.is_rlc and self.C is not None
         return False
 
     def to_dict(self):

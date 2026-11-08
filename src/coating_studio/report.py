@@ -262,7 +262,11 @@ def _layer_rows(project):
             rows.append((i, ly.name, f"{ly.material} <span class=muted>({_e(kind)})</span>",
                          lengths.fmt_length(ly.thickness, project.sweep.length_unit)))
         elif isinstance(ly, SheetLayer):
-            if ly.model == "rlc":
+            if ly.model == "parallel_rlc":
+                spec = tr("Parallel RLC") + f": R = {ly.R:.4g} Ω/sq, " + (
+                    f"L = {ly.L * 1e9:.4g} nH" if ly.L > 0 else tr("no inductor")) + ", " + (
+                    f"C = {ly.C * 1e12:.4g} pF" if ly.C is not None else tr("no capacitor"))
+            elif ly.model == "rlc":
                 spec = f"R = {ly.R:.4g} Ω/sq, L = {ly.L * 1e9:.4g} nH, " + (
                     f"C = {ly.C * 1e12:.4g} pF" if ly.C is not None else tr("no capacitor"))
             else:

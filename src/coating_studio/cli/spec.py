@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 
 from coating_studio.cli.output import CliError
-from coating_studio.core.structure import Backing, SheetLayer, SlabLayer, Structure
+from coating_studio.core.structure import SHEET_MODELS, Backing, SheetLayer, SlabLayer, Structure
 from coating_studio.core.units import (
     DEFAULT_LENGTH_UNIT, DEFAULT_SPECTRAL_UNIT, DISPLAY_SCALE, LENGTH_UNITS, SPECTRAL_UNITS, from_display, to_display,
 )
@@ -78,8 +78,8 @@ def project_to_spec(project: Project) -> dict:
     for ly in project.structure.layers:
         if isinstance(ly, SlabLayer):
             layers.append({"name": ly.name, "material": ly.material, "thickness_mm": to_display(ly.thickness, "mm")})
-        elif ly.model == "rlc":
-            layers.append({"name": ly.name, "sheet": {"model": "rlc", "R_ohm": ly.R, "X_ohm": ly.X,
+        elif ly.is_rlc:
+            layers.append({"name": ly.name, "sheet": {"model": ly.model, "R_ohm": ly.R, "X_ohm": ly.X,
                                                       "L_nh": to_display(ly.L, "nH"),
                                                       "C_pf": None if ly.C is None else to_display(ly.C, "pF")}})
         else:
@@ -250,14 +250,14 @@ def spec_to_project(spec: dict, base_dir=".") -> tuple[Project, list]:
         if "sheet" in d:
             sh = d["sheet"]
             model = sh.get("model")
-            if model not in ("constant", "rlc"):
-                raise spec_error(f"{path}.sheet.model", "must be 'constant' or 'rlc'")
+            if model not in SHEET_MODELS:
+                raise spec_error(f"{path}.sheet.model", "must be 'constant', 'rlc' or 'parallel_rlc'")
             _reject_alt_units(sh, f"{path}.sheet")
             ly = SheetLayer(float(_num(sh, "R_ohm", f"{path}.sheet", required=True)),
                             float(_num(sh, "X_ohm", f"{path}.sheet", 0.0)), name=name, model=model)
-            if model == "rlc":
+            if ly.is_rlc:
                 ly.L = from_display(float(_num(sh, "L_nh", f"{path}.sheet", 0.0)), "nH")
-                c = sh.get("C_pf")
+                c = _num(sh, "C_pf", f"{path}.sheet")
                 ly.C = None if c is None else from_display(float(c), "pF")
         else:
             mat = d.get("material")

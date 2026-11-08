@@ -264,7 +264,7 @@ def sample_factors(project: Project, s: ToleranceSettings, rng, n):
             factors[ly.uid] = fac
         elif isinstance(ly, SheetLayer):
             tol = s.tolerance_for(ly.uid, "sheet")
-            if ly.model == "rlc":
+            if ly.is_rlc:
                 # R, L and C vary independently, so the resonance moves as it does for a real pattern
                 # (scaling Zs as a whole would leave f0 = 1/(2*pi*sqrt(LC)) unchanged).
                 factors[ly.uid] = {k: np.maximum(_draw(rng, s.distribution, tol, n), 1e-6)

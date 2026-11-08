@@ -232,3 +232,94 @@ def test_rlc_perturbation_moves_the_resonance():
     r = solve(s, mats(), [10e9], 0.0, perturb={sh.uid: {"sheet": 2.0}}).pol["TE"].gamma
     r2 = solve(s, mats(), [10e9], 0.0, perturb={sh.uid: {"sheet_R": 2.0}}).pol["TE"].gamma
     assert np.array_equal(r, r2)
+
+
+# ---------------------------------------------------------------- parallel RLC sheets
+def _parallel(R=377.0, L=4e-9, C=0.06e-12):
+    return SheetLayer(R, model="parallel_rlc", L=L, C=C)
+
+
+@pytest.mark.parametrize("R", [250.0, 49.0, ETA0])  # 1/(1/49) != 49 in floating point
+def test_parallel_rlc_without_l_and_c_equals_constant_sheet(R):
+    f = np.linspace(1e9, 20e9, 57)
+    d = 5e-3
+    a = solve(Structure([SheetLayer(R), SlabLayer("Air", d)]), mats(), f, [0, 50])
+    b = solve(Structure([SheetLayer(R, model="parallel_rlc", L=0.0, C=None), SlabLayer("Air", d)]), mats(), f,
+              [0, 50])
+    for pol in ("TE", "TM"):
+        assert np.array_equal(a.pol[pol].gamma, b.pol[pol].gamma)
+
+
+def test_parallel_rlc_impedance_around_resonance():
+    R, L, C = 200.0, 4e-9, 0.06e-12
+    sh = _parallel(R, L, C)
+    f0 = sh.resonance()
+    assert f0 == pytest.approx(1 / (2 * np.pi * np.sqrt(L * C)))
+    assert sh.impedance_at(np.array([f0]))[0] == pytest.approx(R, rel=1e-12)
+    below, above = sh.impedance_at(np.array([0.5 * f0, 2 * f0]))
+    assert below.imag > 0 and above.imag < 0  # opposite to a series circuit
+    w = np.roots([C, -1 / R, -1 / L])  # omega C - 1/(omega L) = +1/R, the upper half-power point
+    w_up = w[w > 0][0]
+    assert sh.impedance_at(np.array([w_up / (2 * np.pi)]))[0] == pytest.approx(R / (1 + 1j), rel=1e-9)
+
+
+def test_parallel_rlc_is_three_shunts_in_one_plane():
+    """An independent check of the circuit: the same R, L and C as three separate constant sheets."""
+    R, L, C, f = 300.0, 4e-9, 0.06e-12, 7e9
+    w = 2 * np.pi * f
+    d = 5e-3
+    one = solve(Structure([_parallel(R, L, C), SlabLayer("Air", d)], backing=Backing("pec")), mats(), [f], [0, 40])
+    three = solve(Structure([SheetLayer(R), SheetLayer(0.0, w * L), SheetLayer(0.0, -1 / (w * C)), SlabLayer("Air", d)],
+                            backing=Backing("pec")), mats(), [f], [0, 40])
+    for pol in ("TE", "TM"):
+        assert one.pol[pol].gamma == pytest.approx(three.pol[pol].gamma, rel=1e-12)
+
+
+def test_single_parallel_sheet_in_free_space():
+    f = np.linspace(2e9, 18e9, 41)
+    sh = _parallel(180.0)
+    r = solve(Structure([sh], backing=Backing("halfspace", "Air")), mats(), f, 0.0)
+    assert r.pol["TE"].gamma[:, 0] == pytest.approx(-ETA0 / (2 * sh.impedance_at(f) + ETA0), rel=1e-12)
+
+
+def test_parallel_salisbury_absorbs_perfectly_at_resonance():
+    L, C = 4e-9, 0.06e-12
+    sh = _parallel(ETA0, L, C)
+    f0 = sh.resonance()
+    d = 299792458.0 / f0 / 4
+    r = solve(Structure([sh, SlabLayer("Air", d)], backing=Backing("pec")), mats(), [f0], 0.0)
+    assert abs(r.pol["TE"].gamma[0, 0]) < 1e-9
+
+
+def test_parallel_energy_balance_and_sheet_absorption():
+    f = np.linspace(2e9, 18e9, 33)
+    lossy = ConstantMaterial("Lossy", 4.0, 0.8, 1.5, 0.3)
+    s = Structure([_parallel(), SlabLayer("Lossy", 2e-3), _parallel(400.0, 2e-9, None), SlabLayer("Air", 3e-3)],
+                  backing=Backing("halfspace", "Lossy"))
+    res = solve(s, mats(lossy), f, [0, 30, 70])
+    for pol in ("TE", "TM"):
+        r = res.pol[pol]
+        assert np.allclose(r.R + r.T + r.A_layers.sum(axis=0), 1.0, atol=1e-12)
+        assert np.all(r.A_layers[0] > 0) and np.all(r.A_layers[2] > 0)  # passive sheets absorb
+
+
+@pytest.mark.parametrize("kw", [{"R": 0.0}, {"R": -1.0}, {"L": -1e-9}, {"C": 0.0}])
+def test_parallel_rejects_non_physical_values(kw):
+    from coating_studio.core.solver import SolverError
+    sh = _parallel(**{**dict(R=300.0, L=4e-9, C=0.06e-12), **kw})
+    with pytest.raises(SolverError):
+        solve(Structure([sh, SlabLayer("Air", 1e-3)], backing=Backing("pec")), mats(), [5e9], 0.0)
+
+
+def test_parallel_perturbation_moves_the_resonance():
+    L, C = 4e-9, 0.06e-12
+    sh = _parallel(ETA0, L, C)
+    f = np.linspace(5e9, 20e9, 301)
+    d = 299792458.0 / sh.resonance() / 4
+    s = Structure([sh, SlabLayer("Air", d)], backing=Backing("pec"))
+    base = solve(s, mats(), f, 0.0).pol["TE"].gamma[:, 0]
+    moved = solve(s, mats(), f, 0.0, perturb={sh.uid: {"sheet_L": 1.2}}).pol["TE"].gamma[:, 0]
+    assert f[np.argmin(np.abs(moved))] < f[np.argmin(np.abs(base))]
+    r = solve(s, mats(), [10e9], 0.0, perturb={sh.uid: {"sheet": 2.0}}).pol["TE"].gamma
+    r2 = solve(s, mats(), [10e9], 0.0, perturb={sh.uid: {"sheet_R": 2.0}}).pol["TE"].gamma
+    assert np.array_equal(r, r2)

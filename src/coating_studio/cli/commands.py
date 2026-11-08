@@ -222,7 +222,8 @@ def _layer_dict(i, ly):
     if isinstance(ly, SlabLayer):
         d.update(material=ly.material, thickness_m=ly.thickness)
     else:
-        d.update(model=ly.model, R_ohm=ly.R, X_ohm=ly.X, L_h=ly.L, C_f=ly.C)
+        d.update(model=ly.model, R_ohm=ly.R, X_ohm=ly.X, C_f=ly.C,
+                 L_h=None if ly.model == "parallel_rlc" and ly.L <= 0 else ly.L)
     return d
 
 
