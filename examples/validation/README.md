@@ -53,6 +53,11 @@ measurements. Run them from the repository root after `pip install -e ".[dev]"`.
   the numbers agree with the database, the headings do not.
 - Materials 14–16 of the database exceed the Snoek limit (`coating-cli check` warns), and the best designs all use
   them: the benchmark compares optimisers on synthetic materials; it is not a manufacturable design.
+- **Michielssen's own designs**: Tables II–III and Fig. 7 of the original were read from photographs. HF1 computes to
+  −24.02 dB against a printed −23.5 dB, but the paper's own Fig. 7 shows about −24.0 dB at the same 6.3 GHz peak, and the
+  curve's other features also agree, so the engine and the design data are right and the table value is loose. The
+  printed maxima differ from the calculation in both directions, by up to 1.5 dB (HF3, LF4), and are report-only.
+  The captions of the two tables are interchanged in print, and layer 1 is next to the PEC in the original.
 - Material 8 has ε″(1 GHz) = 6 in both reprints used; Zong et al. (2024) print 16 (a typo, which a research
   summary copied).
 
@@ -65,7 +70,7 @@ measurements. Run them from the repository root after `pip install -e ".[dev]"`.
 | `data/laird/MF-*.csv` | ε′, ε″ (K′, K″), μ′, μ″ (M′, M″) at 1, 3, 8.6, 10, 18 GHz, transcribed | [Laird Eccosorb MF datasheet RFP-DS-MF 092115](https://www.laird.com/sites/default/files/2021-01/RFP-DS-MF%20092115.pdf), p. 3. Typical values, not a specification. |
 | `data/kumar2021/kumar_*.csv` | ε, μ digitised from Fig. 4 at 0.25 GHz steps | S. Kumar, N. N. Ghosh, R. Chatterjee, *AIP Advances* **11**, 015311 (2021), [doi:10.1063/9.0000056](https://doi.org/10.1063/9.0000056), CC BY 4.0 |
 | `data/duan2010/duan_fig3_fig4_digitised.csv` | ε, μ digitised from Figs. 3–4 | Y. Duan, G. Li, L. Liu, S. Liu, *Bull. Mater. Sci.* **33**, 633 (2010), [doi:10.1007/s12034-010-0096-7](https://doi.org/10.1007/s12034-010-0096-7); open full text at [ias.ac.in](https://www.ias.ac.in/article/fulltext/boms/033/05/0633-0636) |
-| `reference.json` → `michielssen1993` | The 16-material database, the problem, and every design with its source table | Database: Michielssen et al., *IEEE Trans. MTT* **41**, 1024 (1993), [doi:10.1109/22.238519](https://doi.org/10.1109/22.238519), as reprinted in Asi & Dib, *PIER B* **26**, 101 (2010), [doi:10.2528/PIERB10090103](https://doi.org/10.2528/PIERB10090103), Table 1, and Kankılıç & Karpat, *Appl. Sci.* **13**, 10301 (2023), [doi:10.3390/app131810301](https://doi.org/10.3390/app131810301), Table 1 (identical). Designs: those papers, Zong et al., *ACES J.* **39**, 708 (2024), [doi:10.13052/2024.ACES.J.390806](https://doi.org/10.13052/2024.ACES.J.390806), and I. Amaya, R. Correa, *Revista de Ingeniería* (Univ. de los Andes) **38**, 33 (2013), ISSN 0121-4993 |
+| `reference.json` → `michielssen1993` | The 16-material database, the problem, and every design with its source table | Database: Michielssen et al., *IEEE Trans. MTT* **41**, 1024 (1993), [doi:10.1109/22.238519](https://doi.org/10.1109/22.238519), as reprinted in Asi & Dib, *PIER B* **26**, 101 (2010), [doi:10.2528/PIERB10090103](https://doi.org/10.2528/PIERB10090103), Table 1, and Kankılıç & Karpat, *Appl. Sci.* **13**, 10301 (2023), [doi:10.3390/app131810301](https://doi.org/10.3390/app131810301), Table 1 (identical; the original's Table I has not been seen). Designs: Tables II–III of the original (read from photographs, which are not redistributed), those papers, Zong et al., *ACES J.* **39**, 708 (2024), [doi:10.13052/2024.ACES.J.390806](https://doi.org/10.13052/2024.ACES.J.390806), and I. Amaya, R. Correa, *Revista de Ingeniería* (Univ. de los Andes) **38**, 33 (2013), ISSN 0121-4993 |
 | `digitize/` | The scripts that produced the digitised CSVs | Need the figure images from the papers, which are not redistributed |
 
 Digitising accuracy is about one pixel: ±0.006 in ε′ and ±0.002 in μ″ for Kumar, and ±0.1 in ε and
