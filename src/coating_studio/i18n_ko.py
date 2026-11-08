@@ -49,7 +49,7 @@ KO.update({
     "to the plane of incidence; <b>TM</b>: H perpendicular. Average = unpolarised power average.<br>"
     "<b>Resistive sheet</b>: shunt impedance Zs = R + jX in Ω/sq (free space ≈ 376.7 Ω/sq), or a series RLC "
     "circuit Zs = R + jωL + 1/(jωC) (inductive X &gt; 0), or a parallel RLC circuit 1/Zs = 1/R + jωC + 1/(jωL). The RLC values are normal-incidence lumped values used "
-    "for every angle and polarisation - valid for sub-wavelength unit cells below the grating-lobe onset.<br>"
+    "for every angle and polarisation - valid for sub-wavelength unit cells below the grating-lobe onset. An optional angle dependence scales L and C with sin²θ.<br>"
     "<b>Units</b>: GHz, mm, degrees, S/m, g/cm³; the engine works in SI. The spectral axis (plots, sweep "
     "and band inputs, exports) can show THz, vacuum wavelength in µm or nm, or wavenumber in cm⁻¹ instead "
     "(Analysis settings); material model parameters stay in GHz. Thicknesses can be shown in µm or nm.":
@@ -60,7 +60,7 @@ KO.update({
         "평균 = 비편광 전력 평균.<br><b>저항 시트</b>: 병렬 임피던스 Zs = R + jX [Ω/sq] (자유공간 ≈ 376.7 Ω/sq) "
         "또는 직렬 RLC 회로 Zs = R + jωL + 1/(jωC) (유도성 X &gt; 0), 병렬 RLC 회로 1/Zs = 1/R + jωC + 1/(jωL). RLC 값은 수직 입사 기준의 집중 소자 "
         "값으로 모든 입사각과 편광에 그대로 쓰이며, 단위 셀이 파장보다 충분히 작고 회절 로브가 생기기 전까지 "
-        "유효합니다.<br><b>단위</b>: GHz, mm, 도, S/m, g/cm³ (엔진 내부는 SI 단위). 스펙트럼 축(그래프, 스윕·대역 "
+        "유효합니다. 선택 사항인 각도 의존을 켜면 L과 C가 sin²θ에 따라 변합니다.<br><b>단위</b>: GHz, mm, 도, S/m, g/cm³ (엔진 내부는 SI 단위). 스펙트럼 축(그래프, 스윕·대역 "
         "입력, 내보내기)은 해석 설정에서 THz, 진공 파장 µm·nm, 파수 cm⁻¹로 바꿀 수 있습니다. 재료 모델 파라미터는 "
         "GHz 그대로입니다. 두께는 µm·nm로도 표시할 수 있습니다.",
 
@@ -156,6 +156,15 @@ KO.update({
     "Capacitor on/off. Without a capacitor a series sheet is an inductive grid (R + jωL) and a parallel sheet has no capacitive branch.":
         "커패시터 켜기/끄기. 커패시터가 없으면 직렬 시트는 유도성 격자(R + jωL)가 되고, 병렬 시트는 용량성 가지가 없어집니다.",
     "Parallel RLC": "병렬 RLC", "no inductor": "인덕터 없음",
+    "None": "없음", "Custom": "사용자 지정",
+    "Metal mesh": "금속 메시", "Patch array": "패치 배열", "Angle dependence": "각도 의존", "Effective ε": "유효 ε",
+    "Coefficients": "계수", "angle coefficients": "각도 계수", "Change angle dependence": "각도 의존 변경",
+    "These values are at normal incidence.": "이 값들은 수직 입사 기준입니다.",
+    "The angle dependence has no element to act on.": "각도 의존을 적용할 소자가 없습니다.",
+    "How L and C change with the angle. Metal mesh: L in TM; patch array: C in TE; both as 1 - sin²θ/(2 ε_eff). Only for dense arrays, before grating lobes appear. Custom values come from a file or design spec.":
+        "입사각에 따라 L과 C가 변하는 방식입니다. 금속 메시는 TM의 L, 패치 배열은 TE의 C가 1 - sin²θ/(2 ε_eff)로 변합니다. 회절 로브가 생기기 전의 조밀 배열에만 유효합니다. Custom 값은 파일이나 설계 명세에서 옵니다.",
+    "Effective permittivity around the grid: (ε_r + 1)/2 on a substrate, ε_r when embedded, 1 in free space.":
+        "격자 주변의 유효 유전율: 기판 위면 (ε_r + 1)/2, 내장되면 ε_r, 자유공간이면 1입니다.",
     "Resistive, no reactive elements": "저항성 (리액턴스 소자 없음)",
     "In a parallel RLC sheet, 0 means no inductor.": "병렬 RLC 시트에서는 0이면 인덕터가 없습니다.",
     "Parallel RLC sheet: R {r} Ω/sq, L {l}, C {c}": "병렬 RLC 시트: R {r} Ω/sq, L {l}, C {c}",

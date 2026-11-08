@@ -617,6 +617,7 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
   **같아야 하며**, 다르면 `invalid_spec`입니다(에이전트가 단위를 잘못 짐작하는 것을 잡기 위한 확인용 필드).
 - **시트 층**: `{"model": "constant", "R_ohm", "X_ohm"}`, `{"model": "rlc", "R_ohm", "L_nh", "C_pf"}`(직렬) 또는 `{"model": "parallel_rlc", "R_ohm", "L_nh", "C_pf"}`(병렬). `model`은 필수(`constant`와 `L=0, C=None`인 `rlc`를 구분하기 위해).
   - (병렬 RLC) 1/Zs = 1/R + jωC + 1/(jωL). `L_nh`가 0이면 인덕터가 없고 `C_pf`가 null이면 커패시터가 없습니다. 인덕터가 없는 시트에는 `L` 변수를 둘 수 없고, `L` 변수의 하한은 0보다 커야 합니다(L→0⁺은 단락, L=0은 개방이라 불연속입니다). `info`의 `L_h`는 인덕터가 없으면 null입니다.
+  - (각도 의존) RLC 시트는 선택 키 `"angle": {"L_TE", "L_TM", "C_TE", "C_TM"}`를 받습니다. L_pol(θ) = L(1 + a·s²), C_pol(θ) = C(1 + a·s²), s² = (k_x/k₀)² = n_inc² sin²θ이고, 키 없음 = 0입니다. 금속 메시는 `L_TM`, 패치 배열은 `C_TE`가 −1/(2ε_eff)입니다(Luukkonen 2008, 식 5·9). 조밀 배열 전용이며 회절 로브가 생기면 유효하지 않습니다. 모르는 키, 유한하지 않은 값, 상수 시트의 `angle`은 `invalid_spec`입니다. 결과의 L·C가 각도 범위에서 양수가 아니면 `solver_error`이고, `check`는 스윕의 각도 격자도 시험합니다. `info`의 `angle`은 계수가 없거나 상수 시트면 null입니다. 계수는 최적화 변수가 아닙니다.
 - **뒷판**: `"pec"` 또는 `{"kind": "halfspace", "material": "<이름>"}`.
 - (v6) **수직 입사 목표**는 `"angle_deg": 0`(스칼라)로 씁니다. `[0, 0]`과 같고 `n_angle`은 필요 없습니다. 사입사 한 각도는 `"angle_deg": 45`.
 - (v6) **공차 값**(`tolerance`의 `thickness`, `eps`, `mu`, `sheet`, `eps_loss`, `mu_loss`, `per_layer` 값)은 **공칭값에 대한 상대값**입니다(0.05 = 5%).

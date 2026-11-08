@@ -271,6 +271,9 @@ def _layer_rows(project):
                     f"C = {ly.C * 1e12:.4g} pF" if ly.C is not None else tr("no capacitor"))
             else:
                 spec = f"Zs = {ly.R:.4g} {'+' if ly.X >= 0 else '−'} j{abs(ly.X):.4g} Ω/sq"
+            if ly.has_angle:
+                spec += "; " + tr("angle coefficients") + ": " + ", ".join(
+                    f"{k} {v:+.4g}" for k, v in ly.angle_dict().items() if v)
             rows.append((i, ly.name, _e(tr("Resistive sheet")) + f" <span class=muted>({_e(spec)})</span>", "—"))
     return rows
 

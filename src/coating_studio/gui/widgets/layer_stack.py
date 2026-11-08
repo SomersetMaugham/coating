@@ -206,6 +206,7 @@ class LayerStackWidget(QWidget):
             ly = SlabLayer(src.material, src.thickness, name=src.name)
         else:
             ly = SheetLayer(src.R, src.X, name=src.name, model=src.model, L=src.L, C=src.C)
+            ly.set_angle(src.angle_dict() or {})
         idx = self.doc.project.structure.index_of(uid) + 1
         self.doc.edit(tr("Duplicate layer"), lambda pr: pr.structure.layers.insert(idx, ly))
         self.refresh()

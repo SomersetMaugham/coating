@@ -44,7 +44,7 @@ def test_saved_with_schema_7_and_old_files_read_frequency_spacing():
     p = EXAMPLES["dallenbach"][1]()
     p.sweep.uniform_wavelength = True
     d = json.loads(json.dumps(p.to_dict()))
-    assert d["schema"] == SCHEMA_VERSION == 7  # older apps would solve other points
+    assert d["schema"] == SCHEMA_VERSION >= 7  # older apps would solve other points
     assert Project.from_dict(d).sweep.uniform_wavelength
     d["sweep"].pop("uniform_wavelength")
     d["schema"] = 6

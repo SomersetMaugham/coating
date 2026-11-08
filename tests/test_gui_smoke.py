@@ -558,6 +558,68 @@ def test_parallel_rlc_sheet_editing(app):
     w.close()
 
 
+def test_angle_dependence_editing(app):
+    """The preset combo stores coefficients only; presets are read back from them."""
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["cara"][1]())
+    sheet = w.project.structure.layers[0]
+    w.w_layers.select_uid(sheet.uid)
+    pp = w.w_props
+    pp.set_layer(sheet.uid)
+    custom = pp.cb_angle.findData("custom")
+
+    def choose(key):
+        i = pp.cb_angle.findData(key)
+        pp.cb_angle.setCurrentIndex(i)
+        pp.cb_angle.activated.emit(i)
+        return w.project.structure.layers[0]
+
+    assert pp.cb_angle.isVisibleTo(pp) and pp.cb_angle.currentData() == "none" and not pp.sp_eps_eff.isVisibleTo(pp)
+    assert not pp.cb_angle.model().item(custom).isEnabled()
+    sheet = choose("mesh")
+    assert sheet.a_l_tm == -0.5 and pp.sp_eps_eff.isVisibleTo(pp) and "normal incidence" in pp.lbl_info.text()
+    assert not pp.lbl_angle.isVisibleTo(pp)
+    depth = w.doc.undo_stack.count()
+    pp.sp_eps_eff.setValue(2.0)
+    pp.sp_eps_eff.setValue(2.5)  # one continuous edit is one undo step
+    sheet = w.project.structure.layers[0]
+    assert sheet.a_l_tm == pytest.approx(-0.2) and pp.cb_angle.currentData() == "mesh"
+    assert pp.sp_eps_eff.value() == pytest.approx(2.5) and w.doc.undo_stack.count() == depth + 1
+    sheet = choose("patch")
+    assert (sheet.a_l_tm, sheet.a_c_te) == (0.0, pytest.approx(-0.2))
+    pp.chk_C.setChecked(False)
+    assert "no element to act on" in pp.lbl_info.text()
+    pp.chk_C.setChecked(True)
+    # values from a file show as Custom, read-only, and the choice cannot be made by hand otherwise
+    w.doc.edit("x", lambda p: p.structure.layers[0].set_angle({"L_TE": -0.1, "C_TM": 0.2}))
+    pp.set_layer(sheet.uid)
+    assert pp.cb_angle.currentData() == "custom" and pp.cb_angle.model().item(custom).isEnabled()
+    assert pp.lbl_angle.isVisibleTo(pp) and pp.lbl_angle.text() == "L_TE -0.1, C_TM +0.2"
+    assert not pp.sp_eps_eff.isVisibleTo(pp)
+    # duplicating keeps the coefficients
+    w.w_layers.select_uid(sheet.uid)
+    w.w_layers.act_dup.trigger()
+    dup = w.project.structure.layers[1]
+    assert dup.a_l_te == -0.1 and dup.a_c_tm == 0.2 and dup.uid != sheet.uid
+    # the constant model has no angle dependence
+    w.w_layers.select_uid(sheet.uid)
+    pp.set_layer(sheet.uid)
+    i = pp.cb_model.findData("constant")
+    pp.cb_model.setCurrentIndex(i)
+    pp.cb_model.activated.emit(i)
+    sheet = w.project.structure.layers[0]
+    assert sheet.a_l_te == 0.0 and not pp.cb_angle.isVisibleTo(pp)
+    w.recompute()
+    assert w.results.get("freq") is not None, w.result_error
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()
+
+
 def test_loss_tolerance_panel(app):
     """Independent ε″/μ″ tolerances: default rows with Follow checkboxes and an 8-column table (with ρ)."""
     from coating_studio.examples import EXAMPLES

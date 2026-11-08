@@ -18,7 +18,7 @@ import numpy as np
 
 from coating_studio.cli.output import LOAD_ERRORS, MODEL_ERRORS, CliError, issue_dict, load_error, model_error
 from coating_studio.core.solver import solve
-from coating_studio.core.structure import SlabLayer
+from coating_studio.core.structure import SheetLayer, SlabLayer
 from coating_studio.core.units import power_to_db, si_unit, to_display
 from coating_studio.examples import EXAMPLES
 from coating_studio.limits import (
@@ -223,7 +223,7 @@ def _layer_dict(i, ly):
         d.update(material=ly.material, thickness_m=ly.thickness)
     else:
         d.update(model=ly.model, R_ohm=ly.R, X_ohm=ly.X, C_f=ly.C,
-                 L_h=None if ly.model == "parallel_rlc" and ly.L <= 0 else ly.L)
+                 L_h=None if ly.model == "parallel_rlc" and ly.L <= 0 else ly.L, angle=ly.angle_dict())
     return d
 
 
@@ -305,6 +305,9 @@ def cmd_check(path, no_opt=False):
     try:
         if not any(i["code"] == "unknown_material" for i in issues):
             solve(p.structure, p.materials, p.sweep.freq_grid(), p.sweep.angle)
+            if any(isinstance(ly, SheetLayer) and ly.has_angle for ly in p.structure.layers):
+                # the sweep angle is often 0, where no angle coefficient can show a problem
+                solve(p.structure, p.materials, [p.sweep.f_at], p.sweep.angle_grid())
     except MODEL_ERRORS as e:
         err = model_error(e)
         add({"level": "error", "code": err.code, "material": err.details.get("material", ""), "target": None,
