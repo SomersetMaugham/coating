@@ -8,8 +8,9 @@
 param(
     [Parameter(Mandatory = $true)][string]$Sha,
     [Parameter(Mandatory = $true)][string]$Bundle,  # file name inside coat-test
-    [string]$Distro = "Ubuntu",
-    [string]$Pythons = "3.10 3.13"                  # space-separated, passed on to linux_test.sh as well
+    [string]$Distro = "",                           # empty: WSL's default distro
+    [string]$Pythons = "3.10 3.13",                 # space-separated, passed on to linux_test.sh as well
+    [ValidateSet("Manual", "Automatic")][string]$SshdStart = "Automatic"  # the start mode the user chose for sshd
 )
 
 $ErrorActionPreference = "Continue"  # native tools write progress to stderr; exit codes are checked explicitly
@@ -123,7 +124,8 @@ try {
     if ([string]$rule.Profile -match "Public|Any") { $warnings.Add("firewall rule OpenSSH-Server-In-TCP also applies to public networks") }
 } catch { $warnings.Add("firewall rule OpenSSH-Server-In-TCP not found or not readable") }
 try {
-    if ((Get-Service sshd -ErrorAction Stop).StartType -ne "Manual") { $warnings.Add("sshd is not set to start manually") }
+    $mode = [string](Get-Service sshd -ErrorAction Stop).StartType
+    if ($mode -ne $SshdStart) { $warnings.Add("sshd starts '$mode', expected '$SshdStart' (COAT_TEST_SSHD_START on the Mac)") }
 } catch { }
 if ($env:PYTHONUTF8) {
     $warnings.Add("PYTHONUTF8 was set ($env:PYTHONUTF8); it was cleared so encoding bugs are not hidden")
@@ -200,11 +202,15 @@ function ConvertTo-WslPath([string]$p) {  # C:\Users\x -> /mnt/c/Users/x (defaul
 }
 $env:WSL_UTF8 = "1"  # wsl.exe's own messages in UTF-8 instead of UTF-16, so wsl.log stays readable
 $wlog = Join-Path $res "wsl.log"
-$wexit = Invoke-Logged "wsl.exe" @("-d", $Distro, "-e", "bash", (ConvertTo-WslPath (Join-Path $root "linux_test.sh")),
-                                   (ConvertTo-WslPath $bundlePath), $Sha, (ConvertTo-WslPath $res), $Pythons) $wlog
+$distroArgs = @()
+if ($Distro) { $distroArgs = @("-d", $Distro) }
+$distroName = $Distro
+if (-not $distroName) { $distroName = "default" }
+$wexit = Invoke-Logged "wsl.exe" ($distroArgs + @("-e", "bash", (ConvertTo-WslPath (Join-Path $root "linux_test.sh")),
+                                   (ConvertTo-WslPath $bundlePath), $Sha, (ConvertTo-WslPath $res), $Pythons)) $wlog
 if ($wexit -ne 0) { $warnings.Add("wsl.exe exited with $wexit; see wsl.log (a key-only ssh logon can stop wsl.exe from starting)") }
 foreach ($py in $pyList) {
-    Add-Row "Linux (WSL $Distro) Python $py" (Read-ExitFile (Join-Path $res "linux-$py.exit")) `
+    Add-Row "Linux (WSL $distroName) Python $py" (Read-ExitFile (Join-Path $res "linux-$py.exit")) `
         (Join-Path $res "linux-$py.xml") (Read-Versions (Join-Path $res "linux-$py.versions"))
 }
 $lw = Join-Path $res "linux-warnings.txt"

@@ -27,7 +27,7 @@ SSH 서버를 켜는 것이라 다음을 지킵니다. `setup_sshd.ps1`이 설�
 | **키 로그인만** (`PasswordAuthentication no`) | Windows OpenSSH는 기본으로 비밀번호 로그인을 허용합니다. 같은 네트워크의 기기가 비밀번호를 대입할 수 없게 합니다. |
 | **방화벽: 맥의 IP만, 개인 네트워크에서만** | 같은 Wi-Fi의 다른 기기, 공용 네트워크에서의 접속을 막습니다. |
 | **로그인 계정 하나** (`AllowUsers`) | 다른 계정으로는 들어올 수 없습니다. |
-| **sshd 수동 시작** | 테스트할 때만 켜고, 평소에는 열린 포트가 없습니다. |
+| **sshd 시작 방식: 자동** (사용자 결정, 2026-11-08) | 위 세 겹이 있어 늘 켜 두기로 했습니다. 더 조이려면 `setup_sshd.ps1 -StartMode Manual`로 테스트할 때만 켜고, 맥에서 `COAT_TEST_SSHD_START=Manual`을 줍니다(매 실행 점검이 기대하는 방식). |
 | (할 수 있으면) **공유기에 22번 포트 포워딩 없음**, UPnP 끄기 | 추가 안전장치입니다. 공유기를 볼 수 없어도 됩니다: 방화벽이 출발지 IP가 맥인 접속만 받으므로, 포워딩이 있어도 인터넷에서 오는 접속은 막힙니다(TCP는 출발지 위조로 연결을 맺을 수 없음). |
 | **맥의 개인 키에 암호** (키체인에 저장) | 키 파일이 유출되어도 바로 쓸 수 없습니다. |
 
@@ -69,7 +69,7 @@ Host coat-win
    cd $env:USERPROFILE\coat-test
    powershell -ExecutionPolicy Bypass -File setup_sshd.ps1 -User <계정> -MacIp <맥 IP> -PublicKey "<coat_win.pub 한 줄>"
    ```
-   OpenSSH Server 설치, 수동 시작(끝나면 꺼 둠), 키 로그인만, `AllowUsers`, 방화벽(맥 IP·개인 네트워크), 공개키 등록을 합니다.
+   OpenSSH Server 설치, 시작 방식(기본 자동, `-StartMode Manual`이면 수동), 키 로그인만, `AllowUsers`, 방화벽(맥 IP·개인 네트워크), 공개키 등록을 합니다.
    - 관리자 계정이면 키는 `C:\ProgramData\ssh\administrators_authorized_keys`에 들어갑니다. 기본 `sshd_config`의
      `Match Group administrators`가 관리자에게는 이 파일만 읽게 하므로, 판별은 SID로 합니다(틀리면 비밀번호도 꺼진 채 로그인 불가).
    - 파일은 BOM 없는 UTF-8, 소유자(와 SYSTEM)만 읽기로 저장합니다(UTF-16이거나 권한이 넓으면 sshd가 키를 무시).
@@ -88,8 +88,8 @@ Host coat-win
 ### WSL
 WSL 터미널에서 옮겨 둔 `bootstrap_wsl.sh`를 실행합니다(sudo 암호를 묻습니다):
 `bash /mnt/c/Users/<Windows 사용자 폴더>/coat-test/bootstrap_wsl.sh`. git, Qt 실행 라이브러리,
-한글 글꼴(`fonts-nanum`), uv, Python 3.10·3.13을 설치합니다. 배포판 이름이 `Ubuntu`가 아니면 맥에서
-`COAT_TEST_DISTRO=<이름>`을 줍니다(`wsl -l -v`로 확인. 예: `COAT_TEST_DISTRO=Ubuntu-22.04 scripts/remote_test.sh`).
+한글 글꼴(`fonts-nanum`), uv, Python 3.10·3.13을 설치합니다. 테스트는 WSL의 **기본 배포판**(`wsl -l -v`에서 `*` 표시)에서
+돕니다. 다른 배포판을 쓰려면 맥에서 `COAT_TEST_DISTRO=<이름>`을 줍니다(예: `COAT_TEST_DISTRO=Ubuntu-22.04`).
 WSL 사용자 암호(sudo)를 모르면 Windows PowerShell에서 `wsl -d <배포판> -u root passwd <사용자>`로 새로 정합니다.
 
 ### 설정 확인 (처음 한 번)
@@ -112,9 +112,9 @@ ssh coat-win wsl.exe -d Ubuntu -e uname -a                  # WSL이 SSH 세션�
 (`0x80070520`)로 뜨지 않는 사례가 있다고 합니다(미실측). 그러면 아래 "문제 해결"을 봅니다.
 
 ## 매번 하는 일
-1. Windows 관리자 PowerShell: `Start-Service sshd`
-2. 맥: `scripts/remote_test.sh` (첫 실행은 휠을 내려받느라 몇 분 걸립니다. Claude Code에서는 백그라운드로 돌립니다.)
-3. Windows 관리자 PowerShell: `Stop-Service sshd`
+맥에서 `scripts/remote_test.sh`만 실행합니다. Windows가 켜져 있고 같은
+네트워크에 있으면 됩니다. 첫 실행은 휠을 내려받느라 몇 분 걸리고, 이후에는 수 분 안에 끝납니다. Claude Code에서는 백그라운드로 돌립니다.
+수동 시작으로 바꾼 경우에만 앞뒤로 Windows 관리자 PowerShell에서 `Start-Service sshd` / `Stop-Service sshd`를 합니다.
 
 ## 문제 해결
 - **`.ps1 파일이 디지털 서명되지 않았습니다`** (`PSSecurityException`): GitHub 등에서 받은 파일에는 출처 표시가 붙어 실행 정책이
@@ -122,7 +122,7 @@ ssh coat-win wsl.exe -d Ubuntu -e uname -a                  # WSL이 SSH 세션�
   (그 실행에만 적용). 시스템 실행 정책(`Set-ExecutionPolicy`)은 바꾸지 않습니다.
 - **`bootstrap_wsl.sh`가 `$'\r': command not found`로 실패**: 편집기로 저장하면서 줄바꿈이 CRLF가 된 것입니다.
   `sed -i 's/\r$//' bootstrap_wsl.sh` 후 다시 실행합니다.
-- **`cannot reach coat-win`**: sshd가 꺼져 있거나, 맥 IP가 바뀌었거나, 네트워크가 공용으로 바뀌었습니다.
+- **`cannot reach coat-win`**: Windows가 꺼져 있거나 절전 중이거나, sshd가 멈췄거나, 맥 IP가 바뀌었거나, 네트워크가 공용으로 바뀌었습니다.
 - **`wsl.exe exited with …`** (요약의 warning): SSH 세션에서 WSL을 띄우지 못한 것입니다. 대안은 WSL 안에 sshd를 따로 두고
   맥에서 직접 접속하는 것입니다(같은 보안 원칙 적용). 이 경우 이 문서와 스크립트를 고칩니다.
 - **`bootstrap_wsl.sh`가 `Could not get lock … unattended-upgr`로 멈춤**: 오랜만에 켠 WSL은 자동 보안 업데이트부터 돕니다.

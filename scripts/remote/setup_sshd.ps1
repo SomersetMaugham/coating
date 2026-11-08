@@ -8,8 +8,9 @@
 # Keep this file ASCII (Windows PowerShell 5.1 reads a .ps1 without BOM in the ANSI code page).
 #
 # What it does:
-#   - installs the OpenSSH Server capability, sets sshd to start MANUALLY and leaves it stopped (so the next start
-#     reads the new settings)
+#   - installs the OpenSSH Server capability and sets how sshd starts (-StartMode: Automatic, the default, or
+#     Manual to keep it off except while testing); sshd is restarted (Automatic) or left stopped (Manual) so that
+#     it reads the new settings
 #   - sshd_config: key login only (PasswordAuthentication no), only -User may log in (AllowUsers); the old file is
 #     kept as sshd_config.bak-<time> and restored if `sshd -t` rejects the new one
 #   - firewall: the sshd rule accepts only -MacIp, on private networks only
@@ -18,7 +19,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$MacIp,
     [Parameter(Mandatory = $true)][string]$PublicKey,
-    [Parameter(Mandatory = $true)][string]$User
+    [Parameter(Mandatory = $true)][string]$User,
+    [ValidateSet("Automatic", "Manual")][string]$StartMode = "Automatic"  # Manual: on only while testing
 )
 $ErrorActionPreference = "Stop"
 
@@ -35,7 +37,7 @@ if ($User -ne $env:USERNAME) { Write-Warning "Setting up '$User' while running a
 # 1. OpenSSH Server, manual start
 $cap = Get-WindowsCapability -Online -Name "OpenSSH.Server*"
 if ($cap.State -ne "Installed") { Add-WindowsCapability -Online -Name $cap.Name | Out-Null }
-Set-Service -Name sshd -StartupType Manual
+Set-Service -Name sshd -StartupType $StartMode
 $cfgPath = Join-Path $env:ProgramData "ssh\sshd_config"
 if (-not (Test-Path $cfgPath)) { Start-Service sshd; Stop-Service sshd }  # the first start writes the default file
 
@@ -100,8 +102,9 @@ $icaclsArgs = @($keyFile, "/inheritance:r") + ($grants | ForEach-Object { @("/gr
 & icacls @icaclsArgs | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "icacls failed on $keyFile" }
 
-# Stop sshd so that it reads the new settings when it is next started (a running sshd keeps the old ones).
+# Restart (Automatic) or stop (Manual) sshd: a running sshd keeps the settings it started with.
 Stop-Service sshd -ErrorAction SilentlyContinue
-Write-Output "Done. sshd: manual start, now $((Get-Service sshd).Status). Key file: $keyFile. Backup: $backup"
+if ($StartMode -eq "Automatic") { Start-Service sshd }
+Write-Output "Done. sshd: $StartMode start, now $((Get-Service sshd).Status). Key file: $keyFile. Backup: $backup"
 Write-Output "If the Mac cannot log in, restore the old settings: Copy-Item '$backup' '$cfgPath' -Force"
-Write-Output "Before a test run: Start-Service sshd    After it: Stop-Service sshd"
+if ($StartMode -eq "Manual") { Write-Output "Before a test run: Start-Service sshd    After it: Stop-Service sshd" }
