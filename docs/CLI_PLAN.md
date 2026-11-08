@@ -615,7 +615,8 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
   쓸 수 있는 경로와 단위는 `materials`·`info`의 `params[]`에 그대로 나옵니다.
 - **변수 범위**는 `{"range": [lo, hi], "unit": "<표시 단위>"}`입니다. `unit`은 그 파라미터의 `param_unit()`(`mm`, `ohm`, `nH`, `pF`, `GHz`, `S/m`, `frac`, `""`)과
   **같아야 하며**, 다르면 `invalid_spec`입니다(에이전트가 단위를 잘못 짐작하는 것을 잡기 위한 확인용 필드).
-- **시트 층**: `{"model": "constant", "R_ohm", "X_ohm"}` 또는 `{"model": "rlc", "R_ohm", "L_nh", "C_pf"}`. `model`은 필수(`constant`와 `L=0, C=None`인 `rlc`를 구분하기 위해).
+- **시트 층**: `{"model": "constant", "R_ohm", "X_ohm"}`, `{"model": "rlc", "R_ohm", "L_nh", "C_pf"}`(직렬) 또는 `{"model": "parallel_rlc", "R_ohm", "L_nh", "C_pf"}`(병렬). `model`은 필수(`constant`와 `L=0, C=None`인 `rlc`를 구분하기 위해).
+  - (병렬 RLC) 1/Zs = 1/R + jωC + 1/(jωL). `L_nh`가 0이면 인덕터가 없고 `C_pf`가 null이면 커패시터가 없습니다. 인덕터가 없는 시트에는 `L` 변수를 둘 수 없고, `L` 변수의 하한은 0보다 커야 합니다(L→0⁺은 단락, L=0은 개방이라 불연속입니다). `info`의 `L_h`는 인덕터가 없으면 null입니다.
 - **뒷판**: `"pec"` 또는 `{"kind": "halfspace", "material": "<이름>"}`.
 - (v6) **수직 입사 목표**는 `"angle_deg": 0`(스칼라)로 씁니다. `[0, 0]`과 같고 `n_angle`은 필요 없습니다. 사입사 한 각도는 `"angle_deg": 45`.
 - (v6) **공차 값**(`tolerance`의 `thickness`, `eps`, `mu`, `sheet`, `eps_loss`, `mu_loss`, `per_layer` 값)은 **공칭값에 대한 상대값**입니다(0.05 = 5%).
