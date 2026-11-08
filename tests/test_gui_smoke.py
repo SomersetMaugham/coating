@@ -991,6 +991,12 @@ def test_report_pdf_pages_text_margins_and_export_choice(app, tmp_path, monkeypa
     assert images >= 4  # frequency, angle and two tolerance plots
     with pytest.raises(OSError):
         write_report_pdf(tmp_path / "missing" / "r.pdf", p)
+    # no fonts at all (offscreen Qt on Windows without QT_QPA_FONTDIR): an error, not a PDF without text
+    from coating_studio.gui import report_pdf
+    monkeypatch.setattr(report_pdf.QFontDatabase, "families", staticmethod(lambda *a: []))
+    with pytest.raises(OSError, match="no fonts"):
+        write_report_pdf(tmp_path / "nofont.pdf", p)
+    monkeypatch.undo()
 
     # File > Export report: the dialog's filter decides a name typed without extension
     w = MainWindow()

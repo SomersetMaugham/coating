@@ -31,6 +31,10 @@ def report_font_family():
 
     plat = "win32" if sys.platform.startswith("win") else "darwin" if sys.platform == "darwin" else "linux"
     available = set(QFontDatabase.families())
+    if not available:
+        # e.g. Qt's offscreen platform on Windows without QT_QPA_FONTDIR: the PDF would have no visible text
+        raise OSError("Qt found no fonts, so the PDF would have no text (offscreen Qt on Windows: set "
+                      "QT_QPA_FONTDIR to the system font folder)")
     return next((f for f in _CANDIDATES[plat] if f in available), QFont().defaultFamily())
 
 
