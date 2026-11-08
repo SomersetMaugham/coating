@@ -759,6 +759,30 @@ def cmd_bound(f_lo_ghz, f_hi_ghz, goal_db, mu_s=1.0):
                           "assumptions": ["normal incidence", "PEC backing", "air incident"]})
 
 
+def cmd_fss_grid(pattern, period_mm, strip_width_mm, gap_mm, eps_eff):
+    """L or C of a dense mesh or patch array from its dimensions (docs/CLI_PLAN.md, section 13.10)."""
+    from coating_studio.fss import grid_element
+    width_mm = strip_width_mm if pattern == "mesh" else gap_mm
+    if width_mm is None:
+        raise CliError("usage", "a mesh takes --strip-width-mm and a patch array takes --gap-mm", 2)
+    try:
+        el = grid_element(pattern, period_mm * 1e-3, width_mm * 1e-3, eps_eff)
+    except ValueError as e:
+        raise CliError("usage", str(e), 2) from None
+    sheet = {"L_nh": to_display(el.L, "nH") if el.L else 0.0, "C_pf": to_display(el.C, "pF") if el.C else None,
+             "angle": el.angle}
+    warnings = []
+    if el.wide:
+        warnings.append(warning("wide_geometry", f"width/period = {el.width_ratio:.3g}; the formula assumes much less"))
+    return CommandResult({"pattern": pattern, "period_m": el.period, "width_m": el.width, "eps_eff": el.eps_eff,
+                          "width_ratio": el.width_ratio, "L_h": el.L, "C_f": el.C, "angle": el.angle,
+                          "caution_limit_hz": el.caution_hz, "dense_limit_hz": el.limit_hz, "sheet": sheet,
+                          "assumptions": ["dense square lattice", "ideal conductors", "incidence in a principal plane",
+                                          "width or gap much smaller than the period",
+                                          "eps_eff = (eps_r + 1)/2 needs a dielectric thick compared with the period"]},
+                         warnings=warnings)
+
+
 def _read_measured(csv_path, name=None, density=1000.0):
     """Load a measured CSV; a missing or malformed file is an input error (exit 3)."""
     from coating_studio.materials.csvio import CsvFormatError, load_csv
