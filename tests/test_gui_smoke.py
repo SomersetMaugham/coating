@@ -910,3 +910,38 @@ def test_thickness_unit_in_properties_layers_and_optimisation(app):
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()
+
+
+def test_point_spacing_combo_sets_the_sweep_grid(app):
+    import numpy as np
+    from matplotlib.figure import Figure
+
+    from coating_studio.core.constants import C0
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+
+    w = MainWindow()
+    w.show()
+    p = EXAMPLES["dallenbach"][1]()
+    p.sweep.f_min, p.sweep.f_max, p.sweep.n_f, p.sweep.spectral_unit = C0 / 800e-9, C0 / 400e-9, 81, "nm"
+    w.doc.set_project(p)
+    sp = w.w_sweep
+    assert sp.spacing.currentData() == "linear"
+    sp.spacing.setCurrentIndex(sp.spacing.findData("wavelength"))
+    sw = w.project.sweep
+    assert sw.uniform_wavelength and not sw.log_f and w.doc.is_dirty
+    w.recompute()
+    fig = Figure()
+    w.v_freq.draw_plot(fig)
+    x = np.sort(fig.axes[0].get_lines()[0].get_xdata())  # wavelengths [nm] of the plotted points
+    assert np.allclose(np.diff(x), 5.0, rtol=1e-9)  # 400, 405, ... 800 nm
+    fig = Figure()
+    w.v_mat.draw_plot(fig)
+    assert np.array_equal(w.v_mat._data[0], sw.freq_grid(400))  # the material tab follows the rule
+    sp.spacing.setCurrentIndex(sp.spacing.findData("log"))
+    assert sw.log_f and not sw.uniform_wavelength
+    sp.spacing.setCurrentIndex(sp.spacing.findData("linear"))
+    assert not sw.log_f and not sw.uniform_wavelength
+    w.doc._settings_dirty = False
+    w.doc.undo_stack.setClean()
+    w.close()

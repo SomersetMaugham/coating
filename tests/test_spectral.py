@@ -59,7 +59,7 @@ def test_project_keeps_the_unit_without_a_schema_bump():
     assert p.sweep.spectral_unit == "GHz"
     p.sweep.spectral_unit = "nm"
     d = json.loads(json.dumps(p.to_dict()))
-    assert d["schema"] == SCHEMA_VERSION == 6  # display only: older apps ignore the key and show GHz
+    assert d["schema"] == SCHEMA_VERSION  # display only: older apps ignore the key and show GHz (no bump of its own)
     assert Project.from_dict(d).sweep.spectral_unit == "nm"
     assert p.sweep.key() == EXAMPLES["salisbury"][1]().sweep.key()  # not part of the solve cache key
     d["sweep"]["spectral_unit"] = "µm"  # hand-edited, unknown id

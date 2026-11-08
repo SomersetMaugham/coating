@@ -444,4 +444,10 @@ KO.update({
     "Thickness unit": "두께 단위",
     "Unit of layer thicknesses in the layer stack, properties, optimisation and report. Display only: the project keeps metres.":
         "층 스택·속성·최적화·보고서에 쓰는 두께 단위입니다. 표시 전용이며 프로젝트는 m로 저장합니다.",
+    # wavelength-spaced sweep (DEVELOPMENT_HISTORY 3.23)
+    "Point spacing": "점 간격", "Even in frequency": "주파수 등간격", "Even in wavelength": "파장 등간격",
+    "Logarithmic (log axis)": "로그 (로그 축)",
+    "How the sweep points are spread. Even in wavelength suits optical spectra; it is sparse at high frequencies ((f_max/f_min)² wider steps), so a narrow band there may fall between points. Logarithmic also draws a log axis.":
+        "스윕 점을 어떻게 나눌지 정합니다. 파장 등간격은 광학 스펙트럼에 맞습니다. 고주파 쪽 간격이 (f_max/f_min)²배 넓어서 그쪽의 좁은 대역은 "
+        "점 사이에 빠질 수 있습니다. 로그는 로그 축으로도 그립니다.",
 })

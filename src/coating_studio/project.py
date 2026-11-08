@@ -18,7 +18,7 @@ from coating_studio.core.units import DEFAULT_LENGTH_UNIT, DEFAULT_SPECTRAL_UNIT
 from coating_studio.materials.library import builtin_materials
 from coating_studio.materials.models import ConstantMaterial, Material, material_from_dict
 
-SCHEMA_VERSION = 6  # 6: per-layer real/loss correlation; 5: real/loss error correlation, saved comparison curves; 4: independent loss tolerances; 3: RLC sheets; 2: optimisation targets; 1: one band
+SCHEMA_VERSION = 7  # 7: wavelength-spaced sweep; 6: per-layer real/loss correlation; 5: real/loss error correlation, saved comparison curves; 4: independent loss tolerances; 3: RLC sheets; 2: optimisation targets; 1: one band
 FILE_EXTENSION = ".coat"
 
 
@@ -34,12 +34,30 @@ class NewerSchemaError(ProjectError):
         super().__init__(f"file schema {schema} is newer than supported ({supported})")
 
 
+def wavelength_grid(f_min, f_max, n):
+    """``n`` frequencies [Hz] from f_min to f_max (ascending) whose vacuum wavelengths are evenly spaced.  The ends are
+    exactly f_min and f_max; n = 1 gives [f_min], like np.linspace."""
+    if not (f_min > 0 and f_max > 0):
+        raise ValueError("a wavelength-spaced sweep needs positive frequencies")
+    n = int(n)
+    if n <= 1:
+        return np.array([float(f_min)])[:max(n, 0)]
+    from coating_studio.core.constants import C0
+
+    f = C0 / np.linspace(C0 / f_min, C0 / f_max, n)  # wavelengths long -> short = frequencies ascending
+    f[0], f[-1] = f_min, f_max  # no c/(c/f) round-off at the ends
+    return f
+
+
 @dataclass
 class SweepSettings:
     f_min: float = 2e9  # Hz
     f_max: float = 18e9
     n_f: int = 401
     log_f: bool = False
+    # Points evenly spaced in vacuum wavelength instead of frequency (optical spectra).  Ignored when log_f is set (a
+    # log grid is the same in wavelength and frequency).  Changes the solved points: schema 7.
+    uniform_wavelength: bool = False
     angle: float = 0.0  # deg, for frequency plots
     angle_min: float = 0.0
     angle_max: float = 80.0
@@ -55,8 +73,13 @@ class SweepSettings:
 
     # Grids shared by the live design and pinned references (one place, so they always match).
     def freq_grid(self, n=None):
+        """Sweep frequencies [Hz], ascending: even in frequency, logarithmic, or even in vacuum wavelength."""
         n = self.n_f if n is None else n
-        return np.geomspace(self.f_min, self.f_max, n) if self.log_f else np.linspace(self.f_min, self.f_max, n)
+        if self.log_f:
+            return np.geomspace(self.f_min, self.f_max, n)
+        if not self.uniform_wavelength:
+            return np.linspace(self.f_min, self.f_max, n)
+        return wavelength_grid(self.f_min, self.f_max, n)
 
     def angle_grid(self, n=None):
         return np.linspace(self.angle_min, self.angle_max, self.n_angle if n is None else n)
@@ -64,7 +87,11 @@ class SweepSettings:
     def key(self):
         """Everything the frequency and angle sweeps depend on (cache key for reference solves)."""
         return (self.f_min, self.f_max, self.n_f, self.log_f, self.angle,
-                self.f_at, self.angle_min, self.angle_max, self.n_angle)
+                self.f_at, self.angle_min, self.angle_max, self.n_angle, self.wavelength_spaced())
+
+    def wavelength_spaced(self):
+        """True when the grid is really even in wavelength (log_f takes precedence)."""
+        return bool(self.uniform_wavelength and not self.log_f)
 
 
 @dataclass
@@ -473,6 +500,7 @@ class Project:
             sweep.spectral_unit = DEFAULT_SPECTRAL_UNIT
         if sweep.length_unit not in LENGTH_UNITS:
             sweep.length_unit = DEFAULT_LENGTH_UNIT
+        sweep.uniform_wavelength = sweep.wavelength_spaced()  # (log, wavelength) together means log
         return cls(name=d.get("name", "Untitled"), materials=mats,
                    structure=Structure.from_dict(d.get("structure", {})),
                    sweep=sweep,

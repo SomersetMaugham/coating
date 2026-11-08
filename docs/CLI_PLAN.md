@@ -276,6 +276,8 @@ CLI와 GUI가 같은 숫자를 내도록 GUI 안에 있던 로직을 엔진으�
   - `map`: `freq_grid(map_n_f)` × `angle_grid(map_n_angle)` (주파수 스윕 점 수가 아님)
 - 덮어쓰기 옵션(사람이 치기 쉽게 GHz로 받되 이름에 단위 명시): `--f-min-ghz`, `--f-max-ghz`, `--n-f`, `--log-f/--linear-f`, `--angle-deg`, `--f-at-ghz`,
   `--angle-min-deg`, `--angle-max-deg`, `--n-angle`, `--map-n-f`, `--map-n-angle`.
+  (개발 이력 3.23) 점 간격은 `--log-f`(로그) / `--linear-f`(주파수 등간격) / `--linear-wavelength`(진공 파장 등간격) 중 하나로, 서로 함께 쓸 수 없고
+  각각 파일의 간격 설정을 대신합니다. 파장 등간격 격자도 주파수 오름차순이고 양 끝은 정확히 f_min·f_max입니다.
 - `--touchstone PATH`(주파수 스윕만): S11을 Touchstone `.s1p`로 함께 씁니다. 파일 하나에 편광 하나이므로 `--pol TE|TM`을 쓰고, `avg`는 수직 입사에서만
   받습니다(TE로 씀). 기준 저항 R은 입사 매질의 모드 파동 임피던스(TE η/cosθ, TM η·cosθ)입니다. 결과에 `touchstone_path`, `touchstone_pol`,
   `touchstone_ref_ohm`이 붙습니다. 기존 파일은 `--force` 없이는 덮어쓰지 않습니다.
@@ -578,6 +580,8 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
   ],
   "sweep": {"f_ghz": [2, 18], "n_f": 401, "log_f": false, "angle_deg": 0, "f_at_ghz": 10,
             "angle_range_deg": [0, 80], "n_angle": 81, "map_n_f": 161, "map_n_angle": 61},
+  // 선택 키(개발 이력 3.21–3.23): "uniform_wavelength": true(점을 진공 파장 등간격으로 — 결과가 달라짐, log_f가 켜져 있으면 로그),
+  //   "spectral_unit"·"length_unit"(GUI 표시 단위 — 결과·숫자 단위 그대로). `info`의 `sweep`에는 "uniform_wavelength"가 늘 들어갑니다.
   "targets": [
     {"name": "X", "f_ghz": [8, 12], "n_f": 41, "angle_deg": [0, 30], "n_angle": 4,
      "pols": ["TE", "TM"], "goal_db": -20, "enabled": true}
