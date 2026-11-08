@@ -61,6 +61,9 @@ would silently use the old file). Prefer a new file name per trial (`d1.coat`, `
   `{"sheet": {"model": "rlc", "R_ohm": 50, "L_nh": 2.0, "C_pf": 0.08}}` (series; `"C_pf": null` = no capacitor), or
   `{"sheet": {"model": "parallel_rlc", "R_ohm": 377, "L_nh": 2.0, "C_pf": 0.08}}` (parallel, 1/Zs = 1/R + jωC + 1/(jωL): the sheet opens
   at resonance, as slot patterns do; `"L_nh": 0` = no inductor, and an `L` variable then is not allowed and needs a lower bound above 0).
+  RLC sheets take an optional `"angle": {"L_TE": 0, "L_TM": -0.25, "C_TE": 0, "C_TM": 0}`: L or C of that polarisation becomes value × (1 + a·s²), s² = n_inc² sin²θ.
+  A metal mesh has `L_TM` = −1/(2 ε_eff), a patch array `C_TE` = −1/(2 ε_eff), ε_eff = (ε_r + 1)/2 for a grid on a substrate. Use it only for dense arrays (no grating lobes), and ask the user
+  for the pattern: do not assume one. The other coefficients are not published values.
 - Tolerance values (`tolerance.thickness`, `eps`, `mu`, `sheet`, `eps_loss`, `mu_loss`) are relative (0.05 = 5 %),
   1 σ for `"normal"`, ± half-width for `"uniform"`. `tolerance.loss_correlation` (−1…1, default 0) correlates each
   layer's real-part and loss errors (ε′ with ε″, μ′ with μ″) where a loss tolerance is set; use it only when the
