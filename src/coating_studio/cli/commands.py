@@ -180,7 +180,8 @@ def target_dict(t):
 
 
 def sweep_dict(sw):
-    return {"f_hz": [sw.f_min, sw.f_max], "n_f": sw.n_f, "log_f": sw.log_f, "angle_deg": sw.angle,
+    return {"f_hz": [sw.f_min, sw.f_max], "n_f": sw.n_f, "log_f": sw.log_f,
+            "uniform_wavelength": sw.wavelength_spaced(), "angle_deg": sw.angle,
             "angle_range_deg": [sw.angle_min, sw.angle_max], "n_angle": sw.n_angle, "f_at_hz": sw.f_at,
             "map_n_f": sw.map_n_f, "map_n_angle": sw.map_n_angle}
 
@@ -352,8 +353,9 @@ def _apply_sweep_overrides(sw, o):
     for attr, key in (("angle", "angle_deg"), ("angle_min", "angle_min_deg"), ("angle_max", "angle_max_deg")):
         if o.get(key) is not None:
             setattr(sw, attr, float(o[key]))
-    if o.get("log_f") is not None:
-        sw.log_f = bool(o["log_f"])
+    grid = o.get("log_f")  # "log" / "linear" / "wavelength" (one of --log-f, --linear-f, --linear-wavelength)
+    if grid is not None:
+        sw.log_f, sw.uniform_wavelength = grid == "log", grid == "wavelength"
 
 
 def _best(db, f, th, sweep):

@@ -92,6 +92,8 @@ def project_to_spec(project: Project) -> dict:
              "n_angle": sw.n_angle, "map_n_f": sw.map_n_f, "map_n_angle": sw.map_n_angle}
     if sw.spectral_unit != DEFAULT_SPECTRAL_UNIT:
         sweep["spectral_unit"] = sw.spectral_unit  # GUI display unit only; every number above stays in GHz
+    if sw.wavelength_spaced():
+        sweep["uniform_wavelength"] = True  # points even in vacuum wavelength (changes the results, unlike the units)
     if sw.length_unit != DEFAULT_LENGTH_UNIT:
         sweep["length_unit"] = sw.length_unit  # GUI display unit of thicknesses; the spec's numbers stay in mm
     s = project.optimization
@@ -290,6 +292,11 @@ def spec_to_project(spec: dict, base_dir=".") -> tuple[Project, list]:
                 setattr(sw, key, int(_num(d, key, "sweep")))
         if "log_f" in d:
             sw.log_f = bool(d["log_f"])
+        if "uniform_wavelength" in d:
+            if not isinstance(d["uniform_wavelength"], bool):
+                raise spec_error("sweep.uniform_wavelength", "must be true or false")
+            sw.uniform_wavelength = d["uniform_wavelength"]
+        sw.uniform_wavelength = sw.wavelength_spaced()  # with log_f the grid is logarithmic
         if "angle_deg" in d:
             sw.angle = float(_num(d, "angle_deg", "sweep"))
         if "f_at_ghz" in d:

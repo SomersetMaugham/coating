@@ -395,7 +395,7 @@ def test_per_layer_rho_validation_and_round_trip():
         run_tolerance(p, np.linspace(8e9, 12e9, 5))
     p.tolerance.per_layer = {u2: {"loss_correlation": 0.7, "eps_loss": 0.25}}
     d = json.loads(json.dumps(p.to_dict()))
-    assert d["schema"] == 6
+    assert d["schema"] >= 6  # per-layer rho arrived with schema 6
     assert Project.from_dict(d).tolerance.per_layer == {u2: {"loss_correlation": 0.7, "eps_loss": 0.25}}
     spec = project_to_spec(p)
     assert len(spec["tolerance"]["per_layer"]) == 1

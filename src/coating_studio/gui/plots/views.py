@@ -679,7 +679,7 @@ class MaterialView(PlotView):
         if name not in p.materials:
             return None
         sw = p.sweep
-        f = np.geomspace(sw.f_min, sw.f_max, 400) if sw.log_f else np.linspace(sw.f_min, sw.f_max, 400)
+        f = sw.freq_grid(400)  # the sweep's spacing rule (frequency, wavelength or log), at 400 points
         eps, mu = p.materials[name].eps_mu(f, p.resolver)
         eps = np.broadcast_to(eps, f.shape)
         mu = np.broadcast_to(mu, f.shape)

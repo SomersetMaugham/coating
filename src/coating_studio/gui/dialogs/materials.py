@@ -414,9 +414,10 @@ class MaterialManager(QDialog):
         if self._loading:
             return
         if kind != "model":
-            # a settings change matters here only when it switches the spectral unit (table, range, preview)
-            unit = spectral.unit_of(self.doc.project)
-            if unit != getattr(self, "_shown_unit", unit):
+            # a settings change matters here when it changes the spectral unit (table, range, preview) or the
+            # sweep the preview and checks are drawn on
+            sw = self.doc.project.sweep
+            if (sw.spectral_unit, sw.key()) != getattr(self, "_shown_sweep", None):
                 self._load_editor()
             return
         names = list(self.doc.project.materials)
@@ -431,6 +432,8 @@ class MaterialManager(QDialog):
         return self.doc.project.materials.get(self.current)
 
     def _load_editor(self):
+        sw = self.doc.project.sweep
+        self._shown_sweep = (sw.spectral_unit, sw.key())  # what the table and preview are drawn for
         m = self._mat()
         if m is None:
             return
@@ -466,7 +469,6 @@ class MaterialManager(QDialog):
                 self.stack.setCurrentIndex(2)
                 lo, hi = m.f_range
                 unit = spectral.unit_of(self.doc.project)
-                self._shown_unit = unit
                 self.t_info.setText(tr("{n} points, {range} · source: {src}", n=len(m.f),
                                        range=spectral.fmt_range(lo, hi, unit, 5), src=m.source or "—"))
                 self.t_tbl.setHorizontalHeaderItem(0, QTableWidgetItem(
@@ -556,7 +558,7 @@ class MaterialManager(QDialog):
         p = self.doc.project
         sw = p.sweep
         c = self.ctx.colors
-        f = np.geomspace(sw.f_min, sw.f_max, 300) if sw.log_f else np.linspace(sw.f_min, sw.f_max, 300)
+        f = sw.freq_grid(300)  # the sweep's spacing rule at 300 points (measured data: its own range below)
         issues = check_material(m, f, p.resolver) if m else []
         if issues:
             levels = {i.level for i in issues}
@@ -587,7 +589,6 @@ class MaterialManager(QDialog):
                 self.canvas.draw_idle()
                 return
             unit = sw.spectral_unit
-            self._shown_unit = unit
             x = spectral.x_values(f, unit)
             for k, (vals, sym) in enumerate(((eps, "ε"), (mu, "μ"))):
                 ax = self.fig.add_subplot(1, 2, k + 1)

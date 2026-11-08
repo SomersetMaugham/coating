@@ -27,7 +27,13 @@ class SweepPanel(QWidget):
         self.f_max = SciSpinBox(minimum=1e-6, maximum=1e6, suffix="")
         self.n_f = QSpinBox()
         self.n_f.setRange(2, 20001)
-        self.log_f = QCheckBox(tr("Logarithmic frequency axis"))
+        self.spacing = QComboBox()  # (log_f, uniform_wavelength) of SweepSettings
+        self.spacing.addItem(tr("Even in frequency"), "linear")
+        self.spacing.addItem(tr("Even in wavelength"), "wavelength")
+        self.spacing.addItem(tr("Logarithmic (log axis)"), "log")
+        self.spacing.setToolTip(tr("How the sweep points are spread. Even in wavelength suits optical spectra; it is "
+                                   "sparse at high frequencies ((f_max/f_min)² wider steps), so a narrow band there "
+                                   "may fall between points. Logarithmic also draws a log axis."))
         self.angle = SciSpinBox(minimum=0.0, maximum=89.9, suffix="°")
         self.unit = QComboBox()
         for u in SPECTRAL_UNITS:
@@ -44,7 +50,7 @@ class SweepPanel(QWidget):
         f1.addRow(tr("Start"), self.f_min)
         f1.addRow(tr("End"), self.f_max)
         f1.addRow(tr("Points"), self.n_f)
-        f1.addRow("", self.log_f)
+        f1.addRow(tr("Point spacing"), self.spacing)
         f1.addRow(tr("Incidence angle"), self.angle)
         lay.addWidget(g1)
 
@@ -83,7 +89,7 @@ class SweepPanel(QWidget):
             w.valueEdited.connect(self._commit)
         for w in (self.n_f, self.n_a, self.map_nf, self.map_na):
             w.valueChanged.connect(self._commit)
-        self.log_f.toggled.connect(self._commit)
+        self.spacing.currentIndexChanged.connect(self._commit)
         self.refresh()
 
     def refresh(self):
@@ -94,7 +100,8 @@ class SweepPanel(QWidget):
             self.length_unit.setCurrentIndex(max(self.length_unit.findData(s.length_unit), 0))
             self.band.show(s.spectral_unit, s.f_min, s.f_max)
             self.n_f.setValue(s.n_f)
-            self.log_f.setChecked(s.log_f)
+            mode = "log" if s.log_f else ("wavelength" if s.uniform_wavelength else "linear")
+            self.spacing.setCurrentIndex(max(self.spacing.findData(mode), 0))
             self.angle.set_value(s.angle)
             self.a_min.set_value(s.angle_min)
             self.a_max.set_value(s.angle_max)
@@ -120,7 +127,8 @@ class SweepPanel(QWidget):
         def mut(p):
             s = p.sweep
             s.f_min, s.f_max, s.n_f = f_min, f_max, self.n_f.value()
-            s.log_f = self.log_f.isChecked()
+            mode = self.spacing.currentData()
+            s.log_f, s.uniform_wavelength = mode == "log", mode == "wavelength"
             s.angle = self.angle.value()
             s.angle_min, s.angle_max, s.n_angle = a_min, a_max, self.n_a.value()
             s.f_at = f_at

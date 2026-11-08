@@ -36,7 +36,7 @@ def test_project_keeps_the_unit_without_a_schema_bump():
     assert p.sweep.length_unit == "mm"
     p.sweep.length_unit = "um"
     d = json.loads(json.dumps(p.to_dict()))
-    assert d["schema"] == SCHEMA_VERSION == 6
+    assert d["schema"] == SCHEMA_VERSION  # display only: no bump of its own
     assert Project.from_dict(d).sweep.length_unit == "um"
     assert p.sweep.key() == EXAMPLES["salisbury"][1]().sweep.key()
     d["sweep"]["length_unit"] = "inch"

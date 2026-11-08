@@ -81,8 +81,11 @@ def build_parser():
         so.add_argument(name, type=float)
     for name in ("--n-f", "--n-angle", "--map-n-f", "--map-n-angle"):
         so.add_argument(name, type=int)
-    so.add_argument("--log-f", dest="log_f", action="store_const", const=True)
-    so.add_argument("--linear-f", dest="log_f", action="store_const", const=False)
+    grid = so.add_mutually_exclusive_group()  # point spacing of the frequency sweep; each one replaces the file's
+    grid.add_argument("--log-f", dest="log_f", action="store_const", const="log")
+    grid.add_argument("--linear-f", dest="log_f", action="store_const", const="linear")
+    grid.add_argument("--linear-wavelength", dest="log_f", action="store_const", const="wavelength",
+                      help="points evenly spaced in vacuum wavelength")
     _common(so, export=True)
     _journal(so)
 
