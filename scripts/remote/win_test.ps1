@@ -131,16 +131,31 @@ if ($env:PYTHONUTF8) {
 }
 
 # -- tools (an ssh logon may not see PATH entries added after sshd started, so try the usual install places) ------
-$extra = @((Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links"), (Join-Path $env:USERPROFILE ".local\bin"),
-           (Join-Path $env:ProgramFiles "Git\cmd"))
+# WinGet\Links holds symbolic links, and Windows refuses to start a program through one from an ssh (service)
+# logon ("untrusted mount point"): prefer real files and resolve any link to its target.
+$extra = @((Join-Path $env:USERPROFILE ".local\bin"), (Join-Path $env:ProgramFiles "Git\cmd"),
+           (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links"))
 $env:Path = (($extra | Where-Object { Test-Path $_ }) + @($env:Path)) -join ";"
-foreach ($tool in @("git", "uv")) {
-    if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
-        Stop-Early "missing tool on Windows: $tool (see docs/WINDOWS_WSL_TESTING.md)"
+
+function Resolve-Tool([string]$Name) {
+    foreach ($c in @(Get-Command $Name -All -CommandType Application -ErrorAction SilentlyContinue)) {
+        $item = Get-Item -LiteralPath $c.Source -ErrorAction SilentlyContinue
+        if ($null -eq $item) { continue }
+        # Only symbolic links need resolving.  A hard link is the file itself (Git for Windows installs git.exe as
+        # one, and its "Target" lists the file's other names, such as git-lfs.exe: following it ran the wrong tool).
+        if ($item.LinkType -ne "SymbolicLink") { return $item.FullName }
+        $target = @($item.Target)[0]
+        if ($target) {
+            if (-not [System.IO.Path]::IsPathRooted($target)) { $target = Join-Path $item.DirectoryName $target }
+            if (Test-Path -LiteralPath $target) { return (Get-Item -LiteralPath $target).FullName }
+        }
     }
+    return $null
 }
-$git = (Get-Command git).Source
-$uv = (Get-Command uv).Source
+$git = Resolve-Tool "git"
+$uv = Resolve-Tool "uv"
+if (-not $git) { Stop-Early "missing tool on Windows: git (see docs/WINDOWS_WSL_TESTING.md)" }
+if (-not $uv) { Stop-Early "missing tool on Windows: uv (see docs/WINDOWS_WSL_TESTING.md)" }
 
 # -- checkout (a fresh folder per commit; keep the three newest) ------------------------------------------------
 if (Test-Path $run) { Remove-Item -Recurse -Force $run }

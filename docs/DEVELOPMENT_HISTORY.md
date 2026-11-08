@@ -125,9 +125,23 @@ CI를 돌리지 못해 PR #10–#13을 macOS에서만 확인하고 머지했습�
 - **그 밖의 Argon 지적 반영**: `Tee-Object`가 UTF-16으로 쓰는 문제, `wsl.exe`의 UTF-16 오류 메시지(`WSL_UTF8=1`),
   Ubuntu 24.04의 `libglib2.0-0t64` 이름 변경, SSH 세션의 PATH, Windows 가상환경의 깨진 Python, `sshd_config` 점검은
   첫 `Match` 앞의 첫 값으로, 1회 설정 파일 전달 방법, `.ps1`은 ASCII만(`tests/test_remote_scripts.py`), `.sh`는 LF(`.gitattributes`).
-- **발견한 잠재 문제**: `tests/test_validation_data.py:19`와 검증 스크립트 네 곳이 `reference.json`을 인코딩 없이 읽습니다.
-  이 파일에는 UTF-8 비ASCII 문자(`Ingeniería`, `Bogotá`)가 있고, 마지막으로 Windows CI가 통과한 뒤(커밋 `0137a95`)에 들어왔습니다.
-  한국어 Windows(cp949)에서는 예외 없이 글자만 깨질 것으로 보입니다. 첫 Windows 실행으로 확인한 뒤 `encoding="utf-8"`을 넣습니다.
+- **인코딩 문제 (실측으로 확인, 수정)**: `tests/test_validation_data.py`와 검증 스크립트 네 곳이 `reference.json`을 인코딩 없이 읽었습니다.
+  이 파일의 UTF-8 비ASCII 문자(`Ingeniería`, `Bogotá`)는 마지막 Windows CI 통과 뒤(커밋 `0137a95`)에 들어왔습니다. 실제 Windows
+  (기본 인코딩 cp949, UTF-8 모드 꺼짐)에서 `Bogotá`가 `Bogot찼`로 깨졌고, 인용 문자열을 확인하는 테스트가 없어 테스트는 통과했습니다.
+  다섯 곳에 `encoding="utf-8"`을 넣고, 비ASCII 문자가 그대로 읽히는지 확인하는 테스트를 더했습니다(이 테스트는 Windows에서만 의미가 있음).
+- **실기기 첫 실행에서 나온 것** (2026-11-08, Windows 11 + WSL Ubuntu 22.04):
+  - 맥의 `BatchMode yes`는 처음 보는 호스트 키도 묻지 않고 거부합니다. 지문을 맥(`ssh-keyscan`)과 Windows(`ssh-keygen -lf`)에서
+    비교해 같을 때만 `known_hosts`에 넣는 절차를 안내문에 넣었습니다.
+  - 키 로그인 SSH 세션에서 `wsl.exe`는 문제없이 떴습니다. 리뷰가 우려한 로그온 세션 오류(`0x80070520`)는 이 환경에서 없었습니다.
+  - winget이 설치한 `uv.exe`(`WinGet\Links`)는 심볼릭 링크라, SSH(서비스) 로그온에서 실행하면 "신뢰할 수 없는 탑재 지점" 오류로
+    막혔습니다. 심볼릭 링크는 대상 파일로 바꿔 실행합니다.
+  - 그 수정이 처음에는 모든 링크를 따라갔는데, Git for Windows의 `git.exe`는 **하드 링크**이고 PowerShell이 그 "Target"으로 같은
+    파일의 다른 이름(`git-lfs.exe`)을 보여 줘서 엉뚱한 도구가 실행됐습니다. 처음에는 `Get-Command`가 `git-lfs`도 돌려준다고 잘못
+    짐작했고, Windows에서 직접 확인해 원인을 바로잡았습니다(심볼릭 링크만 따라감).
+  - WSL을 오랜만에 켜자 자동 보안 업데이트가 dpkg 잠금을 잡은 채 38분간 설치 전 계산에서 멈춰 있었습니다(CPU 시간 = 실행 시간,
+    로그 정지, dpkg 없음). `bootstrap_wsl.sh`는 잠금을 10분까지 기다리게 했고, 멈춘 경우의 판단법과 안전한 중지 방법을 안내문에 적었습니다.
+  - WSL 사용자 암호를 몰라 `wsl -u root passwd`로 다시 정했습니다(안내문에 추가).
+  - 결과: Windows Python 3.10(numpy 2.2.6, scipy 1.15.3, PySide6 6.12.0)과 3.13(numpy 2.5.4, scipy 1.18.1)에서 214개 모두 통과, 건너뜀 0.
 - **검증**: 셸 스크립트 문법, 맥 스크립트 dry-run, bundle → 해시 checkout(분리된 커밋 포함), `linux_test.sh`를 맥에서
   Python 3.13으로 끝까지 실행(212개 통과, 건너뜀 0)과 checkout 실패 경로. **PowerShell 스크립트는 이 맥에 PowerShell이 없어
   실행하지 못했고**, Windows에서의 첫 실행이 첫 검증입니다. 맥 테스트는 214개, py3.10·3.13 통과.

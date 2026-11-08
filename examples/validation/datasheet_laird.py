@@ -25,7 +25,7 @@ def recompute(grade):
 
 
 def main():
-    ref = json.loads((HERE / "reference.json").read_text())["laird_eccosorb_mf"]
+    ref = json.loads((HERE / "reference.json").read_text(encoding="utf-8"))["laird_eccosorb_mf"]
     rel, dz = [], []
     print(f"{'grade':7} {'f':>5} | {'dB/cm vendor':>12} {'tool':>7} | {'|Z|/Z0 vendor':>13} {'tool':>6}")
     for grade, att_v in ref["vendor_dB_per_cm"].items():

@@ -51,7 +51,7 @@ def nearest(mins, f0):
 
 
 def main():
-    peaks = json.loads((HERE / "reference.json").read_text())["duan2010"]["peaks"]
+    peaks = json.loads((HERE / "reference.json").read_text(encoding="utf-8"))["duan2010"]["peaks"]
 
     print("1) eps/mu as published")
     for d in ("2", "4"):

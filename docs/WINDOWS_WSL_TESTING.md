@@ -89,10 +89,19 @@ Host coat-win
 WSL 터미널에서 옮겨 둔 `bootstrap_wsl.sh`를 실행합니다(sudo 암호를 묻습니다):
 `bash /mnt/c/Users/<Windows 사용자 폴더>/coat-test/bootstrap_wsl.sh`. git, Qt 실행 라이브러리,
 한글 글꼴(`fonts-nanum`), uv, Python 3.10·3.13을 설치합니다. 배포판 이름이 `Ubuntu`가 아니면 맥에서
-`COAT_TEST_DISTRO=<이름>`을 줍니다(`wsl -l -v`로 확인).
+`COAT_TEST_DISTRO=<이름>`을 줍니다(`wsl -l -v`로 확인. 예: `COAT_TEST_DISTRO=Ubuntu-22.04 scripts/remote_test.sh`).
+WSL 사용자 암호(sudo)를 모르면 Windows PowerShell에서 `wsl -d <배포판> -u root passwd <사용자>`로 새로 정합니다.
 
 ### 설정 확인 (처음 한 번)
-Windows 관리자 PowerShell에서 `Start-Service sshd`를 한 뒤, 맥에서:
+Windows 관리자 PowerShell에서 `Start-Service sshd`를 한 뒤, 먼저 **호스트 키**를 등록합니다. `BatchMode yes`라 SSH가 "이 서버를
+믿겠습니까?"를 묻지 않고 거부하므로, 지문을 양쪽에서 비교해 같을 때만 등록합니다(다른 기기가 그 IP를 흉내 내는 것을 막음).
+```bash
+ssh-keyscan -t ed25519 <Windows IP> 2>/dev/null > /tmp/coat_win_hostkey && ssh-keygen -lf /tmp/coat_win_hostkey   # 맥에서 본 지문
+```
+```powershell
+ssh-keygen -lf C:\ProgramData\ssh\ssh_host_ed25519_key.pub                                                     # Windows의 지문
+```
+`SHA256:…`이 글자 하나까지 같으면 `cat /tmp/coat_win_hostkey >> ~/.ssh/known_hosts`. 그다음 맥에서:
 ```bash
 ssh coat-win whoami                                         # 암호 없이 사용자 이름이 나와야 함
 ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password -o BatchMode=no coat-win
@@ -116,6 +125,11 @@ ssh coat-win wsl.exe -d Ubuntu -e uname -a                  # WSL이 SSH 세션�
 - **`cannot reach coat-win`**: sshd가 꺼져 있거나, 맥 IP가 바뀌었거나, 네트워크가 공용으로 바뀌었습니다.
 - **`wsl.exe exited with …`** (요약의 warning): SSH 세션에서 WSL을 띄우지 못한 것입니다. 대안은 WSL 안에 sshd를 따로 두고
   맥에서 직접 접속하는 것입니다(같은 보안 원칙 적용). 이 경우 이 문서와 스크립트를 고칩니다.
+- **`bootstrap_wsl.sh`가 `Could not get lock … unattended-upgr`로 멈춤**: 오랜만에 켠 WSL은 자동 보안 업데이트부터 돕니다.
+  스크립트는 10분까지 기다립니다. 더 오래 걸리면 `ps -o pid,time,etime -p <PID>`와
+  `sudo tail /var/log/unattended-upgrades/unattended-upgrades.log`를 봅니다. CPU 시간이 실행 시간과 같이 늘고 로그가 "Initial whitelist"
+  뒤로 멈춰 있으며 dpkg 프로세스가 없으면, 설치 전 계산에서 멈춘 것이므로 `sudo kill -TERM <PID>`로 멈춰도 안전합니다
+  (실측: 38분간 이 상태). `kill -9`, `wsl --shutdown`, 잠금 파일 삭제는 쓰지 않습니다.
 - **`missing packages`** (linux warning): WSL에서 `bootstrap_wsl.sh`를 다시 실행합니다. 맥에서
   `scp scripts/remote/bootstrap_wsl.sh coat-win:coat-test/`로 최신 판을 보낼 수 있습니다.
 - **결과를 가져오지 못함** (종료 코드 4): 원격 실행은 끝났지만 맥에 증거가 없으므로 통과로 치지 않습니다. 다시 실행합니다.
