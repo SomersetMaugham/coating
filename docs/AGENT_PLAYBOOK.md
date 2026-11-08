@@ -87,8 +87,24 @@ this format, with their parameter paths and static permeability.
    - **Measured data (CSV)**: keep the sweep and targets inside the measured range (`build` checks it and clamps
      an omitted sweep). A CSV describes one sample, so its composition cannot be varied. If the user wants to vary
      the loading, offer: (a) several CSVs measured at different loadings, used as `choices` candidates;
-     (b) constituent data (matrix and filler) with a mixture and `fraction_wt`; (c) otherwise, optimise the
+     (b) constituent data (matrix and filler) with a mixture and `fraction_wt`; (c) if the user has matrix data and
+     the actual loading of the measured sample, `coating-cli invert-filler` (below); (d) otherwise, optimise the
      thickness only and report that exploring the loading needs more measurements.
+   - **`invert-filler`** turns one measured composite into an effective filler table for a mixture:
+     `coating-cli invert-filler comp.csv -o filler.csv --model MODEL --density-filler R (--fraction V | --fraction-wt W
+     --density-matrix R) (--matrix-csv F | --matrix-eps RE LOSS [--matrix-mu RE LOSS]) [--validate CSV FRACTION]`.
+     Every sample fact is required and **must come from the user**, including the mixing rule; built-in materials
+     are demonstration values and are not a matrix. Paste `result.material` into the spec, and use it only as the
+     `inclusion` of a mixture with the same `model`.
+     - The values are effective parameters of that rule, **not a measured filler property**. Say so in the report.
+     - `inversion_nonphysical` (exit 4) means no usable table exists for this data and rule. Do not invent values.
+       Try the other rule if the user accepts it, otherwise use (a), (b) or (d). `--clamp-nonpassive` is only for a
+       few noisy points (`error.details.clampable_points`) and needs the user's agreement.
+     - Show the user `amplification`, `prediction` and every warning, and get their agreement before relying on the
+       table. `model_disagreement` or `fraction_sensitive` mean that predictions depend on an assumption they should
+       check. Pass `--validate` whenever a composite at another loading exists: it is the only real test.
+     - Keep `fraction` variables inside `[0.5, 1.5] ×` the inverted loading (`inverted_filler_fraction` warns outside)
+       and below the `mixture_fraction_range` interval. Report that the result must be confirmed on a new sample.
 2. **Feasibility.** `coating-cli bound --f-ghz LO HI --goal-db G [--mu-s M]`, then `build`, then
    `coating-cli check design.coat --journal DIR`. Fix errors. If `result.limits[].status` is `"infeasible"`
    (`rozanov_infeasible`), no design inside the allowed ranges can meet the target: propose a thinner goal, a
@@ -97,7 +113,8 @@ this format, with their parameter paths and static permeability.
    - With measured (CSV) materials the status is `"unknown"`: the static permeability μs lies outside the data and
      is never extrapolated. To estimate it, run `coating-cli fit data.csv --mu-debye 1` (check `rms_mu`), take
      μs = `mu_inf` + Σ `delta` of the fitted μ terms, and run `coating-cli bound … --mu-s μs`. Treat the result
-     as an estimate (extrapolated), not as proof.
+     as an estimate (extrapolated), not as proof. Do not do this with an `invert-filler` table (`fit_of_inverted`
+     warns): its static value is not a material property, so leave the status `"unknown"` and report it.
 3. **Baseline.** `coating-cli solve design.coat --targets --summary-only --journal DIR --note "baseline"`.
    (`--touchstone out.s1p --pol TE` also writes S11 for circuit or network-analyser tools, if the user asks for it.)
 4. **Optimise.** Set variables and ranges in the spec (the ranges must be what the user can manufacture; ask),
