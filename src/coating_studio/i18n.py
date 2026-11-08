@@ -61,6 +61,12 @@ _ISSUES_EN = {
                           "at least {required_mm:.3g} mm is needed (Rozanov bound, normal incidence).",
     "mixture_fraction_range": "Fraction {fraction_lo:.3g}-{fraction_hi:.3g} reaches {lo:.3g}-{hi:.3g}, where the "
                               "{model} model is unreliable.",
+    "inverted_filler_model": "{inclusion} was inverted with the {extracted} rule, but this mixture uses {model}; "
+                             "its values only mean something with the rule they came from.",
+    "inverted_filler_fraction": "Fraction {fraction_lo:.3g}-{fraction_hi:.3g} leaves {lo:.3g}-{hi:.3g}, the range "
+                                "around the loading {phi0:.3g} at which {inclusion} was inverted.",
+    "inverted_filler_direct": "Effective values tied to a mixing rule, not a measured material; use them only as the "
+                              "filler of a mixture.",
     "sweep_outside_data": "Frequencies {flo:.4g}-{fhi:.4g} GHz ({where}) lie outside the measured data "
                           "{lo:.4g}-{hi:.4g} GHz.",
 }

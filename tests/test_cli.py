@@ -54,13 +54,17 @@ def save(project, tmp_path, name="p.coat"):
 
 def test_cli_never_imports_qt_or_matplotlib(tmp_path):
     path = tmp_path / "sal.coat"
+    comp = tmp_path / "comp.csv"
+    comp.write_text("f [GHz],eps',eps''\n1,4,0.1\n2,4,0.1\n", encoding="utf-8")
+    invert_argv = [["invert-filler", str(comp), "-o", str(tmp_path / "f.csv"), "--model", "bruggeman",
+                    "--fraction", "0.2", "--density-filler", "7800", "--matrix-eps", "3", "0"]]
     script = textwrap.dedent(f"""
         import io, sys
         from coating_studio.cli import main
         p = {str(path)!r}
         for argv in (["examples", "save", "salisbury", "-o", p, "--force"], ["info", p], ["check", p],
                      ["solve", p, "--targets"], ["optimize", p, "--maxiter", "3", "--seed", "1"],
-                     ["tolerance", p, "--n-samples", "5"], ["examples", "list"]):
+                     ["tolerance", p, "--n-samples", "5"], ["examples", "list"], *{invert_argv!r}):
             assert main(argv, stdout=io.StringIO(), stderr=io.StringIO()) == 0, argv
         bad = [m for m in sys.modules if m.startswith(("PySide6", "matplotlib"))]
         assert not bad, bad
