@@ -5,12 +5,11 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QGroupBox, QLabel, QSpinBox, QVBoxLayout, QWidget
 
-from coating_studio.core.units import SPECTRAL_UNITS
-from coating_studio.gui.spectral import SpectralInputs, unit_label
+from coating_studio.core.units import LENGTH_LABEL, LENGTH_UNITS, SPECTRAL_UNITS
+from coating_studio.gui.spectral import SpectralInputs, quantity_name, unit_label
 from coating_studio.gui.widgets.inputs import SciSpinBox
 from coating_studio.i18n import tr
 
-_UNIT_NAMES = {"GHz": "Frequency", "THz": "Frequency", "um": "Wavelength", "nm": "Wavelength", "cm-1": "Wavenumber"}
 
 
 class SweepPanel(QWidget):
@@ -31,11 +30,17 @@ class SweepPanel(QWidget):
         self.log_f = QCheckBox(tr("Logarithmic frequency axis"))
         self.angle = SciSpinBox(minimum=0.0, maximum=89.9, suffix="°")
         self.unit = QComboBox()
-        for u in SPECTRAL_UNITS:  # names are translated indirectly (tests/test_i18n.py INDIRECT)
-            self.unit.addItem(f"{tr(_UNIT_NAMES[u])} [{unit_label(u)}]", u)
+        for u in SPECTRAL_UNITS:
+            self.unit.addItem(f"{quantity_name(u)} [{unit_label(u)}]", u)
         self.unit.setToolTip(tr("Unit of the spectral axis in plots, inputs and exports. Wavelengths are vacuum "
                                 "wavelengths (c/f). Display only: the project keeps frequencies."))
         f1.addRow(tr("Spectral axis"), self.unit)
+        self.length_unit = QComboBox()
+        for u in LENGTH_UNITS:
+            self.length_unit.addItem(LENGTH_LABEL[u], u)
+        self.length_unit.setToolTip(tr("Unit of layer thicknesses in the layer stack, properties, optimisation and "
+                                       "report. Display only: the project keeps metres."))
+        f1.addRow(tr("Thickness unit"), self.length_unit)
         f1.addRow(tr("Start"), self.f_min)
         f1.addRow(tr("End"), self.f_max)
         f1.addRow(tr("Points"), self.n_f)
@@ -73,6 +78,7 @@ class SweepPanel(QWidget):
         self.at = SpectralInputs(self.f_at)
 
         self.unit.currentIndexChanged.connect(self._commit)
+        self.length_unit.currentIndexChanged.connect(self._commit)
         for w in (self.f_min, self.f_max, self.angle, self.a_min, self.a_max, self.f_at):
             w.valueEdited.connect(self._commit)
         for w in (self.n_f, self.n_a, self.map_nf, self.map_na):
@@ -85,6 +91,7 @@ class SweepPanel(QWidget):
         self._loading = True
         try:
             self.unit.setCurrentIndex(max(self.unit.findData(s.spectral_unit), 0))
+            self.length_unit.setCurrentIndex(max(self.length_unit.findData(s.length_unit), 0))
             self.band.show(s.spectral_unit, s.f_min, s.f_max)
             self.n_f.setValue(s.n_f)
             self.log_f.setChecked(s.log_f)
@@ -93,7 +100,7 @@ class SweepPanel(QWidget):
             self.a_max.set_value(s.angle_max)
             self.n_a.setValue(s.n_angle)
             self.at.show(s.spectral_unit, s.f_at)
-            self.lbl_at.setText(tr(_UNIT_NAMES[s.spectral_unit]))
+            self.lbl_at.setText(quantity_name(s.spectral_unit))
             self.map_nf.setValue(s.map_n_f)
             self.map_na.setValue(s.map_n_angle)
         finally:
@@ -105,6 +112,7 @@ class SweepPanel(QWidget):
         f_min, f_max = self.band.values()  # only an edited box is converted; the other keeps its Hz value
         f_at = self.at.value()
         unit = self.unit.currentData()
+        length_unit = self.length_unit.currentData()
         a_min, a_max = self.a_min.value(), self.a_max.value()
         if f_max <= f_min or a_max <= a_min:
             return  # wait until the range is valid
@@ -117,5 +125,6 @@ class SweepPanel(QWidget):
             s.angle_min, s.angle_max, s.n_angle = a_min, a_max, self.n_a.value()
             s.f_at = f_at
             s.spectral_unit = unit
+            s.length_unit = length_unit
             s.map_n_f, s.map_n_angle = self.map_nf.value(), self.map_na.value()
         self.doc.edit_settings(mut)

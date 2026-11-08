@@ -12,7 +12,9 @@ import os
 
 from coating_studio.cli.output import CliError
 from coating_studio.core.structure import Backing, SheetLayer, SlabLayer, Structure
-from coating_studio.core.units import DEFAULT_SPECTRAL_UNIT, DISPLAY_SCALE, SPECTRAL_UNITS, from_display, to_display
+from coating_studio.core.units import (
+    DEFAULT_LENGTH_UNIT, DEFAULT_SPECTRAL_UNIT, DISPLAY_SCALE, LENGTH_UNITS, SPECTRAL_UNITS, from_display, to_display,
+)
 from coating_studio.limits import measured_range
 from coating_studio.materials.csvio import CsvFormatError, load_csv
 from coating_studio.materials.library import builtin_materials
@@ -90,6 +92,8 @@ def project_to_spec(project: Project) -> dict:
              "n_angle": sw.n_angle, "map_n_f": sw.map_n_f, "map_n_angle": sw.map_n_angle}
     if sw.spectral_unit != DEFAULT_SPECTRAL_UNIT:
         sweep["spectral_unit"] = sw.spectral_unit  # GUI display unit only; every number above stays in GHz
+    if sw.length_unit != DEFAULT_LENGTH_UNIT:
+        sweep["length_unit"] = sw.length_unit  # GUI display unit of thicknesses; the spec's numbers stay in mm
     s = project.optimization
     targets = [{"name": t.name, "f_ghz": _f_pair(t.f_min, t.f_max), "n_f": t.n_f,
                 "angle_deg": [t.angle_min, t.angle_max], "n_angle": t.n_angle, "pols": list(t.pols),
@@ -153,7 +157,7 @@ def _pair(d, key, path, required=False):
     return float(v[0]), float(v[1])
 
 
-_UNKNOWN_SUFFIXES = ("thickness_m", "f_hz", "L_h", "C_f", "thickness_um")
+_UNKNOWN_SUFFIXES = ("thickness_m", "f_hz", "L_h", "C_f", "thickness_um", "thickness_nm")
 
 
 def _reject_alt_units(d, path):
@@ -294,6 +298,10 @@ def spec_to_project(spec: dict, base_dir=".") -> tuple[Project, list]:
             if d["spectral_unit"] not in SPECTRAL_UNITS:
                 raise spec_error("sweep.spectral_unit", f"must be one of {', '.join(SPECTRAL_UNITS)}")
             sw.spectral_unit = d["spectral_unit"]
+        if "length_unit" in d:
+            if d["length_unit"] not in LENGTH_UNITS:
+                raise spec_error("sweep.length_unit", f"must be one of {', '.join(LENGTH_UNITS)}")
+            sw.length_unit = d["length_unit"]
         a = _pair(d, "angle_range_deg", "sweep")
         if a:
             sw.angle_min, sw.angle_max = a

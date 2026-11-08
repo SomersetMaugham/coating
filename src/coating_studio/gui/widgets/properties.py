@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 import math
 
 from coating_studio.core.structure import SlabLayer
+from coating_studio import lengths
 from coating_studio.gui import spectral
 from coating_studio.gui.fmt import fmt_num
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
@@ -85,6 +86,7 @@ class PropertiesPanel(QWidget):
         form.addRow(tr("Material"), self.row_material)
 
         self.sp_thick, self.opt_thick, self.row_thick = self._num_row(0.0, 1e6, "mm", "thickness")
+        self.thick = spectral.LengthInputs(self.sp_thick)  # in the project's length unit (mm, µm, nm)
         form.addRow(tr("Thickness"), self.row_thick)
         self.cb_model = QComboBox()
         self.cb_model.addItem(tr("Constant (R + jX)"), "constant")
@@ -195,7 +197,7 @@ class PropertiesPanel(QWidget):
                     if ly.material not in names:
                         self.cb_material.addItem(ly.material)
                     self.cb_material.setCurrentText(ly.material)
-                    self.sp_thick.set_value(ly.thickness * 1e3)
+                    self.thick.show(lengths.unit_of(p), ly.thickness)
                     self.opt_thick.setChecked(self._has_var("thickness"))
                     mat = p.materials.get(ly.material)
                     if mat is not None:
@@ -331,7 +333,7 @@ class PropertiesPanel(QWidget):
         if self._loading or self.uid is None:
             return
         uid = self.uid
-        value = v * self._DISPLAY.get(attr, 1.0)
+        value = self.thick.value() if attr == "thickness" else v * self._DISPLAY.get(attr, 1.0)
         if attr in ("R", "C") and value <= 0:
             return
         label = {"thickness": tr("Change thickness"), "R": tr("Change sheet resistance"),
@@ -356,7 +358,8 @@ class PropertiesPanel(QWidget):
                 elif attr in ("L", "C"):
                     lo, hi = default_lc_bounds(attr, val)
                 else:
-                    lo, hi = (val / 4, val * 4) if val > 0 else ((1e-4, 1e-2) if attr == "thickness" else (10, 3000))
+                    lo, hi = ((val / 4, val * 4) if val > 0 else
+                              (lengths.zero_thickness_range(p) if attr == "thickness" else (10, 3000)))
                 vs.append(ContinuousVariable(path, lo, hi))
         self.doc.edit(tr("Toggle optimisation variable"), mut)
 

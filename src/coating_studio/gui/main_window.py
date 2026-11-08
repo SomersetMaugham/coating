@@ -21,6 +21,7 @@ from coating_studio.examples import EXAMPLES
 from coating_studio.gui.dialogs.materials import MaterialManager
 from coating_studio.gui.dialogs.preferences import PreferencesDialog
 from coating_studio.gui.document import Document
+from coating_studio import lengths
 from coating_studio.gui import spectral
 from coating_studio.gui.fmt import fmt_num
 from coating_studio.gui.icons import icon, refresh_icons, set_icon_colors
@@ -380,7 +381,7 @@ class MainWindow(QMainWindow):
             self.w_layers.select_uid(layers[0].uid)
         self.w_props.set_layer(self.w_layers.selected_uid())
         self._sync_sweep_editors()
-        self._spectral_unit = self.project.sweep.spectral_unit
+        self._display_units = (self.project.sweep.spectral_unit, self.project.sweep.length_unit)
         self.p_opt.refresh()
         self.p_tol.refresh()
         self.p_tol.invalidate()
@@ -402,11 +403,13 @@ class MainWindow(QMainWindow):
             self.w_props.refresh()  # RLC info shows Zs at the angle-sweep frequency
             self.p_tol.plot.mark_dirty()
             self._sync_sweep_editors()
-            unit = self.project.sweep.spectral_unit
-            if unit != getattr(self, "_spectral_unit", unit):
-                self.p_opt.refresh()  # target bands are shown in the spectral unit (only on a unit change, so
-                #                       the panel's own edits do not rebuild it)
-            self._spectral_unit = unit
+            units = (self.project.sweep.spectral_unit, self.project.sweep.length_unit)
+            if units != getattr(self, "_display_units", units):
+                # target bands and thicknesses follow the display units; rebuild only on a unit change, so the
+                # panels' own edits do not rebuild them
+                self.p_opt.refresh()
+                self.w_layers.refresh()
+            self._display_units = units
             for v in (self.v_freq, self.v_angle, self.v_map, self.v_smith, self.v_abs, self.v_mat):
                 v.mark_dirty()  # target masks; the spectral unit of every spectral axis
         self._timer.start()
@@ -457,12 +460,13 @@ class MainWindow(QMainWindow):
     def _update_summary(self):
         p = self.project
         res = self.results.get("freq")
-        thick = p.structure.total_thickness() * 1e3
+        thick = p.structure.total_thickness()
         try:
             mass = p.areal_mass()
         except (KeyError, MaterialCycleError):
             mass = float("nan")
-        parts = [tr("Thickness {t} mm", t=fmt_num(thick, 4)), tr("Areal mass {m} kg/m²", m=fmt_num(mass, 4))]
+        parts = [tr("Thickness {t}", t=lengths.fmt_length(thick, p.sweep.length_unit)),
+                 tr("Areal mass {m} kg/m²", m=fmt_num(mass, 4))]
         if res is not None:
             r = res.quantity("R", "avg")[:, 0]
             db = 10 * np.log10(np.maximum(r, 1e-30))
@@ -838,7 +842,7 @@ class MainWindow(QMainWindow):
             "sub-wavelength unit cells below the grating-lobe onset.<br>"
             "<b>Units</b>: GHz, mm, degrees, S/m, g/cm³; the engine works in SI. The spectral axis (plots, sweep "
             "and band inputs, exports) can show THz, vacuum wavelength in µm or nm, or wavenumber in cm⁻¹ instead "
-            "(Analysis settings); material model parameters stay in GHz."))
+            "(Analysis settings); material model parameters stay in GHz. Thicknesses can be shown in µm or nm."))
 
     # =====================================================================
     # window state

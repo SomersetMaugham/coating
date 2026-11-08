@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from coating_studio.core.structure import SheetLayer, SlabLayer
+from coating_studio import lengths
 from coating_studio.i18n import tr
 
 
@@ -117,8 +118,8 @@ class CrossSectionWidget(QWidget):
             label = tr("half-space")
         p.setPen(QColor(c.muted))
         p.drawText(QRectF(x - 40, top + h + 2, 120, bottom - 2), Qt.AlignLeft | Qt.AlignVCenter, label)
-        p.drawText(QRectF(4, top + h + 2, 120, bottom - 2), Qt.AlignLeft | Qt.AlignVCenter,
-                   tr("Total {t} mm", t=f"{total * 1e3:.4g}"))
+        p.drawText(QRectF(4, top + h + 2, 160, bottom - 2), Qt.AlignLeft | Qt.AlignVCenter,
+                   tr("Total {t}", t=lengths.fmt_length(total, lengths.unit_of(self.project))))
         p.end()
 
     def sizeHint(self):

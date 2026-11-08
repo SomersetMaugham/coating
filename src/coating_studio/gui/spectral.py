@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from coating_studio.core.units import SPECTRAL_LABEL, from_spectral, spectral_reversed, to_spectral
 from coating_studio.spectral import (  # noqa: F401 (re-exported)
-    INPUT_RANGE, ascending, axis_label, csv_header, cursor_text, fmt_point, fmt_range, fmt_value, set_xlim, span,
-    symbol, unit_label, unit_of, x_values,
+    INPUT_RANGE, ascending, axis_label, csv_header, cursor_text, fmt_point, fmt_range, fmt_value, quantity_name,
+    set_xlim, span, symbol, unit_label, unit_of, x_values,
 )
 
 
@@ -45,6 +45,41 @@ class SpectralInputs:
         for spin, i, (shown, hz) in zip(self.spins, self._order(), self._shown):
             out[i] = hz if spin.value() == shown else from_spectral(spin.value(), self.unit)
         return out
+
+    def value(self):
+        return self.values()[0]
+
+
+LENGTH_INPUT_RANGE = (0.0, 1e15)  # display values: 1 m is 1e9 nm; 0 is a valid thickness
+
+
+class LengthInputs:
+    """Spin boxes that edit lengths [m] in the project's length unit (mm, µm, nm), with the same write-back rule as
+    ``SpectralInputs``: a box whose number did not change returns the stored metres, not a float round trip."""
+
+    def __init__(self, *spins, minimum=None):
+        self.spins = spins
+        self.unit = None
+        self._shown = []
+        self._min = minimum  # display minimum in metres (e.g. a positive reference thickness), or the range floor
+
+    def show(self, unit, *m):
+        from coating_studio.core.units import LENGTH_LABEL, to_length
+
+        self.unit = unit
+        self._shown = []
+        for spin, si in zip(self.spins, m):
+            spin.setSuffix(f" {LENGTH_LABEL[unit]}")
+            lo = LENGTH_INPUT_RANGE[0] if self._min is None else to_length(self._min, unit)
+            spin.setRange(lo, LENGTH_INPUT_RANGE[1])
+            spin.set_value(to_length(float(si), unit))
+            self._shown.append((spin.value(), float(si)))
+
+    def values(self):
+        from coating_studio.core.units import from_length
+
+        return [si if spin.value() == shown else from_length(spin.value(), self.unit)
+                for spin, (shown, si) in zip(self.spins, self._shown)]
 
     def value(self):
         return self.values()[0]
