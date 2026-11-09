@@ -1,6 +1,7 @@
 """Offscreen GUI smoke test: build the window, exercise every view and a short optimisation."""
 
 import os
+import sys
 
 import pytest
 
@@ -98,12 +99,15 @@ def test_review_fixes(app):
 def test_optimisation_runs_in_background(app):
     from coating_studio.examples import EXAMPLES
     from coating_studio.gui.main_window import MainWindow
+    from coating_studio.gui.workers import GIL_SWITCH_INTERVAL_S
 
     w = MainWindow()
     p = EXAMPLES["salisbury"][1]()
     p.optimization.maxiter = 15
     w.doc.set_project(p)
+    sys.setswitchinterval(0.005)  # Python's default: a worker must shorten it or plots freeze the window
     w.p_opt.run()
+    assert sys.getswitchinterval() == pytest.approx(GIL_SWITCH_INTERVAL_S)
     for _ in range(400):
         _pump(app, 25)
         if not w.p_opt.is_running():
