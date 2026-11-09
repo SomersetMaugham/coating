@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from coating_studio.materials.models import DispersiveMaterial, Material, MaterialCycleError, OutOfRangeError
+from coating_studio.materials.models import DispersiveMaterial, Material, MaterialCycleError, OutOfRangeError, PercolationError
 
 # Snoek's law: (mu_s - 1) * f_r <= (2/3) * gamma' * 4*pi*Ms,  gamma' = 2.8 MHz/Oe.
 # Using pure iron (4*pi*Ms ~ 21.5 kG) as an upper bound gives ~40 GHz.
@@ -63,6 +63,8 @@ def check_material(mat: Material, f, resolver) -> list[Issue]:
         return [Issue("error", "out_of_range", mat.name,
                       {"lo": e.data_lo / 1e9, "hi": e.data_hi / 1e9,
                        "flo": e.f_lo / 1e9, "fhi": e.f_hi / 1e9})]
+    except PercolationError:
+        return [Issue("error", "percolation_exceeded", mat.name, {"fraction": mat.fraction, "pc": mat.percolation})]
     except KeyError as e:
         return [Issue("error", "missing_reference", mat.name, {"ref": str(e)})]
     except MaterialCycleError:

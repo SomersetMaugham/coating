@@ -28,7 +28,7 @@ from coating_studio.materials.inversion import (
     ILL_CONDITIONED, diagnostics, invert_filler, prediction_checks, provenance_note, validation_errors, warning_flags,
 )
 from coating_studio.materials.models import (
-    ConstantMaterial, MaterialCycleError, MixtureMaterial, OutOfRangeError, TabulatedMaterial, wt_to_vol,
+    ConstantMaterial, MaterialCycleError, MixtureMaterial, OutOfRangeError, TabulatedMaterial, make_shape, wt_to_vol,
 )
 
 _MATERIAL_ERRORS = (OutOfRangeError, MaterialCycleError, KeyError, ValueError)
@@ -71,7 +71,7 @@ class FillerInversionDialog(QDialog):
         self.src, self.ctx = material, ctx
         self.project = ctx.project
         self.result_filler = None
-        self.result_mixture = None  # (matrix name, fraction, model)
+        self.result_mixture = None  # (matrix name, fraction, model, shape)
         self._report = None
         self._matrix_tab = None
         self._validation = []  # [(label, TabulatedMaterial)], parallel to the table rows
@@ -83,6 +83,12 @@ class FillerInversionDialog(QDialog):
         self.cb_model.addItem(tr("Choose…"), None)
         self.cb_model.addItem("Maxwell-Garnett", "maxwell_garnett")
         self.cb_model.addItem("Bruggeman", "bruggeman")
+        self.cb_model.addItem(tr("Odelevskiy (non-spherical)"), "odelevskiy")
+        self.ed_n, self.ed_pc = QLineEdit(), QLineEdit()
+        self.ed_n.setToolTip(tr("Shape factor N of the inclusions. Fit it to measurements: it often differs from the "
+                                "value computed from the particle size."))
+        self.ed_pc.setToolTip(tr("Percolation threshold as a volume fraction. N = 1/3 with a threshold of 1 is "
+                                 "Maxwell-Garnett."))
         self.ed_fraction = QLineEdit()
         self.cb_basis = QComboBox()
         self.cb_basis.addItem(tr("Volume fraction"), "volume")
@@ -94,6 +100,11 @@ class FillerInversionDialog(QDialog):
         form = QFormLayout(top)
         form.addRow(tr("New material name"), self.ed_name)
         form.addRow(tr("Mixing rule"), self.cb_model)
+        form.addRow(tr("Shape factor N"), self.ed_n)
+        form.addRow(tr("Percolation threshold"), self.ed_pc)
+        self.form = form
+        form.setRowVisible(self.ed_n, False)
+        form.setRowVisible(self.ed_pc, False)
         loading = QHBoxLayout()
         loading.addWidget(self.ed_fraction, 1)
         loading.addWidget(self.cb_basis)
@@ -202,7 +213,9 @@ class FillerInversionDialog(QDialog):
 
         self.cb_source.currentIndexChanged.connect(self._on_source)
         self.cb_basis.currentIndexChanged.connect(self._on_basis)
-        for sig in (self.cb_model.currentIndexChanged, self.cb_matrix.currentIndexChanged, self.ed_fraction.textChanged,
+        self.cb_model.currentIndexChanged.connect(self._on_model)
+        for sig in (self.ed_n.textChanged, self.ed_pc.textChanged, self.cb_matrix.currentIndexChanged,
+                    self.ed_fraction.textChanged,
                     self.ed_rho_filler.textChanged, self.ed_rho_matrix.textChanged, self.ed_me_re.textChanged,
                     self.ed_me_loss.textChanged, self.ed_mm_re.textChanged, self.ed_mm_loss.textChanged,
                     self.tbl_val.itemChanged):
@@ -217,6 +230,12 @@ class FillerInversionDialog(QDialog):
 
     def _matrix_candidates(self):
         return [m.name for m in self.project.materials.values() if self._usable(m) and not is_builtin_demo(m)]
+
+    def _on_model(self, _index):
+        shaped = self.cb_model.currentData() == "odelevskiy"
+        self.form.setRowVisible(self.ed_n, shaped)
+        self.form.setRowVisible(self.ed_pc, shaped)
+        self._on_input()
 
     def _on_source(self, _index):
         self.stack.setCurrentIndex(self.cb_source.currentData())
@@ -341,8 +360,16 @@ class FillerInversionDialog(QDialog):
         matrix = self._matrix()
         if isinstance(matrix, str):
             missing.append(matrix)
+        shape = None
+        if model == "odelevskiy":
+            try:
+                shape = make_shape(model, _number(self.ed_n), _number(self.ed_pc))
+            except ValueError:
+                missing.append(tr("Enter a shape factor between 0 and 1 and a percolation threshold above 0 and at most 1."))
+        if shape is not None and not missing and self._to_volume(fraction, rho_f, rho_m) >= shape.pc:
+            missing.append(tr("The volume fraction must be below the percolation threshold."))
         return missing or {"model": model, "fraction": fraction, "rho_f": rho_f, "rho_m": rho_m, "matrix": matrix[0],
-                           "label": matrix[1]}
+                           "label": matrix[1], "shape": shape}
 
     def _validation_rows(self, filler, inp):
         rows = []
@@ -359,7 +386,7 @@ class FillerInversionDialog(QDialog):
             row["fraction"] = self._to_volume(value, inp["rho_f"], inp["rho_m"])
             eps, mu = tab.eps_re - 1j * tab.eps_loss, tab.mu_re - 1j * tab.mu_loss
             try:
-                rows.append({**row, **validation_errors(filler, inp["matrix"], tab.f, eps, mu, row["fraction"], inp["model"])})
+                rows.append({**row, **validation_errors(filler, inp["matrix"], tab.f, eps, mu, row["fraction"], inp["model"], inp["shape"])})
             except _MATERIAL_ERRORS as e:  # one bad row must not lose the inversion
                 rows.append({**row, "error": str(e)})
         return rows
@@ -385,10 +412,10 @@ class FillerInversionDialog(QDialog):
         eps_m, mu_m = inp["matrix"].eps_mu(m.f, self.project.resolver)
         eps_m, mu_m = np.broadcast_to(eps_m, m.f.shape), np.broadcast_to(mu_m, m.f.shape)
         phi = self._to_volume(inp["fraction"], inp["rho_f"], inp["rho_m"])
-        res = invert_filler(m.f, eps, mu, eps_m, mu_m, phi, inp["model"], self.chk_clamp.isChecked())
+        res = invert_filler(m.f, eps, mu, eps_m, mu_m, phi, inp["model"], self.chk_clamp.isChecked(), inp["shape"])
         report = {"res": res, "inp": inp, "phi": phi, "diag": diagnostics(res)}
         if res.ok:
-            filler = res.to_tabulated(self._filler_name(), inp["rho_f"], note=provenance_note(m.name, inp["model"], phi, inp["label"]))
+            filler = res.to_tabulated(self._filler_name(), inp["rho_f"], note=provenance_note(m.name, inp["model"], phi, inp["label"], inp["shape"]))
             report.update(filler=filler, prediction=prediction_checks(res, eps, mu, eps_m, mu_m),
                           validation=self._validation_rows(filler, inp))
             report["flags"] = warning_flags(res, report["prediction"], report["validation"])
@@ -430,9 +457,15 @@ class FillerInversionDialog(QDialog):
         if p["fraction_sensitivity"]:
             lines.append(tr("Prediction change for a 10 % loading error: ε {e:.1%}, μ {m:.1%}",
                             e=p["fraction_sensitivity"]["rms_eps"], m=p["fraction_sensitivity"]["rms_mu"]))
+        shaped = res.shape is not None
         if p["model_disagreement"]:
-            lines.append(tr("Difference from the other mixing rule: ε {e:.1%}, μ {m:.1%}",
-                            e=p["model_disagreement"]["rms_eps"], m=p["model_disagreement"]["rms_mu"]))
+            d_e, d_m = p["model_disagreement"]["rms_eps"], p["model_disagreement"]["rms_mu"]
+            lines.append(tr("Difference without the percolation term: ε {e:.1%}, μ {m:.1%}", e=d_e, m=d_m) if shaped else
+                         tr("Difference from the other mixing rule: ε {e:.1%}, μ {m:.1%}", e=d_e, m=d_m))
+        elif shaped and res.shape.pc >= 1:
+            lines.append(tr("A threshold of 1 has no percolation term to compare."))
+        elif shaped:
+            lines.append(tr("The same shape factor without percolation cannot represent this composite."))
         else:
             lines.append(tr("The other mixing rule cannot represent this composite."))
         for v in report["validation"]:
@@ -481,5 +514,6 @@ class FillerInversionDialog(QDialog):
         self.result_filler = report["filler"]
         self.result_filler.name = self._filler_name()
         if self.chk_mixture.isChecked():
-            self.result_mixture = (report["inp"]["matrix"].name, report["phi"], report["inp"]["model"])
+            self.result_mixture = (report["inp"]["matrix"].name, report["phi"], report["inp"]["model"],
+                                   report["inp"]["shape"])
         self.accept()

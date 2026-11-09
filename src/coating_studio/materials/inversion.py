@@ -11,9 +11,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from coating_studio.materials.models import INVERTED_PREFIX, TabulatedMaterial, bruggeman, maxwell_garnett
+from coating_studio.materials.models import INVERTED_PREFIX, Shape, TabulatedMaterial, mixing_rule
 
-MODELS = ("maxwell_garnett", "bruggeman")
+MODELS = ("maxwell_garnett", "bruggeman", "odelevskiy")
+SPHERICAL_MODELS = ("maxwell_garnett", "bruggeman")
 GAIN_TOL = 1e-12  # the tolerance of checks.check_material
 SCREENING_MARGIN = 1e-9
 ROUNDTRIP_TOL = 1e-6
@@ -23,12 +24,12 @@ MAX_PREDICTED_FRACTION = 0.95
 WARN_RMS = 0.10  # relative error above which a prediction check is worth a warning
 
 
-def mix(em, ei, phi, model):
+def mix(em, ei, phi, model, shape=None):
     """The forward mixing rule."""
-    return maxwell_garnett(em, ei, phi) if model == "maxwell_garnett" else bruggeman(em, ei, phi)
+    return mixing_rule(em, ei, phi, model, shape)
 
 
-def invert_rule(eff, em, phi, model):
+def invert_rule(eff, em, phi, model, shape=None):
     """Filler value from one mixing rule.  Returns ``(ei, x)``, with ``x`` the screening coordinate (Re x < 1 for a
     filler the model can represent).  Each is a single ratio, so ``em + 2 eff = 0`` does not overflow on the way."""
     if not 0.0 < phi < 1.0:
@@ -41,14 +42,22 @@ def invert_rule(eff, em, phi, model):
         if model == "bruggeman":
             s, d = phi * (em + 2 * eff), (1 - phi) * (em - eff)
             return eff * (s - 2 * d) / (s + d), -d / s
+        if model == "odelevskiy":
+            if phi >= shape.pc:
+                raise ValueError(f"the fraction {phi:g} is at or above the percolation threshold {shape.pc:g}")
+            d = eff - em
+            den = phi * em - (1 - phi / shape.pc) * shape.n * d
+            return em * (den + d) / den, shape.n * d / (phi * (em + d * shape.n / shape.pc))
     raise ValueError(f"unknown mixing model {model!r}")
 
 
-def _amplification(eff, em, ei, x, phi, model):
+def _amplification(eff, em, ei, x, phi, model, shape=None):
     """Relative condition number |dei/de| |e/ei|; 0 where the composite equals the matrix (nothing was measured)."""
     with np.errstate(divide="ignore", invalid="ignore"):
         if model == "maxwell_garnett":
             d = 9 * em ** 2 / (phi * (eff + 2 * em) ** 2 * (1 - x) ** 2)
+        elif model == "odelevskiy":
+            d = phi * em ** 2 / (phi * em - (1 - phi / shape.pc) * shape.n * (eff - em)) ** 2
         else:
             d = (1 + 2 * x) / (1 - x) + 9 * eff * em * (1 - phi) / (phi * (em + 2 * eff) ** 2 * (1 - x) ** 2)
         k = np.abs(d) * np.abs(eff) / np.abs(ei)
@@ -68,9 +77,9 @@ class Channel:
     roundtrip: np.ndarray  # relative, NaN where the point is outside the model
 
 
-def _channel(eff, em, phi, model, clamp):
+def _channel(eff, em, phi, model, clamp, shape=None):
     eff, em = np.broadcast_arrays(np.asarray(eff, dtype=complex), np.asarray(em, dtype=complex))
-    ei, x = invert_rule(eff, em, phi, model)
+    ei, x = invert_rule(eff, em, phi, model, shape)
     ei = np.array(ei, dtype=complex)
     finite = np.isfinite(ei)
     outside = ~(finite & (np.nan_to_num(x.real, nan=np.inf) < 1 - SCREENING_MARGIN))
@@ -84,10 +93,10 @@ def _channel(eff, em, phi, model, clamp):
     ei[clamped] = ei[clamped].real
     gain &= ~clamped
     with np.errstate(divide="ignore", invalid="ignore"):
-        back = np.where(outside, np.nan + 0j, mix(em, np.where(outside, em, ei), phi, model))
+        back = np.where(outside, np.nan + 0j, mix(em, np.where(outside, em, ei), phi, model, shape))
         rt = np.abs(back - eff) / np.maximum(np.abs(eff), 1e-300)
     branch = ~outside & ~clamped & (rt > ROUNDTRIP_TOL)
-    return Channel(ei, _amplification(eff, em, ei, x, phi, model), gain, outside, branch, clamped, rt)
+    return Channel(ei, _amplification(eff, em, ei, x, phi, model, shape), gain, outside, branch, clamped, rt)
 
 
 @dataclass
@@ -98,6 +107,7 @@ class InversionResult:
     eps: Channel
     mu: Channel
     clamp_nonpassive: bool = False
+    shape: Shape | None = None
 
     def _count(self, mask_name):
         return int(np.count_nonzero(getattr(self.eps, mask_name) | getattr(self.mu, mask_name)))
@@ -157,13 +167,15 @@ class InversionResult:
                                  -self.mu.value.imag, source=source, density=density, note=note)
 
 
-def invert_filler(f, eps_eff, mu_eff, eps_m, mu_m, phi, model, clamp_nonpassive=False) -> InversionResult:
+def invert_filler(f, eps_eff, mu_eff, eps_m, mu_m, phi, model, clamp_nonpassive=False, shape=None) -> InversionResult:
     """Invert both channels on the grid ``f``.  Always returns; ``result.ok`` tells whether the table may be used."""
     if model not in MODELS:
         raise ValueError(f"unknown mixing model {model!r}")
+    if model == "odelevskiy" and shape is None:
+        raise ValueError("the odelevskiy rule needs a shape factor and a percolation threshold")
     return InversionResult(np.asarray(f, dtype=float), float(phi), model,
-                           _channel(eps_eff, eps_m, phi, model, clamp_nonpassive),
-                           _channel(mu_eff, mu_m, phi, model, clamp_nonpassive), clamp_nonpassive)
+                           _channel(eps_eff, eps_m, phi, model, clamp_nonpassive, shape),
+                           _channel(mu_eff, mu_m, phi, model, clamp_nonpassive, shape), clamp_nonpassive, shape)
 
 
 def rms_relative(pred, ref):
@@ -172,12 +184,13 @@ def rms_relative(pred, ref):
     return float(np.sqrt(np.mean(np.abs(pred - ref) ** 2)) / max(float(np.max(np.abs(ref))), 1e-12))
 
 
-def prediction_fractions(phi):
-    return [phi / 2, min(1.5 * phi, MAX_PREDICTED_FRACTION)]
+def prediction_fractions(phi, shape=None):
+    top = min(1.5 * phi, MAX_PREDICTED_FRACTION)
+    return [phi / 2, top if shape is None else min(top, MAX_PREDICTED_FRACTION * shape.pc)]
 
 
 def _predict(res, eps_m, mu_m, phi):
-    return mix(eps_m, res.eps.value, phi, res.model), mix(mu_m, res.mu.value, phi, res.model)
+    return mix(eps_m, res.eps.value, phi, res.model, res.shape), mix(mu_m, res.mu.value, phi, res.model, res.shape)
 
 
 def _worst(rows):
@@ -186,7 +199,7 @@ def _worst(rows):
 
 def prediction_checks(res: InversionResult, eps_eff, mu_eff, eps_m, mu_m) -> dict:
     """How far predictions at other loadings move under a loading error, and under the other mixing model."""
-    at = prediction_fractions(res.fraction)
+    at = prediction_fractions(res.fraction, res.shape)
     base = [_predict(res, eps_m, mu_m, p) for p in at]
 
     def changes(other):
@@ -195,24 +208,34 @@ def prediction_checks(res: InversionResult, eps_eff, mu_eff, eps_m, mu_m) -> dic
     rows = []
     for sign in (-1, 1):
         phi = res.fraction * (1 + sign * FRACTION_STEP)
-        if phi >= 1:
+        if phi >= 1 or (res.shape is not None and phi >= res.shape.pc):
             continue
-        moved = invert_filler(res.f, eps_eff, mu_eff, eps_m, mu_m, phi, res.model, res.clamp_nonpassive)
+        moved = invert_filler(res.f, eps_eff, mu_eff, eps_m, mu_m, phi, res.model, res.clamp_nonpassive, res.shape)
         if moved.outside_model_points:
             continue
         rows += changes([_predict(moved, eps_m, mu_m, p) for p in at])
-    other_model = next(m for m in MODELS if m != res.model)
-    other = invert_filler(res.f, eps_eff, mu_eff, eps_m, mu_m, res.fraction, other_model, res.clamp_nonpassive)
-    disagreement, reason = None, None
-    if other.ok:
-        disagreement = _worst(changes([_predict(other, eps_m, mu_m, p) for p in at]))
+    disagreement, reason, other = None, None, None
+    if res.model == "odelevskiy":  # a spherical rule would differ through the shape alone; test the percolation term
+        if res.shape.pc >= 1:
+            reason = "a percolation threshold of 1 has no separate term to compare"
+        else:
+            other = invert_filler(res.f, eps_eff, mu_eff, eps_m, mu_m, res.fraction, res.model, res.clamp_nonpassive,
+                                  Shape(res.shape.n, 1.0))
+            label = "the same shape factor without percolation"
     else:
-        reason = f"the {other_model} rule cannot represent this composite"
+        label = next(m for m in SPHERICAL_MODELS if m != res.model)
+        other = invert_filler(res.f, eps_eff, mu_eff, eps_m, mu_m, res.fraction, label, res.clamp_nonpassive)
+        label = f"the {label} rule"
+    if other is not None:
+        if other.ok:
+            disagreement = _worst(changes([_predict(other, eps_m, mu_m, p) for p in at]))
+        else:
+            reason = f"{label} cannot represent this composite"
     return {"at_fractions": at, "fraction_sensitivity": _worst(rows) if rows else None,
             "model_disagreement": disagreement, "model_disagreement_reason": reason}
 
 
-def validation_errors(filler: TabulatedMaterial, matrix, f, eps, mu, phi, model) -> dict:
+def validation_errors(filler: TabulatedMaterial, matrix, f, eps, mu, phi, model, shape=None) -> dict:
     """Predict a composite measured at another loading and compare, on the part of its grid the filler covers."""
     f = np.asarray(f, dtype=float)
     lo, hi = filler.f_range
@@ -222,13 +245,14 @@ def validation_errors(filler: TabulatedMaterial, matrix, f, eps, mu, phi, model)
     fv = f[keep]
     ei, mi = filler.eps_mu(fv, None)
     em, mm = matrix.eps_mu(fv, None)
-    return {"n_points": int(fv.size), "rms_eps": rms_relative(mix(em, ei, phi, model), np.asarray(eps)[keep]),
-            "rms_mu": rms_relative(mix(mm, mi, phi, model), np.asarray(mu)[keep])}
+    return {"n_points": int(fv.size), "rms_eps": rms_relative(mix(em, ei, phi, model, shape), np.asarray(eps)[keep]),
+            "rms_mu": rms_relative(mix(mm, mi, phi, model, shape), np.asarray(mu)[keep])}
 
 
 def diagnostics(res: InversionResult) -> dict:
     """The per-point counts and condition numbers of a result, for the CLI's JSON and the dialog."""
-    return {"fraction": res.fraction, "model": res.model, "n_points": int(res.f.size),
+    shape = {} if res.shape is None else {"shape_n": res.shape.n, "percolation": res.shape.pc}
+    return {**shape, "fraction": res.fraction, "model": res.model, "n_points": int(res.f.size),
             "data_range_hz": [float(res.f[0]), float(res.f[-1])], "amplification": res.amplification_stats(),
             "ill_conditioned_points": res.ill_conditioned_points, "negative_real_points": res.negative_real_points,
             "gain_points": res.gain_points, "outside_model_points": res.outside_model_points,
@@ -261,8 +285,9 @@ def warning_flags(res: InversionResult, prediction: dict, validation: list) -> l
     return flags
 
 
-def provenance_note(source, model, fraction, matrix) -> str:
+def provenance_note(source, model, fraction, matrix, shape=None) -> str:
     """The note of an inverted table; ``limits.inversion_provenance`` reads it back.  A ";" in a name is replaced,
     because a name like "a; model=bruggeman; fraction=0.9" would otherwise be read back as the provenance."""
     source, matrix = str(source).replace(";", ","), str(matrix).replace(";", ",")
-    return " ".join(f"{INVERTED_PREFIX} {source}; model={model}; fraction={fraction:.12g}; matrix={matrix}".split())
+    rule = "" if shape is None else f" n={shape.n:.12g}; pc={shape.pc:.12g};"
+    return " ".join(f"{INVERTED_PREFIX} {source}; model={model}; fraction={fraction:.12g};{rule} matrix={matrix}".split())

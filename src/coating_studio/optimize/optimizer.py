@@ -33,7 +33,7 @@ from scipy.special import logsumexp
 
 from coating_studio.core.solver import SolverError, solve
 from coating_studio.materials.checks import Issue, check_material
-from coating_studio.materials.models import MaterialCycleError, OutOfRangeError
+from coating_studio.materials.models import MaterialCycleError, OutOfRangeError, PercolationError
 from coating_studio.project import OptimizationSettings, Project, get_param, set_param
 
 MAX_ENUMERATED_COMBOS = 64
@@ -154,7 +154,7 @@ class Evaluator:
             mean_term = float(np.mean([m / 10 ** (t.goal_db / 10) for m, t in zip(means, self.targets)]))
             thick = self.p.structure.total_thickness()
             mass = self.p.areal_mass()
-        except (SolverError, OutOfRangeError, MaterialCycleError, KeyError, FloatingPointError):
+        except (SolverError, OutOfRangeError, PercolationError, MaterialCycleError, KeyError, FloatingPointError):
             return ObjectiveTerms(math.nan, math.nan, math.nan, math.nan, INVALID)
         margins = [w - t.goal_db for w, t in zip(true_worst, self.targets)]
         b = int(np.argmax(margins))

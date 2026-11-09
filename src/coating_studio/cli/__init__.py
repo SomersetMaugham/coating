@@ -150,7 +150,10 @@ def build_parser():
     inv.add_argument("composite", help="CSV measured on the composite")
     inv.add_argument("--output", "-o", required=True, help="filler CSV to write")
     inv.add_argument("--force", action="store_true", help="overwrite an existing output (never an input file)")
-    inv.add_argument("--model", required=True, choices=("maxwell_garnett", "bruggeman"))
+    inv.add_argument("--model", required=True, choices=("maxwell_garnett", "bruggeman", "odelevskiy"))
+    inv.add_argument("--shape-n", type=float, metavar="N", help="shape factor, required with --model odelevskiy")
+    inv.add_argument("--percolation", type=float, metavar="PC",
+                     help="percolation threshold as a volume fraction, required with --model odelevskiy")
     inv.add_argument("--density-filler", type=float, required=True, metavar="KG_M3")
     inv.add_argument("--density-matrix", type=float, metavar="KG_M3", help="needed with --fraction-wt")
     load = inv.add_mutually_exclusive_group(required=True)
@@ -220,7 +223,8 @@ def _run(args, control):
     if c == "invert-filler":
         return C.cmd_invert_filler(args.composite, args.output, args.model, args.density_filler, args.fraction,
                                    args.fraction_wt, args.density_matrix, args.matrix_csv, args.matrix_eps,
-                                   args.matrix_mu, args.name, args.clamp_nonpassive, args.validate, args.force)
+                                   args.matrix_mu, args.name, args.clamp_nonpassive, args.validate, args.force,
+                                   args.shape_n, args.percolation)
     if c == "fss-grid":
         return C.cmd_fss_grid(args.pattern, args.period_mm, args.strip_width_mm, args.gap_mm, args.eps_eff)
     if c == "build":

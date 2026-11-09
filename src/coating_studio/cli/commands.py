@@ -849,10 +849,11 @@ def _inversion_warning(code, a):
 
 def cmd_invert_filler(composite, output, model, density_filler, fraction=None, fraction_wt=None, density_matrix=None,
                       matrix_csv=None, matrix_eps=None, matrix_mu=None, name=None, clamp_nonpassive=False, validate=(),
-                      force=False):
+                      force=False, shape_n=None, percolation=None):
     """Effective filler table from one measured composite (docs/CLI_PLAN.md, section 13.9)."""
     from coating_studio.cli.spec import wt_to_vol
     from coating_studio.materials.csvio import to_csv_text
+    from coating_studio.materials.models import make_shape
     from coating_studio.materials.inversion import (
         diagnostics, invert_filler, prediction_checks, provenance_note, validation_errors, warning_flags,
     )
@@ -879,7 +880,13 @@ def cmd_invert_filler(composite, output, model, density_filler, fraction=None, f
     if any(os.path.abspath(output) == os.path.abspath(i) for i in inputs):
         raise bad(f"{output} is one of the input files; --force does not overwrite measurements", path=str(output))
     check_output_path(output, force)
+    try:
+        shape = make_shape(model, shape_n, percolation)
+    except ValueError as e:
+        raise bad(str(e)) from None
     phi = volume(fraction if fraction_wt is None else fraction_wt, "fraction")
+    if shape is not None and phi >= shape.pc:
+        raise bad(f"the volume fraction {phi:g} is at or above the percolation threshold {shape.pc:g}")
     checks = [(path, volume(value, f"--validate {path}")) for path, value in validate]
 
     comp = _read_measured(composite)
@@ -897,7 +904,7 @@ def cmd_invert_filler(composite, output, model, density_filler, fraction=None, f
         eps_m, mu_m = matrix.eps_mu(f, None)
     except MODEL_ERRORS as e:
         raise model_error(e) from None
-    res = invert_filler(f, eps, mu, eps_m, mu_m, phi, model, clamp_nonpassive)
+    res = invert_filler(f, eps, mu, eps_m, mu_m, phi, model, clamp_nonpassive, shape)
     diag = diagnostics(res)
     if not res.ok:
         raise CliError("inversion_nonphysical",
@@ -906,7 +913,7 @@ def cmd_invert_filler(composite, output, model, density_filler, fraction=None, f
                        "data and rule. Do not invent values; try the other rule, or measure more loadings.",
                        4, {**diag, "clampable_points": res.clampable_points})
 
-    note = provenance_note(os.path.basename(composite), model, phi, label)
+    note = provenance_note(os.path.basename(composite), model, phi, label, shape)
     display_name = name or os.path.splitext(os.path.basename(output))[0]
     filler = res.to_tabulated(display_name, density_filler, note=note, source=os.path.basename(output))
     prediction = prediction_checks(res, eps, mu, eps_m, mu_m)
@@ -915,7 +922,7 @@ def cmd_invert_filler(composite, output, model, density_filler, fraction=None, f
         tab = _read_measured(path)
         e_v, m_v = tab.eps_mu(tab.f, None)
         try:
-            errors = validation_errors(filler, matrix, tab.f, e_v, m_v, phi_v, model)
+            errors = validation_errors(filler, matrix, tab.f, e_v, m_v, phi_v, model, shape)
         except MODEL_ERRORS as e:
             raise model_error(e) from None
         validation.append({"csv": str(path), "fraction": phi_v, **errors})

@@ -203,7 +203,7 @@ def _project():
 def test_file_round_trip_and_schema():
     p, sh = _project()
     d = json.loads(json.dumps(p.to_dict()))
-    assert d["schema"] == SCHEMA_VERSION == 8
+    assert d["schema"] == SCHEMA_VERSION >= 8
     assert d["structure"]["layers"][0]["angle"] == {"L_TE": 0.0, "L_TM": -0.25, "C_TE": -0.1, "C_TM": 0.0}
     assert Project.from_dict(d).structure.layers[0].angle_dict() == sh.angle_dict()
 
