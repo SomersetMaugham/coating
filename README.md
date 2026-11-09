@@ -132,6 +132,14 @@ coating-cli spec sal_opt.coat -o design.json                # editable design sp
 AI agents that iterate on a design until a target is met should follow
 [`docs/AGENT_PLAYBOOK.md`](docs/AGENT_PLAYBOOK.md) (design specs, experiment journal, stop rules).
 
+## Example workflow
+
+From a specification to a design with `coating-cli`. The numbers come from one example run (8–18 GHz, 0–45°, TE and TM,
+−15 dB, at most 3 mm) on the published Michielssen 1993 benchmark materials. They are calculations, not measurements of
+a real product.
+
+![Workflow for meeting an absorber specification with coating-cli](docs/images/workflow_spec_en.png)
+
 ## Conventions
 
 | Item | Convention |

@@ -111,6 +111,12 @@ coating-cli spec sal_opt.coat -o design.json                # 편집용 설계 �
 목표에 도달할 때까지 설계를 반복 개선하는 AI 에이전트는 [`docs/AGENT_PLAYBOOK.md`](docs/AGENT_PLAYBOOK.md)를 따릅니다
 (설계 명세, 실험 기록, 멈춤 규칙).
 
+## 워크플로우 예시
+
+`coating-cli`로 규격에서 설계까지 가는 과정입니다. 그림의 수치는 공개된 Michielssen 1993 벤치마크 재료로 돌린 예시 실행(8–18 GHz, 0–45°, TE·TM, −15 dB, 3 mm 이하)의 계산값이며, 실제 제품을 측정한 값이 아닙니다.
+
+![coating-cli로 흡수체 규격에 대응하는 워크플로우](docs/images/workflow_spec_ko.png)
+
 ## 규약
 
 | 항목 | 규약 |
