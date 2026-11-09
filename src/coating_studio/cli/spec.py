@@ -18,7 +18,7 @@ from coating_studio.core.units import (
 from coating_studio.limits import measured_range
 from coating_studio.materials.csvio import CsvFormatError, load_csv
 from coating_studio.materials.library import builtin_materials
-from coating_studio.materials.models import MixtureMaterial, material_from_dict
+from coating_studio.materials.models import MixtureMaterial, material_from_dict, vol_to_wt, wt_to_vol  # noqa: F401
 from coating_studio.project import (
     BandTarget, ContinuousVariable, MaterialChoice, OptimizationSettings, Project, SweepSettings,
     ToleranceSettings, get_param, param_unit,
@@ -33,17 +33,7 @@ def spec_error(path, message, **details):
 
 
 # ---------------------------------------------------------------------------
-# weight fraction
-
-def wt_to_vol(w, rho_inc, rho_mat):
-    """Weight fraction of the inclusion -> volume fraction."""
-    a, b = w / rho_inc, (1 - w) / rho_mat
-    return a / (a + b)
-
-
-def vol_to_wt(phi, rho_inc, rho_mat):
-    a, b = phi * rho_inc, (1 - phi) * rho_mat
-    return a / (a + b)
+# weight fraction (the conversions live in materials.models)
 
 
 def mixture_densities(project, mix):

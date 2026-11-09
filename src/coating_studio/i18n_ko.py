@@ -494,4 +494,60 @@ KO.update({
         "점 사이에 빠질 수 있습니다. 로그는 로그 축으로도 그립니다.",
     # PDF report (DEVELOPMENT_HISTORY 3.24)
     "PDF (*.pdf)": "PDF (*.pdf)", "HTML (*.html)": "HTML (*.html)",
+    # Filler inversion dialog (DEVELOPMENT_HISTORY 3.31)
+    "Invert filler…": "충전재 역산…", "Invert filler": "충전재 역산",
+    "Treat this measured composite as a mixture and compute the effective filler table.":
+        "이 측정 복합재를 혼합물로 보고 충전재의 유효값 표를 계산합니다.",
+    "This table is already an inverted filler, not a measured composite.":
+        "이 표는 이미 역산된 충전재이며, 측정한 복합재가 아닙니다.",
+    "{n} mixture": "{n} 혼합물", "Add inverted filler": "역산 충전재 추가",
+    "Invert filler — {n}": "충전재 역산 — {n}", "{n} filler": "{n} 충전재", "Choose…": "선택…",
+    "Weight fraction": "무게 분율", "Composite and filler": "복합재와 충전재",
+    "Filler loading (0–1)": "충전재 함량 (0–1)", "Filler density [kg/m³]": "충전재 밀도 [kg/m³]",
+    "Matrix density [kg/m³]": "매트릭스 밀도 [kg/m³]", "Enter values": "값 입력", "CSV file": "CSV 파일",
+    "Project material": "프로젝트 재료", "No file chosen.": "선택한 파일이 없습니다.", "Browse…": "찾아보기…",
+    "Matrix": "매트릭스", "Composite": "복합재", "Loading": "함량", "Add CSV…": "CSV 추가…",
+    "Add material…": "재료 추가…", "Remove": "제거",
+    "Validation: composites at other loadings (optional)": "검증: 다른 함량의 복합재 (선택 사항)",
+    "Compute": "계산", "Set negative loss to 0 where allowed": "허용되는 점의 음수 손실을 0으로 설정",
+    "Only for a few noisy points, and only when you accept the change: those points no longer reproduce the measurement.":
+        "잡음이 있는 소수의 점에만, 변경을 받아들일 때만 쓰세요. 그 점들은 더 이상 측정값을 재현하지 않습니다.",
+    "Fill in the inputs and press Compute.": "입력을 채우고 계산을 누르세요.",
+    "Also create a mixture with the project matrix": "프로젝트 매트릭스로 혼합 재료도 만들기",
+    "The result holds effective values tied to this mixing rule and loading, not measured properties of the filler. Confirm it on a new sample.":
+        "결과는 이 혼합 규칙과 함량에 묶인 유효값이며, 충전재의 측정 물성이 아닙니다. 새 시편으로 확인하세요.",
+    "The inputs changed. Press Compute again.": "입력이 바뀌었습니다. 계산을 다시 누르세요.",
+    "Matrix data": "매트릭스 데이터", "Validation data": "검증 데이터", "Validation": "검증",
+    "The project has no other measured material.": "프로젝트에 다른 측정 재료가 없습니다.",
+    "Composite at another loading": "다른 함량의 복합재",
+    "Enter ε′, ε″, μ′ and μ″ of the matrix.": "매트릭스의 ε′, ε″, μ′, μ″를 입력하세요.",
+    "Choose the matrix CSV file.": "매트릭스 CSV 파일을 선택하세요.",
+    "The project has no matrix material to choose: built-in demonstration values cannot be used.":
+        "선택할 수 있는 매트릭스 재료가 프로젝트에 없습니다. 내장 시연값은 쓸 수 없습니다.",
+    "Choose the mixing rule.": "혼합 규칙을 선택하세요.",
+    "Enter a filler loading between 0 and 1.": "충전재 함량을 0과 1 사이로 입력하세요.",
+    "Enter a positive filler density.": "충전재 밀도를 양수로 입력하세요.",
+    "A weight fraction needs a positive matrix density.": "무게 분율에는 양수의 매트릭스 밀도가 필요합니다.",
+    "enter a loading between 0 and 1": "함량을 0과 1 사이로 입력하세요",
+    "Cannot evaluate the matrix on the composite's frequencies: {e}": "복합재의 주파수에서 매트릭스를 계산할 수 없습니다: {e}",
+    "No usable filler table: {g} point(s) with gain, {o} beyond what this rule can represent, {b} on another root. Do not invent values: try the other rule, or measure more loadings.":
+        "쓸 수 있는 충전재 표가 없습니다. 이득이 있는 점 {g}개, 이 규칙이 표현할 수 없는 점 {o}개, 다른 근으로 간 점 {b}개입니다. 값을 지어내지 말고 다른 규칙을 쓰거나 함량을 더 측정하세요.",
+    "{n} gain point(s) can be set to 0 if you accept it.": "받아들이면 이득이 있는 점 {n}개를 0으로 설정할 수 있습니다.",
+    "Volume fraction used: {v:.4g}": "사용한 체적 분율: {v:.4g}",
+    "Error amplification κ (median / max): ε {e}, μ {m}": "오차 증폭 κ (중앙값 / 최댓값): ε {e}, μ {m}",
+    "Prediction change for a 10 % loading error: ε {e:.1%}, μ {m:.1%}": "함량 오차 10 %에 따른 예측 변화: ε {e:.1%}, μ {m:.1%}",
+    "Difference from the other mixing rule: ε {e:.1%}, μ {m:.1%}": "다른 혼합 규칙과의 차이: ε {e:.1%}, μ {m:.1%}",
+    "The other mixing rule cannot represent this composite.": "다른 혼합 규칙은 이 복합재를 표현할 수 없습니다.",
+    "Validation {n}: {e}": "검증 {n}: {e}", "Validation {n} at {p:.4g}: ε {e:.1%}, μ {m:.1%}": "검증 {n} (함량 {p:.4g}): ε {e:.1%}, μ {m:.1%}",
+    "ill-conditioned": "악조건", "loss set to 0": "손실을 0으로 설정", "blocked": "차단",
+    "At {n} point(s) measurement errors grow more than {k:g}-fold in the filler values: trust predictions, not the values.":
+        "{n}개 점에서 측정 오차가 충전재 값에 {k:g}배 넘게 커집니다. 값이 아니라 예측을 믿으세요.",
+    "{n} point(s) have Re ≤ 0.": "{n}개 점의 실수부가 0 이하입니다.",
+    "Loss set to 0 at {n} point(s); the composite there is reproduced only to {w:.3g}.":
+        "{n}개 점의 손실을 0으로 설정했습니다. 그 점의 복합재는 {w:.3g}까지만 재현됩니다.",
+    "A 10 % loading error moves predictions by more than {p:.0%}.": "함량 오차 10 %가 예측을 {p:.0%} 넘게 바꿉니다.",
+    "The other mixing rule predicts differently by more than {p:.0%}.": "다른 혼합 규칙의 예측이 {p:.0%} 넘게 다릅니다.",
+    "No composite at another loading was given: predictions at other loadings are untested.":
+        "다른 함량의 복합재가 없어 다른 함량의 예측은 검증되지 않았습니다.",
+    "{n}: prediction error above {p:.0%}.": "{n}: 예측 오차가 {p:.0%}를 넘습니다.",
 })
