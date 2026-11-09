@@ -66,6 +66,7 @@ would silently use the old file). Prefer a new file name per trial (`d1.coat`, `
   for the pattern: do not assume one. The other coefficients are not published values.
   `coating-cli fss-grid --pattern mesh --period-mm D --strip-width-mm W --eps-eff E` (or `--pattern patch ... --gap-mm G`, the gap between patches, not their width) computes L or C and the coefficient from dimensions the user
   gave you. Merge `result.sheet` into the sheet and choose `model` and `R_ohm` with the user: the formulas are for ideal conductors, so do not invent R. Stay below `dense_limit_hz`, and mention `caution_limit_hz` and `assumptions`.
+- Several resonances in one patterned layer: list one RLC sheet per resonance next to each other in `layers`. Adjacent sheets lie in the same plane and combine as 1/Zs = Σ 1/Zk in any order. Coupling between the resonators is not modelled, so a closely coupled pattern needs a full-wave check.
 - Tolerance values (`tolerance.thickness`, `eps`, `mu`, `sheet`, `eps_loss`, `mu_loss`) are relative (0.05 = 5 %),
   1 σ for `"normal"`, ± half-width for `"uniform"`. `tolerance.loss_correlation` (−1…1, default 0) correlates each
   layer's real-part and loss errors (ε′ with ε″, μ′ with μ″) where a loss tolerance is set; use it only when the

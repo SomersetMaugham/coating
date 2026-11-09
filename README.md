@@ -20,6 +20,9 @@ can be added later without rewriting it.
   - Zero-thickness **resistive sheets** with Zs = R + jX in Ω/sq, or a **series RLC** equivalent circuit
     Zs(f) = R + jωL + 1/(jωC) for circuit-analog / FSS layers (L in nH, C in pF, optional capacitor;
     normal-incidence lumped values used for every angle and polarisation).
+  - **Several resonances in one pattern**: add one RLC sheet per resonance and keep them next to each other. Adjacent
+    sheets lie in the same plane, so they combine as 1/Zs = Σ 1/Zk in any order, at every angle and polarisation. Each
+    sheet's R, L and C are optimised and varied separately; coupling between the resonators is not modelled.
   - A **metal (PEC)** or **semi-infinite** backing.
 - **Materials.**
   - Constant complex ε and μ.
