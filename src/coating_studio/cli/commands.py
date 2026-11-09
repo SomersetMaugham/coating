@@ -831,7 +831,20 @@ def cmd_fit(csv_path, name=None, eps_debye=1, eps_lorentz=0, sigma=False, eps_co
                           "data_range_hz": [f[0], f[-1]]}, warnings=warnings)
 
 
-WARN_RMS = 0.10  # relative error above which a prediction check is worth a warning
+def _inversion_warning(code, a):
+    limit = a.get("limit", 0.0)
+    return warning(code, {
+        "filler_ill_conditioned": lambda: f"at {a['n']} point(s) measurement errors grow more than {limit:g}-fold in "
+                                          "the filler values; trust predictions, not the values",
+        "filler_negative_real": lambda: f"{a['n']} point(s) have Re <= 0",
+        "nonpassive_clamped": lambda: f"loss set to 0 at {a['n']} point(s); the composite there is reproduced only to "
+                                      f"{a['worst']:.3g}",
+        "fraction_sensitive": lambda: f"a 10 % loading error moves predictions by more than {limit:.0%}",
+        "model_disagreement": lambda: f"the other mixing rule predicts differently by more than {limit:.0%}",
+        "no_validation": lambda: "no composite at another loading was given (--validate); predictions at other "
+                                 "loadings are untested",
+        "validation_poor": lambda: f"{a.get('label')}: prediction error above {limit:.0%}",
+    }[code]())
 
 
 def cmd_invert_filler(composite, output, model, density_filler, fraction=None, fraction_wt=None, density_matrix=None,
@@ -841,7 +854,7 @@ def cmd_invert_filler(composite, output, model, density_filler, fraction=None, f
     from coating_studio.cli.spec import wt_to_vol
     from coating_studio.materials.csvio import to_csv_text
     from coating_studio.materials.inversion import (
-        ILL_CONDITIONED, invert_filler, prediction_checks, provenance_note, validation_errors,
+        diagnostics, invert_filler, prediction_checks, provenance_note, validation_errors, warning_flags,
     )
 
     def bad(message, **details):
@@ -885,11 +898,7 @@ def cmd_invert_filler(composite, output, model, density_filler, fraction=None, f
     except MODEL_ERRORS as e:
         raise model_error(e) from None
     res = invert_filler(f, eps, mu, eps_m, mu_m, phi, model, clamp_nonpassive)
-    diag = {"fraction": phi, "model": model, "n_points": int(f.size), "data_range_hz": [float(f[0]), float(f[-1])],
-            "amplification": res.amplification_stats(), "ill_conditioned_points": res.ill_conditioned_points,
-            "negative_real_points": res.negative_real_points, "gain_points": res.gain_points,
-            "outside_model_points": res.outside_model_points, "branch_points": res.branch_points,
-            "clamped_points": res.clamped_points, "roundtrip_max": res.roundtrip_max}
+    diag = diagnostics(res)
     if not res.ok:
         raise CliError("inversion_nonphysical",
                        f"{res.gain_points} point(s) with gain, {res.outside_model_points} beyond what the {model} rule "
@@ -911,31 +920,7 @@ def cmd_invert_filler(composite, output, model, density_filler, fraction=None, f
             raise model_error(e) from None
         validation.append({"csv": str(path), "fraction": phi_v, **errors})
 
-    warnings = []
-
-    def over(values):
-        return max(values) > WARN_RMS
-
-    if res.ill_conditioned_points:
-        warnings.append(warning("filler_ill_conditioned",
-                                f"at {res.ill_conditioned_points} point(s) measurement errors grow more than "
-                                f"{ILL_CONDITIONED:g}-fold in the filler values; trust predictions, not the values"))
-    if res.negative_real_points:
-        warnings.append(warning("filler_negative_real", f"{res.negative_real_points} point(s) have Re <= 0"))
-    if res.clamped_points:
-        worst = max(np.nanmax(c.roundtrip[c.clamped], initial=0.0) for c in (res.eps, res.mu))
-        warnings.append(warning("nonpassive_clamped", f"loss set to 0 at {res.clamped_points} point(s); "
-                                f"the composite there is reproduced only to {worst:.3g}"))
-    for key, code, text in (("fraction_sensitivity", "fraction_sensitive", "a 10 % loading error moves predictions"),
-                            ("model_disagreement", "model_disagreement", "the other mixing rule predicts differently")):
-        if prediction[key] and over(prediction[key].values()):
-            warnings.append(warning(code, f"{text} by more than {WARN_RMS:.0%}"))
-    if not validation:
-        warnings.append(warning("no_validation", "no composite at another loading was given (--validate); "
-                                "predictions at other loadings are untested"))
-    for v in validation:
-        if over([v["rms_eps"], v["rms_mu"]]):
-            warnings.append(warning("validation_poor", f"{v['csv']}: prediction error above {WARN_RMS:.0%}"))
+    warnings = [_inversion_warning(code, args) for code, args in warning_flags(res, prediction, validation)]
 
     write_text(output, f"# {note}\n" + to_csv_text(f, res.eps.value, res.mu.value))
     material = {"name": display_name, "csv": os.path.abspath(output), "density": float(density_filler), "note": note}

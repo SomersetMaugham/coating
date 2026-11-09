@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from coating_studio.gui.dialogs.fit import FitDialog
+from coating_studio.gui.dialogs.invert_filler import FillerInversionDialog
 from coating_studio.gui import spectral
 from coating_studio.gui.fmt import fmt_num
 from coating_studio.gui.icons import icon, set_button_icon
@@ -26,6 +27,7 @@ from coating_studio.materials import (
     loss_from_tangent,
     loss_tangent, make_term, material_from_dict, nk_from_eps_mu,
 )
+from coating_studio.limits import inversion_provenance
 from coating_studio.materials.checks import check_material
 from coating_studio.materials.csvio import CsvFormatError, load_csv
 from coating_studio.materials.library import load_library, save_library
@@ -347,7 +349,11 @@ class MaterialManager(QDialog):
         b = QPushButton(tr("Fit dispersion model…"))
         set_button_icon(b, "fit")
         b.clicked.connect(self._fit)
+        inv = QPushButton(tr("Invert filler…"))
+        inv.setToolTip(tr("Treat this measured composite as a mixture and compute the effective filler table."))
+        inv.clicked.connect(self._invert_filler)
         row.addStretch(1)
+        row.addWidget(inv)
         row.addWidget(b)
         lay.addLayout(row)
         lay.addWidget(muted(tr("Linear interpolation inside the measured range; evaluating outside it is "
@@ -671,6 +677,34 @@ class MaterialManager(QDialog):
             new.name = self.doc.project.unique_material_name(new.name)
             self.doc.edit(tr("Add fitted material"), lambda pr: pr.add_material(new))
             self._fill_list(new.name)
+
+    def _invert_filler(self):
+        m = self._mat()
+        if not isinstance(m, TabulatedMaterial):
+            return
+        if inversion_provenance(m) is not None:
+            QMessageBox.information(self, tr("Invert filler"), tr("This table is already an inverted filler, not a "
+                                                                 "measured composite."))
+            return
+        dlg = FillerInversionDialog(m, self.ctx, self)
+        if dlg.exec() and dlg.result_filler is not None:
+            self._add_inverted(dlg.result_filler, dlg.result_mixture)
+
+    def _add_inverted(self, filler, mixture):
+        """Add the filler and its optional mixture as one undoable step."""
+        project = self.doc.project
+        filler.name = project.unique_material_name(filler.name)
+        new = [filler]
+        if mixture is not None:
+            matrix, fraction, model = mixture
+            new.append(MixtureMaterial(project.unique_material_name(tr("{n} mixture", n=filler.name)), matrix,
+                                       filler.name, fraction, model))
+
+        def mut(pr):
+            for material in new:
+                pr.add_material(material)
+        self.doc.edit(tr("Add inverted filler"), mut)
+        self._fill_list(new[-1].name)
 
     def _import_library(self):
         path, _ = QFileDialog.getOpenFileName(self, tr("Import library"), "",

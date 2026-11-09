@@ -23,6 +23,17 @@ DEFAULT_DENSITY = 1000.0  # kg/m^3
 INVERTED_PREFIX = "inverted:"  # note prefix (and CSV comment) of a table made by ``coating-cli invert-filler``
 
 
+def wt_to_vol(w, rho_inc, rho_mat):
+    """Weight fraction of the inclusion -> volume fraction."""
+    a, b = w / rho_inc, (1 - w) / rho_mat
+    return a / (a + b)
+
+
+def vol_to_wt(phi, rho_inc, rho_mat):
+    a, b = phi * rho_inc, (1 - phi) * rho_mat
+    return a / (a + b)
+
+
 class OutOfRangeError(ValueError):
     """Tabulated data evaluated outside its measured frequency range."""
 

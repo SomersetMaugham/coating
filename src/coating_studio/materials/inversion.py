@@ -20,6 +20,7 @@ ROUNDTRIP_TOL = 1e-6
 ILL_CONDITIONED = 20.0
 FRACTION_STEP = 0.10  # relative change of the loading in the sensitivity check
 MAX_PREDICTED_FRACTION = 0.95
+WARN_RMS = 0.10  # relative error above which a prediction check is worth a warning
 
 
 def mix(em, ei, phi, model):
@@ -225,6 +226,43 @@ def validation_errors(filler: TabulatedMaterial, matrix, f, eps, mu, phi, model)
             "rms_mu": rms_relative(mix(mm, mi, phi, model), np.asarray(mu)[keep])}
 
 
+def diagnostics(res: InversionResult) -> dict:
+    """The per-point counts and condition numbers of a result, for the CLI's JSON and the dialog."""
+    return {"fraction": res.fraction, "model": res.model, "n_points": int(res.f.size),
+            "data_range_hz": [float(res.f[0]), float(res.f[-1])], "amplification": res.amplification_stats(),
+            "ill_conditioned_points": res.ill_conditioned_points, "negative_real_points": res.negative_real_points,
+            "gain_points": res.gain_points, "outside_model_points": res.outside_model_points,
+            "branch_points": res.branch_points, "clamped_points": res.clamped_points,
+            "roundtrip_max": res.roundtrip_max}
+
+
+def warning_flags(res: InversionResult, prediction: dict, validation: list) -> list:
+    """``[(code, args)]`` for a usable result.  ``validation`` rows hold ``csv`` (a label) and ``rms_eps``/``rms_mu``,
+    or ``error`` when that row could not be evaluated."""
+    def over(values):
+        return max(values) > WARN_RMS
+
+    flags = []
+    if res.ill_conditioned_points:
+        flags.append(("filler_ill_conditioned", {"n": res.ill_conditioned_points, "limit": ILL_CONDITIONED}))
+    if res.negative_real_points:
+        flags.append(("filler_negative_real", {"n": res.negative_real_points}))
+    if res.clamped_points:
+        worst = max(np.nanmax(c.roundtrip[c.clamped], initial=0.0) for c in (res.eps, res.mu))
+        flags.append(("nonpassive_clamped", {"n": res.clamped_points, "worst": float(worst)}))
+    for key, code in (("fraction_sensitivity", "fraction_sensitive"), ("model_disagreement", "model_disagreement")):
+        if prediction[key] and over(prediction[key].values()):
+            flags.append((code, {"limit": WARN_RMS}))
+    rows = [v for v in validation if "error" not in v]
+    if not rows:
+        flags.append(("no_validation", {}))
+    flags += [("validation_poor", {"label": v["csv"], "limit": WARN_RMS}) for v in rows
+              if over([v["rms_eps"], v["rms_mu"]])]
+    return flags
+
+
 def provenance_note(source, model, fraction, matrix) -> str:
-    """The note of an inverted table; ``limits.inversion_provenance`` reads it back."""
+    """The note of an inverted table; ``limits.inversion_provenance`` reads it back.  A ";" in a name is replaced,
+    because a name like "a; model=bruggeman; fraction=0.9" would otherwise be read back as the provenance."""
+    source, matrix = str(source).replace(";", ","), str(matrix).replace(";", ",")
     return " ".join(f"{INVERTED_PREFIX} {source}; model={model}; fraction={fraction:.12g}; matrix={matrix}".split())
