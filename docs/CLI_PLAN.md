@@ -824,7 +824,7 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
 - `validation[]`: `--validate CSV FRACTION`으로 다른 함량의 측정과 비교합니다. rms는 `fitting`과 같게 √mean|예측−측정|² / max|측정|. 겹치는 점이 2개 미만이면 오류, 0.10 초과면 `validation_poor`. 검증이 없으면 `no_validation`.
 - Re(ei) < 0 점은 금속성 충전재에서 있을 수 있어 오류로 하지 않고 경고 `filler_negative_real`.
 
-**명령**: `coating-cli invert-filler COMPOSITE.csv -o FILLER.csv --model {maxwell_garnett,bruggeman} --density-filler R (--fraction V | --fraction-wt W --density-matrix R) (--matrix-csv F | --matrix-eps RE LOSS [--matrix-mu RE LOSS]) [--name N] [--clamp-nonpassive] [--validate CSV FRACTION]... [--force]`
+**명령**: `coating-cli invert-filler COMPOSITE.csv -o FILLER.csv --model {maxwell_garnett,bruggeman,odelevskiy} [--shape-n N --percolation PC] --density-filler R (--fraction V | --fraction-wt W --density-matrix R) (--matrix-csv F | --matrix-eps RE LOSS [--matrix-mu RE LOSS]) [--name N] [--clamp-nonpassive] [--validate CSV FRACTION]... [--force]`
 - 모델·매트릭스·함량·충전재 밀도는 모두 필수이고 기본값이 없습니다. 재료 값을 지어내지 않기 위해서입니다(밀도를 기본값으로 두면 `fraction_wt`와 질량 목적함수가 조용히 틀어집니다). 내장 재료(데모 값)는 매트릭스로 받지 않습니다.
 - `--validate`의 FRACTION은 주 함량과 같은 기준(`--fraction-wt`를 쓰면 무게 분율)입니다. 결과의 `fraction`은 어느 쪽으로 넣어도 부피 분율입니다.
 - `-o`는 필수이고, 어떤 입력 CSV와도 같은 경로면 `--force`가 있어도 거부합니다. CSV 읽기 오류는 `fit`과 같이 종료 3입니다.
@@ -840,7 +840,9 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
 
 **GUI**: 재료 관리자의 "Invert filler…" 대화상자가 같은 판정과 경고를 씁니다(`inversion.diagnostics`, `warning_flags`, 개발 이력 3.31). 노트에 넣는 이름의 `;`는 `,`로 바꿉니다. 이름이 `model=`·`fraction=`을 흉내 내면 출처를 잘못 읽기 때문입니다.
 
-**미룬 것**: 여러 함량 CSV의 동시 역산, 비구형 형상 인자. 표를 평활화하거나 Debye로 맞추면 φ₀에서의 재현이 깨지므로 기본값으로 하지 않습니다.
+**비구형 충전재 (v9)**: `--model odelevskiy`는 `--shape-n`과 `--percolation`이 필수이고 다른 모델에는 줄 수 없습니다. 함량은 임계값보다 작아야 합니다. 노트에 `n=…; pc=…;`가 더해지고, 혼합 재료의 N이나 pc가 다르면 `inverted_filler_model` 경고가 납니다. 식과 근거는 개발 이력 3.32에 있습니다.
+
+**미룬 것**: 여러 함량 CSV의 동시 역산. 표를 평활화하거나 Debye로 맞추면 φ₀에서의 재현이 깨지므로 기본값으로 하지 않습니다.
 
 **Argon 리뷰**: 지적 14개를 코드와 실험으로 확인해 대부분 반영했습니다. 답변의 Bruggeman 미분 공식은 계수가 틀려(3이 아니라 9) 중앙차분과 대조해 고쳤습니다.
 
