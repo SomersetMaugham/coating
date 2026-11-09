@@ -3,6 +3,7 @@ Matplotlib and widgets are touched exclusively from the GUI thread."""
 
 from __future__ import annotations
 
+import sys
 import threading
 import traceback
 
@@ -10,6 +11,10 @@ from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from coating_studio.optimize import optimize
 from coating_studio.tolerance import run_tolerance, run_tolerance_targets
+
+# A plot redraw hands the GIL back and forth many times, and at Python's default 5 ms a busy worker keeps the
+# window frozen for seconds.  200 us still stalled for 0.3 s; 50 us stays under 0.1 s.
+GIL_SWITCH_INTERVAL_S = 50e-6
 
 
 class OptimizationWorker(QObject):
@@ -78,6 +83,7 @@ class ToleranceWorker(QObject):
 
 def start_worker(worker, owner):
     """Move ``worker`` to a new QThread owned by ``owner`` and start it; returns the thread."""
+    sys.setswitchinterval(GIL_SWITCH_INTERVAL_S)  # costs nothing while no other thread is waiting for the GIL
     th = QThread(owner)
     worker.moveToThread(th)
     th.started.connect(worker.run)
