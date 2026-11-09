@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import numpy as np
 
@@ -21,6 +22,29 @@ DEFAULT_DENSITY = 1000.0  # kg/m^3
 
 
 INVERTED_PREFIX = "inverted:"  # note prefix (and CSV comment) of a table made by ``coating-cli invert-filler``
+
+
+class Shape(NamedTuple):
+    """Parameters of the Odelevskiy rule: shape factor N and percolation threshold pc (volume fractions)."""
+
+    n: float
+    pc: float
+
+
+def make_shape(model, shape_n, percolation):
+    """The ``Shape`` of a mixing model: required for 'odelevskiy' (no default, so none is invented), refused otherwise."""
+    if model != "odelevskiy":
+        if shape_n is not None or percolation is not None:
+            raise ValueError(f"the {model} rule takes no shape factor or percolation threshold")
+        return None
+    if shape_n is None or percolation is None:
+        raise ValueError("the odelevskiy rule needs shape_n and percolation")
+    n, pc = float(shape_n), float(percolation)
+    if not 0.0 < n < 1.0:
+        raise ValueError(f"shape_n must be between 0 and 1, got {n:g}")
+    if not 0.0 < pc <= 1.0:
+        raise ValueError(f"percolation must be above 0 and at most 1, got {pc:g}")
+    return Shape(n, pc)
 
 
 def wt_to_vol(w, rho_inc, rho_mat):
@@ -43,6 +67,10 @@ class OutOfRangeError(ValueError):
         super().__init__(
             f"material {material!r}: requested {f_lo / 1e9:.6g}-{f_hi / 1e9:.6g} GHz "
             f"outside data range {data_lo / 1e9:.6g}-{data_hi / 1e9:.6g} GHz")
+
+
+class PercolationError(ValueError):
+    """An Odelevskiy mixture at or above its percolation threshold, where the rule has no meaning."""
 
 
 class MaterialCycleError(ValueError):
@@ -338,15 +366,18 @@ class TabulatedMaterial(Material):
 class MixtureMaterial(Material):
     """Effective-medium mixture of an inclusion (volume fraction phi) in a matrix.
 
-    model: 'maxwell_garnett' (dilute spherical inclusions) or 'bruggeman'
-    (symmetric, valid up to and through percolation).  The same rule is
-    applied to eps and mu.  Density is the volume-weighted average.
+    model: 'maxwell_garnett' (dilute spherical inclusions), 'bruggeman'
+    (symmetric, valid up to and through percolation), or 'odelevskiy' for non-spherical
+    inclusions, which needs the shape factor ``shape_n`` and the percolation threshold
+    ``percolation`` (N = 1/3 with pc = 1 is Maxwell-Garnett).  The same rule is applied to
+    eps and mu.  Density is the volume-weighted average.
     """
 
     kind = "mixture"
-    MODELS = ("maxwell_garnett", "bruggeman")
+    MODELS = ("maxwell_garnett", "bruggeman", "odelevskiy")
 
-    def __init__(self, name, matrix, inclusion, fraction=0.1, model="maxwell_garnett", **kw):
+    def __init__(self, name, matrix, inclusion, fraction=0.1, model="maxwell_garnett", shape_n=None, percolation=None,
+                 **kw):
         kw.pop("density", None)
         super().__init__(name, **kw)
         if model not in self.MODELS:
@@ -354,7 +385,16 @@ class MixtureMaterial(Material):
         self.matrix, self.inclusion = matrix, inclusion
         self.fraction = float(fraction)
         self.model = model
+        self.shape = make_shape(model, shape_n, percolation)
         self._busy = False
+
+    @property
+    def shape_n(self):
+        return None if self.shape is None else self.shape.n
+
+    @property
+    def percolation(self):
+        return None if self.shape is None else self.shape.pc
 
     def _guard(self):
         if self._busy:
@@ -368,9 +408,8 @@ class MixtureMaterial(Material):
             em_i = resolver(self.inclusion).eps_mu(f, resolver)
         finally:
             self._busy = False
-        phi = self.fraction
-        rule = maxwell_garnett if self.model == "maxwell_garnett" else bruggeman
-        return rule(em_m[0], em_i[0], phi), rule(em_m[1], em_i[1], phi)
+        return (mixing_rule(em_m[0], em_i[0], self.fraction, self.model, self.shape),
+                mixing_rule(em_m[1], em_i[1], self.fraction, self.model, self.shape))
 
     def get_density(self, resolver):
         self._guard()
@@ -383,7 +422,8 @@ class MixtureMaterial(Material):
         return self.fraction * ri + (1 - self.fraction) * rm
 
     def params(self):
-        return [ParamInfo(("fraction",), "volume fraction", "frac", lower=0.0, upper=1.0)]
+        upper = 1.0 if self.shape is None else self.shape.pc * (1 - 1e-6)  # stay off the singularity at pc
+        return [ParamInfo(("fraction",), "volume fraction", "frac", lower=0.0, upper=upper)]
 
     def references(self):
         return {self.matrix, self.inclusion}
@@ -398,11 +438,13 @@ class MixtureMaterial(Material):
         d = self._base_dict()
         d.pop("density")
         d.update(matrix=self.matrix, inclusion=self.inclusion, fraction=self.fraction, model=self.model)
+        if self.shape is not None:
+            d.update(shape_n=self.shape.n, percolation=self.shape.pc)
         return d
 
     def __deepcopy__(self, memo):
         m = MixtureMaterial(self.name, self.matrix, self.inclusion, self.fraction, self.model,
-                            note=self.note)
+                            shape_n=self.shape_n, percolation=self.percolation, note=self.note)
         return m
 
 
@@ -427,6 +469,22 @@ def bruggeman(em, ei, phi):
     s1, s2 = score(r1), score(r2)
     pick1 = (s1 > s2) | ((s1 == s2) & (r1.real >= r2.real))
     return np.where(pick1, r1, r2)
+
+
+def odelevskiy(em, ei, phi, shape):
+    """e = em (1 + phi / ((1 - phi/pc) N + em/(ei - em))), as one ratio so that ei = em does not divide by zero."""
+    if phi >= shape.pc:
+        raise PercolationError(f"the fraction {phi:g} is at or above the percolation threshold {shape.pc:g}")
+    em = np.asarray(em, dtype=complex)
+    ei = np.asarray(ei, dtype=complex)
+    d = ei - em
+    return em * (1 + phi * d / ((1 - phi / shape.pc) * shape.n * d + em))
+
+
+def mixing_rule(em, ei, phi, model, shape=None):
+    if model == "odelevskiy":
+        return odelevskiy(em, ei, phi, shape)
+    return maxwell_garnett(em, ei, phi) if model == "maxwell_garnett" else bruggeman(em, ei, phi)
 
 
 # ---------------------------------------------------------------------------

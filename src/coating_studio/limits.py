@@ -19,9 +19,8 @@ from coating_studio.core.constants import C0
 from coating_studio.core.structure import SlabLayer
 from coating_studio.materials.checks import Issue
 from coating_studio.materials.models import (
-    INVERTED_PREFIX,
-    ConstantMaterial, DispersiveMaterial, MaterialCycleError, MixtureMaterial, TabulatedMaterial, bruggeman,
-    maxwell_garnett,
+    ConstantMaterial, DispersiveMaterial, MaterialCycleError, MixtureMaterial, PercolationError, Shape, TabulatedMaterial,
+    mixing_rule, INVERTED_PREFIX,
 )
 from coating_studio.project import Project, set_param
 
@@ -63,8 +62,11 @@ def static_permeability(mat, resolver, _seen=None):
         ui, xi = static_permeability(resolver(mat.inclusion), resolver, seen | {mat.name})
         if um is None or ui is None:
             return None, xm or xi
-        rule = maxwell_garnett if mat.model == "maxwell_garnett" else bruggeman
-        return float(np.real(rule(np.array([um]), np.array([ui]), mat.fraction))[0]), xm or xi
+        try:
+            mu = mixing_rule(np.array([um]), np.array([ui]), mat.fraction, mat.model, mat.shape)
+        except PercolationError:
+            return None, xm or xi
+        return float(np.real(mu)[0]), xm or xi
     if isinstance(mat, TabulatedMaterial):
         return None, False
     return None, False
@@ -201,6 +203,8 @@ def _conductive(mat, resolver, f):
 
 
 _INVERTED = re.compile(INVERTED_PREFIX + r".*?; model=(\w+); fraction=([0-9.eE+-]+)")
+_INVERTED_SHAPE = re.compile(INVERTED_PREFIX + r".*?; model=\w+; fraction=[0-9.eE+-]+; n=([0-9.eE+-]+); pc=([0-9.eE+-]+);")
+ODELEVSKIY_MARGIN = 0.9  # of pc: the result grows without bound as the fraction approaches the threshold
 
 
 def inversion_provenance(material):
@@ -208,6 +212,22 @@ def inversion_provenance(material):
     ``fit`` keeps it after its own prefix."""
     m = _INVERTED.search(material.note) if isinstance(material.note, str) else None
     return (m.group(1), float(m.group(2))) if m else None
+
+
+def inversion_shape(material):
+    """The ``Shape`` an inverted table was computed with, or None."""
+    m = _INVERTED_SHAPE.search(material.note) if isinstance(material.note, str) else None
+    return Shape(float(m.group(1)), float(m.group(2))) if m else None
+
+
+def _rule_label(model, shape):
+    return model if shape is None else f"{model} (N = {shape.n:g}, pc = {shape.pc:g})"
+
+
+def _same_shape(a, b):
+    if a is None or b is None:
+        return a is b
+    return abs(a.n - b.n) <= 1e-9 * a.n and abs(a.pc - b.pc) <= 1e-9 * a.pc
 
 
 def inverted_filler_issues(project: Project, m, lo_v, hi_v):
@@ -219,11 +239,15 @@ def inverted_filler_issues(project: Project, m, lo_v, hi_v):
     if prov is None:
         return []
     model, phi0 = prov
+    shape = inversion_shape(project.resolver(m.inclusion))
     issues = []
-    if m.model != model:
+    if m.model != model or not _same_shape(shape, m.shape):
         issues.append(Issue("warning", "inverted_filler_model", m.name,
-                            {"inclusion": m.inclusion, "extracted": model, "model": m.model}))
+                            {"inclusion": m.inclusion, "extracted": _rule_label(model, shape),
+                             "model": _rule_label(m.model, m.shape)}))
     lo, hi = 0.5 * phi0, min(1.0, 1.5 * phi0)
+    if m.shape is not None:
+        hi = min(hi, m.shape.pc)
     if lo_v < lo * (1 - 1e-9) or hi_v > hi * (1 + 1e-9):
         issues.append(Issue("warning", "inverted_filler_fraction", m.name,
                             {"inclusion": m.inclusion, "phi0": phi0, "lo": lo, "hi": hi,
@@ -254,7 +278,10 @@ def mixture_range_issues(project: Project, f_ref, names=None):
         lo_v, hi_v = ranges.get(m.name, (m.fraction, m.fraction))
         lo_v, hi_v = min(lo_v, m.fraction), max(hi_v, m.fraction)
         issues += inverted_filler_issues(project, m, lo_v, hi_v)
-        if m.model == "bruggeman":
+        if m.model == "odelevskiy":
+            lo, hi = ODELEVSKIY_MARGIN * m.shape.pc, m.shape.pc
+            hit = hi_v > lo
+        elif m.model == "bruggeman":
             try:
                 inc = project.resolver(m.inclusion)
             except KeyError:

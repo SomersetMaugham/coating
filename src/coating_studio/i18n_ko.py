@@ -550,4 +550,20 @@ KO.update({
     "No composite at another loading was given: predictions at other loadings are untested.":
         "다른 함량의 복합재가 없어 다른 함량의 예측은 검증되지 않았습니다.",
     "{n}: prediction error above {p:.0%}.": "{n}: 예측 오차가 {p:.0%}를 넘습니다.",
+    # Odelevskiy mixing rule (DEVELOPMENT_HISTORY 3.32)
+    "Odelevskiy (non-spherical)": "Odelevskiy (비구형)", "Shape factor N": "형상 인자 N",
+    "Percolation threshold": "퍼콜레이션 임계값",
+    "Shape factor N of the inclusions. Fit it to measurements: it often differs from the value computed from the particle size.":
+        "입자의 형상 인자 N입니다. 측정값에 맞춰 구하세요. 입자 크기로 계산한 값과 다른 경우가 많습니다.",
+    "Percolation threshold as a volume fraction. N = 1/3 with a threshold of 1 is Maxwell-Garnett.":
+        "체적 분율로 나타낸 퍼콜레이션 임계값입니다. N = 1/3, 임계값 1이면 Maxwell-Garnett입니다.",
+    "Enter a shape factor between 0 and 1 and a percolation threshold above 0 and at most 1.":
+        "형상 인자는 0과 1 사이, 퍼콜레이션 임계값은 0 초과 1 이하로 입력하세요.",
+    "The volume fraction must be below the percolation threshold.": "체적 분율은 퍼콜레이션 임계값보다 작아야 합니다.",
+    "The volume fraction {fraction:.3g} is at or above the percolation threshold {pc:.3g}, where the Odelevskiy rule has no meaning.":
+        "체적 분율 {fraction:.3g}이(가) 퍼콜레이션 임계값 {pc:.3g} 이상입니다. 이 범위에서 Odelevskiy 규칙은 의미가 없습니다.",
+    "Difference without the percolation term: ε {e:.1%}, μ {m:.1%}": "퍼콜레이션 항을 뺐을 때의 차이: ε {e:.1%}, μ {m:.1%}",
+    "A threshold of 1 has no percolation term to compare.": "임계값이 1이면 비교할 퍼콜레이션 항이 없습니다.",
+    "The same shape factor without percolation cannot represent this composite.":
+        "같은 형상 인자로 퍼콜레이션 항을 빼면 이 복합재를 표현할 수 없습니다.",
 })

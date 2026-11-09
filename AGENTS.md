@@ -65,7 +65,7 @@ exception, and it falls back if Qt is missing.
   when touching the solver. `materials` is any mapping name→Material. Everything is SI internally,
   and `core/units.py` converts to display units (GHz, mm, °, Ω/sq).
 - **`materials/`**: the `Material` subclasses are Constant, Dispersive (Debye/Lorentz/σ), Tabulated
-  (CSV), Mixture (MG/Bruggeman) and PowerLaw (Michielssen-style ε′(1 GHz)/fᵃ fits; not causal, so its static μ is
+  (CSV), Mixture (MG/Bruggeman/Odelevskiy, the last needing a shape factor and percolation threshold) and PowerLaw (Michielssen-style ε′(1 GHz)/fᵃ fits; not causal, so its static μ is
   unknown). `eps_mu(f, resolver)` takes a resolver because mixtures
   reference other materials by **name**. Cycles raise `MaterialCycleError`. Tabulated data raises
   `OutOfRangeError` outside its measured range and never extrapolates. Each material exposes

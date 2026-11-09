@@ -370,19 +370,41 @@ class MaterialManager(QDialog):
         self.m_model = QComboBox()
         self.m_model.addItem("Maxwell-Garnett", "maxwell_garnett")
         self.m_model.addItem("Bruggeman", "bruggeman")
+        self.m_model.addItem(tr("Odelevskiy (non-spherical)"), "odelevskiy")
+        self.m_n = SciSpinBox(minimum=1e-6, maximum=0.999999)
+        self.m_pc = SciSpinBox(minimum=1e-6, maximum=1.0)
+        self.m_n.setToolTip(tr("Shape factor N of the inclusions. Fit it to measurements: it often differs from the "
+                               "value computed from the particle size."))
+        self.m_pc.setToolTip(tr("Percolation threshold as a volume fraction. N = 1/3 with a threshold of 1 is "
+                                "Maxwell-Garnett."))
         self.m_density = QLabel()
         f.addRow(tr("Matrix (host)"), self.m_matrix)
         f.addRow(tr("Inclusion (filler)"), self.m_incl)
         f.addRow(tr("Volume fraction"), self.m_frac)
         f.addRow(tr("Mixing rule"), self.m_model)
+        f.addRow(tr("Shape factor N"), self.m_n)
+        f.addRow(tr("Percolation threshold"), self.m_pc)
+        self.m_form = f
         f.addRow(tr("Density (computed)"), self.m_density)
         f.addRow(muted(tr("Maxwell-Garnett: dilute spherical inclusions. Bruggeman: symmetric, valid "
                           "through percolation — preferred for conductive fillers.")))
         self.m_matrix.activated.connect(self._commit)
         self.m_incl.activated.connect(self._commit)
-        self.m_model.activated.connect(self._commit)
+        self.m_model.activated.connect(self._on_mix_model)
         self.m_frac.valueEdited.connect(self._commit)
+        self.m_n.valueEdited.connect(self._commit)
+        self.m_pc.valueEdited.connect(self._commit)
+        self._show_shape_rows()
         return w
+
+    def _show_shape_rows(self):
+        shaped = self.m_model.currentData() == "odelevskiy"
+        self.m_form.setRowVisible(self.m_n, shaped)
+        self.m_form.setRowVisible(self.m_pc, shaped)
+
+    def _on_mix_model(self, *_):
+        self._show_shape_rows()
+        self._commit()
 
     # ---------------- list --------------------------------------------------
     def _fill_list(self, select=None):
@@ -503,7 +525,10 @@ class MaterialManager(QDialog):
                         cb.addItem(val)
                     cb.setCurrentText(val)
                 self.m_frac.set_value(m.fraction * 100)
-                self.m_model.setCurrentIndex(0 if m.model == "maxwell_garnett" else 1)
+                self.m_model.setCurrentIndex(max(0, self.m_model.findData(m.model)))
+                self.m_n.set_value(1 / 3 if m.shape is None else m.shape.n)  # Maxwell-Garnett until the user changes them
+                self.m_pc.set_value(1.0 if m.shape is None else m.shape.pc)
+                self._show_shape_rows()
                 try:
                     self.m_density.setText(fmt_num(m.get_density(self.doc.project.resolver) / 1000, 5) + " g/cm³")
                 except Exception:  # noqa: BLE001
@@ -531,6 +556,10 @@ class MaterialManager(QDialog):
         elif m.kind == "mixture":
             d.update(matrix=self.m_matrix.currentText(), inclusion=self.m_incl.currentText(),
                      fraction=self.m_frac.value() / 100, model=self.m_model.currentData())
+            d.pop("shape_n", None)
+            d.pop("percolation", None)
+            if self.m_model.currentData() == "odelevskiy":
+                d.update(shape_n=self.m_n.value(), percolation=self.m_pc.value())
         return d
 
     def _commit(self, *_):
@@ -696,9 +725,11 @@ class MaterialManager(QDialog):
         filler.name = project.unique_material_name(filler.name)
         new = [filler]
         if mixture is not None:
-            matrix, fraction, model = mixture
+            matrix, fraction, model, shape = mixture
             new.append(MixtureMaterial(project.unique_material_name(tr("{n} mixture", n=filler.name)), matrix,
-                                       filler.name, fraction, model))
+                                       filler.name, fraction, model,
+                                       shape_n=None if shape is None else shape.n,
+                                       percolation=None if shape is None else shape.pc))
 
         def mut(pr):
             for material in new:
