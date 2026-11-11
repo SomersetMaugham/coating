@@ -26,6 +26,9 @@ def configure_matplotlib_fonts() -> str | None:
     if "DejaVu Sans" not in fams:
         fams.append("DejaVu Sans")
     matplotlib.rcParams["font.sans-serif"] = fams
-    matplotlib.rcParams["font.family"] = "sans-serif"
+    # Name the fonts, not the generic family: matplotlib falls back glyph by glyph only along an explicit family
+    # list, and the generic "sans-serif" resolves to its first font alone.  Apple SD Gothic Neo has no µ (U+00B5),
+    # which drew "[⍰m]" on every µm axis; DejaVu Sans supplies it.
+    matplotlib.rcParams["font.family"] = [chosen, "DejaVu Sans"] if chosen and chosen != "DejaVu Sans" else "sans-serif"
     matplotlib.rcParams["axes.unicode_minus"] = False
     return chosen

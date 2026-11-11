@@ -417,6 +417,10 @@ class OptimizationPanel(QWidget):
         if self.result is not None and self.result.terms is not None:
             self._show_result(self.result)  # e.g. the RL sign preference changed
 
+    def _param_label(self, label):
+        """Translated parameter label; a dispersion term's f0 takes the symbol of the spectral unit (λ₀, ν̃₀)."""
+        return param_label(label, spectral.position_symbol(spectral.unit_of(self.doc.project)))
+
     def _refresh_variables(self):
         p = self.doc.project
         s = p.optimization
@@ -425,12 +429,15 @@ class OptimizationPanel(QWidget):
             r = self.tbl.rowCount()
             self.tbl.insertRow(r)
             try:
-                unit = param_unit(p, v.path)  # thicknesses ("mm") are shown in the project's length unit
-                label = param_label(self._label(v.path))
-                cur = fmt_num(lengths.to_display_unit(get_param(p, v.path), p, unit))
+                # thicknesses ("mm") follow the length unit, dispersion f0 and gamma ("GHz") the spectral unit
+                unit = param_unit(p, v.path)
+                label = self._param_label(self._label(v.path))
+                cur = fmt_num(spectral.param_to_display(get_param(p, v.path), p, v.path, unit))
             except (KeyError, AttributeError, IndexError):
                 unit, label, cur = "", tr("(missing) ") + " / ".join(map(str, v.path)), "—"
-            ul = unit_label(lengths.display_unit(p, unit))
+            except ValueError:  # an f0 <= 0 has no wavelength or wavenumber
+                cur = "—"
+            ul = unit_label(spectral.param_display_unit(p, v.path, unit))
             it = QTableWidgetItem(label + (f"  [{ul}]" if ul else ""))
             it.setToolTip(it.text())
             it.setFlags(it.flags() & ~Qt.ItemIsEditable)
@@ -439,10 +446,28 @@ class OptimizationPanel(QWidget):
             it.setFlags(it.flags() & ~Qt.ItemIsEditable)
             it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.tbl.setItem(r, 1, it)
-            for col, attr in ((2, "lower"), (3, "upper")):
+            kind = spectral.param_kind(v.path, unit)
+            # an f0 shown as a wavelength runs opposite to the stored Hz: the Lower box holds the upper bound
+            attrs = ("upper", "lower") if spectral.param_reversed(p, v.path, unit) else ("lower", "upper")
+            for col, attr in zip((2, 3), attrs):
+                try:
+                    shown = spectral.param_to_display(getattr(v, attr), p, v.path, unit)
+                except ValueError:
+                    it = QTableWidgetItem("—")
+                    it.setFlags(Qt.ItemIsEnabled)
+                    it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    it.setToolTip(tr("A bound of 0 Hz or below has no wavelength or wavenumber; switch the "
+                                     "spectral axis to a frequency unit to edit it."))
+                    self.tbl.removeCellWidget(r, col)
+                    self.tbl.setItem(r, col, it)
+                    continue
                 sp = SciSpinBox(digits=5)
+                if kind == "position" and spectral.spectral_kind(spectral.unit_of(p)) != "f":
+                    sp.setRange(*spectral.INPUT_RANGE)  # wavelengths and wavenumbers are positive
+                elif kind == "linewidth":
+                    sp.setRange(0.0, spectral.INPUT_RANGE[1])
                 sp.setFrame(False)
-                sp.set_value(lengths.to_display_unit(getattr(v, attr), p, unit))
+                sp.set_value(shown)
                 sp.valueEdited.connect(lambda val, path=v.path, a=attr, u=unit: self._set_bound(path, a, u, val))
                 self.tbl.setCellWidget(r, col, sp)
             btn = QPushButton("")
@@ -456,8 +481,8 @@ class OptimizationPanel(QWidget):
         for path, label, unit in available_params(p):
             if tuple(path) in existing:
                 continue
-            ul = unit_label(lengths.display_unit(p, unit))
-            self.cb_add.addItem(param_label(label) + (f"  [{ul}]" if ul else ""), path)
+            ul = unit_label(spectral.param_display_unit(p, path, unit))
+            self.cb_add.addItem(self._param_label(label) + (f"  [{ul}]" if ul else ""), path)
         self.btn_add.setEnabled(self.cb_add.count() > 0)
         if s.choices:
             parts = []
@@ -509,7 +534,11 @@ class OptimizationPanel(QWidget):
         self.doc.edit_settings(mut)
 
     def _set_bound(self, path, attr, unit, val):
-        si = lengths.from_display_unit(val, self.doc.project, unit)
+        """``attr`` is the model bound the box edits (for a wavelength f0 the Lower box edits ``upper``)."""
+        try:
+            si = spectral.param_from_display(val, self.doc.project, path, unit)
+        except ValueError:  # 0 in a box that needs a positive wavelength or wavenumber
+            return
 
         def mut(p):
             for v in p.optimization.variables:
@@ -688,9 +717,12 @@ class OptimizationPanel(QWidget):
                 unit = param_unit(p, path)
             except KeyError:
                 unit = ""
-            ul = unit_label(lengths.display_unit(p, unit))
-            rows.append((param_label(self._label(path)),
-                         fmt_num(lengths.to_display_unit(val, p, unit), 6) + (f" {ul}" if ul else "")))
+            ul = unit_label(spectral.param_display_unit(p, path, unit))
+            try:
+                shown = fmt_num(spectral.param_to_display(val, p, path, unit), 6)
+            except ValueError:
+                shown = "—"
+            rows.append((self._param_label(self._label(path)), shown + (f" {ul}" if ul else "")))
         for uid, name in res.choices.items():
             try:
                 idx = p.structure.index_of(uid) + 1

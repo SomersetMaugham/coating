@@ -155,6 +155,36 @@ def spectral_bounds(f_lo, f_hi, unit):
     return (min(a, b), max(a, b))
 
 
+# A Lorentz damping rate gamma [Hz] is a frequency interval, not a spectral position: it scales linearly with the
+# frequency (and wavenumber) units, but has no wavelength equivalent (c/gamma is meaningless and the width in
+# wavelength, lambda0^2 gamma / c, would change whenever f0 changes).  Wavelength units show it in THz.
+LINEWIDTH_UNIT = {"GHz": "GHz", "THz": "THz", "um": "THz", "nm": "THz", "cm-1": "cm-1"}
+
+
+def to_linewidth(gamma, unit):
+    """Damping rate [Hz] (>= 0) -> number in ``LINEWIDTH_UNIT[unit]``."""
+    from coating_studio.core.constants import C0
+
+    lw = LINEWIDTH_UNIT[unit]
+    a = np.asarray(gamma, dtype=float)
+    if np.any(a < 0):
+        raise ValueError("damping rates must not be negative")
+    out = a / (C0 * 100.0) if lw == "cm-1" else a / SPECTRAL_UNITS[lw][1]
+    return float(out) if np.ndim(gamma) == 0 else out
+
+
+def from_linewidth(x, unit):
+    """Number in ``LINEWIDTH_UNIT[unit]`` (>= 0, finite) -> damping rate [Hz]."""
+    from coating_studio.core.constants import C0
+
+    lw = LINEWIDTH_UNIT[unit]
+    a = np.asarray(x, dtype=float)
+    if np.any(a < 0) or not np.all(np.isfinite(a)):
+        raise ValueError("damping rates must be non-negative and finite")
+    out = a * 100.0 * C0 if lw == "cm-1" else a * SPECTRAL_UNITS[lw][1]
+    return float(out) if np.ndim(x) == 0 else out
+
+
 # -- length (layer thickness) display unit (display only; layers and files keep metres) -------------------
 LENGTH_UNITS = {"mm": 1e-3, "um": 1e-6, "nm": 1e-9}
 LENGTH_LABEL = {"mm": "mm", "um": "µm", "nm": "nm"}

@@ -93,10 +93,11 @@ exception, and it falls back if Qt is missing.
   drawing and the measured image scale are explained there).
 - **`spectral.py`**: the spectral axis in the project's display unit (`SweepSettings.spectral_unit`: GHz, THz, vacuum
   wavelength µm/nm, wavenumber cm⁻¹; conversions in `core/units.py`). Plots, texts and exports of the GUI and the report
-  go through it; `gui/spectral.py` adds the input boxes. Display only: the engine, files and CLI numbers stay in Hz/GHz.
+  go through it; `gui/spectral.py` adds the input boxes. Its `param_*` helpers show a dispersion term's f0 in this unit
+  (λ₀, ν̃₀) and gamma as a damping rate (THz for wavelengths); the CLI and `ParamInfo.unit` keep "GHz". Display only: the engine, files and CLI numbers stay in Hz/GHz.
 - **`lengths.py`**: layer thicknesses in the project's display unit (`SweepSettings.length_unit`: mm, µm, nm), chosen
   independently of the spectral unit. Optimiser parameters keep the unit "mm" (the CLI contract); the GUI maps it with
-  `lengths.display_unit`. `gui/spectral.py`'s `LengthInputs` edits thicknesses without float drift.
+  `spectral.param_display_unit` (which hands lengths to `lengths`). `gui/spectral.py`'s `LengthInputs` edits thicknesses without float drift.
 - **`cli/`**: `coating-cli`. `commands.py` holds one plain function per command (result dict or `CliError`);
   `output.py` the JSON envelope, value sanitising and the exception → error-code table; `progress.py`
   cancellation (one stop event for Ctrl-C/SIGTERM/`--timeout`; call `optimize` with `throttle_s=0`);

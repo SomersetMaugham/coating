@@ -566,4 +566,11 @@ KO.update({
     "A threshold of 1 has no percolation term to compare.": "임계값이 1이면 비교할 퍼콜레이션 항이 없습니다.",
     "The same shape factor without percolation cannot represent this composite.":
         "같은 형상 인자로 퍼콜레이션 항을 빼면 이 복합재를 표현할 수 없습니다.",
+    # dispersion-term f0 and gamma in the spectral display unit
+    "Vacuum wavelength of the resonance, λ₀ = c/f₀.": "공진의 진공 파장, λ₀ = c/f₀.",
+    "Wavenumber of the resonance, ν̃₀ = f₀/c.": "공진의 파수, ν̃₀ = f₀/c.",
+    "γ is a damping rate (a frequency interval). A wavelength has no equivalent of it, so it is shown in THz.":
+        "γ는 감쇠율(주파수 간격)입니다. 파장으로 바꿀 수 없어 THz로 표시합니다.",
+    "A bound of 0 Hz or below has no wavelength or wavenumber; switch the spectral axis to a frequency unit to "
+    "edit it.": "0 Hz 이하의 경계는 파장이나 파수로 나타낼 수 없습니다. 편집하려면 스펙트럼 축을 주파수 단위로 바꾸십시오.",
 })
