@@ -156,3 +156,51 @@ def test_cli_extract_nrw_round_trip(tmp_path):
 
     with pytest.raises(CliError):
         cmd_extract_nrw(str(src), 3.0, str(src), force=True)  # never overwrite the input
+
+
+def test_uncertainty_thickness_is_analytic_and_resonances_stand_out():
+    """In NRW eps and mu are exactly proportional to 1/d, so a thickness error alone gives a relative spread of
+    sigma_d/d.  S-parameter noise is amplified most where |S11| -> 0 (half-wave resonance)."""
+    from coating_studio.materials.extraction import nrw_uncertainty
+
+    f = np.linspace(2e9, 18e9, 161)
+    eps, mu = ConstantMaterial("x", 4.0, 0.08).eps_mu(f, None)
+    d = 5e-3
+    s11, s21 = slab_sparams(f, eps, mu, d)
+    u = nrw_uncertainty(f, s11, s21, d, sigma_thickness=0.01e-3, n_samples=2000, seed=2)
+    assert np.allclose(u.eps_re / eps.real, 0.002, rtol=0.06) and np.allclose(u.mu_re / mu.real, 0.002, rtol=0.06)
+    zero = nrw_uncertainty(f, s11, s21, d, n_samples=5)
+    assert np.max(zero.eps_re) < 1e-12 and np.max(zero.mu_loss) < 1e-12  # (np.std of equal values: rounding only)
+    noisy = nrw_uncertainty(f, s11, s21, d, sigma_mag_db=0.05, sigma_phase_deg=0.5, n_samples=300, seed=1)
+    i, j = np.argmin(abs(f - 4e9)), np.argmin(abs(f - C0 / (2 * d * 2.0)))  # off and at the half-wave resonance
+    assert noisy.eps_re[j] > 5 * noisy.eps_re[i]
+    again = nrw_uncertainty(f, s11, s21, d, sigma_mag_db=0.05, sigma_phase_deg=0.5, n_samples=300, seed=1)
+    assert np.array_equal(again.eps_re, noisy.eps_re)  # reproducible with the seed
+    for kw in ({"sigma_thickness": -1e-3}, {"n_samples": 1}):
+        with pytest.raises(ValueError):
+            nrw_uncertainty(f, s11, s21, d, **kw)
+
+
+def test_cli_uncertainty_csv(tmp_path):
+    from coating_studio.cli.commands import cmd_extract_nrw
+    from coating_studio.cli.output import CliError
+
+    f = np.linspace(2e9, 18e9, 41)
+    eps, mu = LOSSY.eps_mu(f, None)
+    s11, s21 = slab_sparams(f, eps, mu, 2e-3)
+    src = tmp_path / "s.s2p"
+    src.write_text(_s2p_text(f, s11, s21))
+    res = cmd_extract_nrw(str(src), 2.0, str(tmp_path / "s.csv"), uncertainty_csv=str(tmp_path / "u.csv"),
+                          thickness_sigma_mm=0.01, uncertainty_samples=50)
+    unc = res.result["uncertainty"]
+    assert unc["n_samples"] == 50 and unc["median_relative"]["eps_re"] == pytest.approx(0.005, rel=0.3)
+    lines = (tmp_path / "u.csv").read_text().splitlines()
+    assert lines[0] == "f [GHz],u(eps'),u(eps''),u(mu'),u(mu'')" and len(lines) == 42
+    assert cmd_extract_nrw(str(src), 2.0, str(tmp_path / "t.csv")).result["uncertainty"] is None
+    for kw in ({"uncertainty_csv": str(tmp_path / "v.csv")},  # no error assumed by default
+               {"thickness_sigma_mm": 0.01},  # sigma without an output
+               {"uncertainty_csv": str(tmp_path / "w.csv"), "thickness_sigma_mm": 0.01, "force": True,
+                "output": None}):
+        out = kw.pop("output", str(tmp_path / "x.csv"))
+        with pytest.raises((CliError, TypeError)):
+            cmd_extract_nrw(str(src), 2.0, out, **kw)
