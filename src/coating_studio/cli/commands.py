@@ -864,11 +864,11 @@ def _inversion_warning(code, a):
 
 def cmd_invert_filler(composite, output, model, density_filler, fraction=None, fraction_wt=None, density_matrix=None,
                       matrix_csv=None, matrix_eps=None, matrix_mu=None, name=None, clamp_nonpassive=False, validate=(),
-                      force=False, shape_n=None, percolation=None):
+                      force=False, shape_n=None, percolation=None, exponent=None):
     """Effective filler table from one measured composite (docs/CLI_PLAN.md, section 13.9)."""
     from coating_studio.cli.spec import wt_to_vol
     from coating_studio.materials.csvio import to_csv_text
-    from coating_studio.materials.models import make_shape
+    from coating_studio.materials.models import Shape, make_gem, make_shape
     from coating_studio.materials.inversion import (
         diagnostics, invert_filler, prediction_checks, provenance_note, validation_errors, warning_flags,
     )
@@ -896,11 +896,18 @@ def cmd_invert_filler(composite, output, model, density_filler, fraction=None, f
         raise bad(f"{output} is one of the input files; --force does not overwrite measurements", path=str(output))
     check_output_path(output, force)
     try:
-        shape = make_shape(model, shape_n, percolation)
+        if model == "gem":
+            if shape_n is not None:
+                raise ValueError("the gem rule takes no shape factor")
+            shape = make_gem(percolation, exponent)
+        else:
+            if exponent is not None:
+                raise ValueError(f"the {model} rule takes no exponent")
+            shape = make_shape(model, shape_n, percolation)
     except ValueError as e:
         raise bad(str(e)) from None
     phi = volume(fraction if fraction_wt is None else fraction_wt, "fraction")
-    if shape is not None and phi >= shape.pc:
+    if isinstance(shape, Shape) and phi >= shape.pc:  # GEM is defined through its threshold
         raise bad(f"the volume fraction {phi:g} is at or above the percolation threshold {shape.pc:g}")
     checks = [(path, volume(value, f"--validate {path}")) for path, value in validate]
 
@@ -965,17 +972,16 @@ def _shape_warning(code, a):
     }[code]())
 
 
-def cmd_fit_shape(composites, matrix_csv=None, matrix_eps=None, matrix_mu=None, weight_fractions=False,
-                  density_filler=None, density_matrix=None):
-    """The Odelevskiy ratio N/pc from composites at several loadings (docs/CLI_PLAN.md, section 13.11)."""
+def _loadings_input(composites, matrix_csv, matrix_eps, matrix_mu, weight_fractions, density_filler, density_matrix,
+                    what):
+    """The shared input of fit-shape and fit-gem: (f, eps_m, mu_m, eps (loading x f), mu, fractions)."""
     from coating_studio.cli.spec import wt_to_vol
-    from coating_studio.materials.shape_fit import FIT_POOR, admissible_n, fit_shape
 
     def bad(message, **details):
         return CliError("invalid_value", message, 3, details)
 
     if len(composites) < 2:
-        raise bad("fit-shape needs at least two --composite CSV FRACTION: one loading fits any N/pc")
+        raise bad(f"{what} needs at least two --composite CSV FRACTION")
     if weight_fractions:
         if density_filler is None or density_filler <= 0 or density_matrix is None or density_matrix <= 0:
             raise bad("--weight-fractions needs a positive --density-filler and --density-matrix")
@@ -1018,6 +1024,20 @@ def cmd_fit_shape(composites, matrix_csv=None, matrix_eps=None, matrix_mu=None, 
         raise model_error(e) from None
     eps = np.array([d[0] for d in data])
     mu = np.array([d[1] for d in data])
+    return f, eps_m, mu_m, eps, mu, fractions
+
+
+def cmd_fit_shape(composites, matrix_csv=None, matrix_eps=None, matrix_mu=None, weight_fractions=False,
+                  density_filler=None, density_matrix=None):
+    """The Odelevskiy ratio N/pc from composites at several loadings (docs/CLI_PLAN.md, section 13.11)."""
+    from coating_studio.cli.spec import wt_to_vol
+    from coating_studio.materials.shape_fit import FIT_POOR, admissible_n, fit_shape
+
+    def bad(message, **details):
+        return CliError("invalid_value", message, 3, details)
+
+    f, eps_m, mu_m, eps, mu, fractions = _loadings_input(composites, matrix_csv, matrix_eps, matrix_mu, weight_fractions,
+                                                         density_filler, density_matrix, "fit-shape")
     try:
         fit = fit_shape(fractions, {"eps": (eps_m, eps), "mu": (mu_m, mu)})
     except ValueError as e:
@@ -1153,6 +1173,43 @@ def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None
         "delay_mismatch": r.delay_mismatch, "reciprocity_error": r.reciprocity_error, "reference_ohm": ref,
         "resonant_points": int(np.count_nonzero(r.resonant)), "uncertainty": unc,
     }, warnings=warns, input_info={"path": str(s2p_path)})
+
+
+def cmd_fit_gem(composites, matrix_csv=None, matrix_eps=None, matrix_mu=None, weight_fractions=False,
+                density_filler=None, density_matrix=None):
+    """McLachlan GEM pc and t from composites at several loadings (docs/CLI_PLAN.md, section 13.13)."""
+    from coating_studio.materials.gem_fit import FIT_POOR, PC_GRID, T_GRID, T_WEAK, fit_gem, warning_flags
+
+    f, eps_m, mu_m, eps, mu, fractions = _loadings_input(composites, matrix_csv, matrix_eps, matrix_mu, weight_fractions,
+                                                         density_filler, density_matrix, "fit-gem")
+    channels = {"eps": (eps_m, eps), "mu": (mu_m, mu)}
+    try:
+        fit = fit_gem(fractions, channels)
+    except ValueError as e:
+        raise CliError("invalid_value", str(e), 3) from None
+    messages = {
+        "gem_one_sided": lambda a: (f"every loading lies {a['side']} the fitted threshold {a['pc']:.3g}: pc and t are poorly "
+                                    "determined from one side; measure loadings on both sides"),
+        "gem_fit_poor": lambda a: (f"the best (pc, t) reproduces the composites only to {a['rms']:.1%} rms (above "
+                                   f"{a['limit']:.0%}); GEM may not describe this composite family"),
+        "gem_at_bound": lambda a: (f"the best grid point lies at the edge of pc {a['pc_range'][0]:g}-{a['pc_range'][1]:g}, "
+                                   f"t {a['t_range'][0]:g}-{a['t_range'][1]:g}; the data may need values outside it"),
+        "gem_two_fractions": lambda a: "only two loadings: no loading is left to test the fit; validate with a third",
+        "gem_t_weak": lambda a: (f"the fit hardly changes over t = {a['t_lo']:.3g}-{a['t_hi']:.3g} (width {T_WEAK:g} or more): "
+                                 "the exponent is poorly determined by these loadings"),
+        "gem_channel_mismatch": lambda a: (f"eps alone gives pc = {a['pc_eps']:.3g}, mu alone {a['pc_mu']:.3g}: one GEM rule "
+                                           "for both may not fit this filler"),
+    }
+    warns = [warning(code, messages[code](args), **args) for code, args in warning_flags(fit, fractions, channels)]
+    per = [{"csv": str(path), **row} for (path, _), row in zip(composites, fit.per_composite)]
+    return CommandResult({
+        "percolation": fit.percolation, "exponent": fit.exponent, "rms": fit.rms, "rms_per": fit.rms_per,
+        "channels_used": fit.channels_used, "n_points": int(f.size), "data_range_hz": [float(f[0]), float(f[-1])],
+        "flat_region": {"percolation": list(fit.flat_pc), "exponent": list(fit.flat_t)},
+        "search_range": {"percolation": [float(PC_GRID[0]), float(PC_GRID[-1])],
+                         "exponent": [float(T_GRID[0]), float(T_GRID[-1])]},
+        "per_composite": per, "fit_poor_limit": FIT_POOR,
+    }, warnings=warns)
 
 
 # ---------------------------------------------------------------------------

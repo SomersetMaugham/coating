@@ -144,6 +144,13 @@ this format, with their parameter paths and static permeability.
      N/n_over_pc` on one composite with `--validate` for the others. A good fit (`rms`) means the loadings are
      reproduced, not that the filler has that shape; `shape_fit_poor`, `shape_flat` and `shape_two_fractions` must
      be reported.
+   - **`fit-gem`** does the same for a conductive filler that percolates (carbon black, CNT; `--model gem`):
+     `coating-cli fit-gem --composite A.csv FA --composite B.csv FB [...] (--matrix-csv F | --matrix-eps RE LOSS)`.
+     Unlike Odelevskiy both `percolation` and `exponent` follow from the data, but only loadings on **both sides** of
+     the threshold pin them; t is usually only roughly determined. Report `flat_region` and every warning
+     (`gem_one_sided`, `gem_t_weak`, `gem_two_fractions`, `gem_channel_mismatch`). Then `invert-filler --model gem
+     --percolation PC --exponent T` on one composite with `--validate` for the others, and use the table in a mixture
+     with the same `model`, `percolation` and `exponent`.
 2. **Feasibility.** `coating-cli bound --f-ghz LO HI --goal-db G [--mu-s M]`, then `build`, then
    `coating-cli check design.coat --journal DIR`. Fix errors. If `result.limits[].status` is `"infeasible"`
    (`rozanov_infeasible`), no design inside the allowed ranges can meet the target: propose a thinner goal, a
