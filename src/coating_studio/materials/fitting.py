@@ -110,6 +110,8 @@ def _fit_side(f, data, spec: FitSpec, allow_sigma: bool):
             continue
         if best is None or sol.cost < best.cost:
             best = sol
+    if best is None:
+        raise ValueError(f"least squares failed from all {len(starts)} starting points")
     inf, cl, sig, terms = unpack(best.x)
     rms = float(np.sqrt(np.mean(np.abs(model(best.x) - data) ** 2)) / scale)
     return float(inf), float(cl), float(sig), [{k: float(v) if k != "type" else v for k, v in t.items()}
