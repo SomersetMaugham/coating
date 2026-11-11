@@ -113,7 +113,9 @@ this format, with their parameter paths and static permeability.
      sample.s2p --thickness-mm D -o sample.csv [--waveguide-a-mm A | --cutoff-ghz FC]` gives a measured CSV. Ask for the
      thickness, the line type and where the calibration planes are; do not guess them. Act on the warnings: rerun with
      `--branch` = `suggested_branch` when `branch_suspect` appears, and keep targets away from `half_wave_resonance`
-     frequencies (or ask for a thinner or lossier sample).
+     frequencies (or ask for a thinner or lossier sample). If the user can state the thickness tolerance and the VNA's
+     magnitude/phase noise, add `--uncertainty-csv U.csv --thickness-sigma-mm … --mag-sigma-db … --phase-sigma-deg …`
+     and use the spread for the tolerance settings; never assume those values.
    - **`invert-filler`** turns one measured composite into an effective filler table for a mixture:
      `coating-cli invert-filler comp.csv -o filler.csv --model MODEL --density-filler R (--fraction V | --fraction-wt W
      --density-matrix R) (--matrix-csv F | --matrix-eps RE LOSS [--matrix-mu RE LOSS]) [--validate CSV FRACTION]`.

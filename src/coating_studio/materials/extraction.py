@@ -135,3 +135,58 @@ def nrw(f, s11, s21, thickness, cutoff_hz=None, branch=0, s12=None, offset1=0.0,
     if not np.all(passive):
         warnings.append(("nonpassive", {"f_hz": [float(x) for x in f[~passive]]}))
     return NrwResult(f, eps, mu, gam, t, int(branch), suggested, resonant, mismatch, recip, warnings)
+
+
+@dataclass
+class NrwUncertainty:
+    """Monte-Carlo spread of an NRW extraction: standard deviations per frequency (same shape as ``f``)."""
+
+    f: np.ndarray
+    eps_re: np.ndarray
+    eps_loss: np.ndarray
+    mu_re: np.ndarray
+    mu_loss: np.ndarray
+    n_samples: int
+
+
+def nrw_uncertainty(f, s11, s21, thickness, cutoff_hz=None, branch=0, s12=None, offset1=0.0, offset2=0.0,
+                    sigma_thickness=0.0, sigma_mag_db=0.0, sigma_phase_deg=0.0, n_samples=200, seed=0):
+    """Standard deviations of eps', eps'', mu', mu'' from measurement errors, by Monte Carlo over ``nrw``.
+
+    Error model (all 1 sigma, normal; 0 = that error is off):
+    * ``sigma_thickness`` [m]: one thickness error per sample, the same at every frequency (a systematic error);
+    * ``sigma_mag_db``, ``sigma_phase_deg``: an independent error on the magnitude (dB) and phase of each S-parameter at
+      each frequency (random noise).  Calibration drift is smooth over frequency rather than independent, so treat
+      this as a noise estimate, not a full calibration-uncertainty budget.
+    The phase branch is held at ``branch``.  Near half-wave resonances the spread grows large: that is the point."""
+    f = np.asarray(f, dtype=float)
+    if not all(x >= 0 for x in (sigma_thickness, sigma_mag_db, sigma_phase_deg)):
+        raise ValueError("uncertainties must not be negative")
+    if int(n_samples) < 2:
+        raise ValueError("need at least two samples")
+    rng = np.random.default_rng(seed)
+    params = [np.asarray(s11, dtype=complex), np.asarray(s21, dtype=complex)]
+    if s12 is not None:
+        params.append(np.asarray(s12, dtype=complex))
+    out = []
+    for _ in range(int(n_samples)):
+        noisy = []
+        for sp in params:
+            mag = 10 ** (rng.normal(0.0, sigma_mag_db, f.shape) / 20) if sigma_mag_db else 1.0
+            ph = np.exp(1j * np.radians(rng.normal(0.0, sigma_phase_deg, f.shape))) if sigma_phase_deg else 1.0
+            noisy.append(sp * mag * ph)
+        d = thickness + (rng.normal(0.0, sigma_thickness) if sigma_thickness else 0.0)
+        if d <= 0:
+            continue
+        try:
+            r = nrw(f, noisy[0], noisy[1], d, cutoff_hz, branch, s12=noisy[2] if s12 is not None else None,
+                    offset1=offset1, offset2=offset2)
+        except ValueError:
+            continue
+        out.append((r.eps, r.mu))
+    if len(out) < 2:
+        raise ValueError("too few samples gave a solution")
+    eps = np.array([e for e, _ in out])
+    mu = np.array([m for _, m in out])
+    return NrwUncertainty(f, np.std(eps.real, axis=0, ddof=1), np.std(-eps.imag, axis=0, ddof=1),
+                          np.std(mu.real, axis=0, ddof=1), np.std(-mu.imag, axis=0, ddof=1), len(out))
