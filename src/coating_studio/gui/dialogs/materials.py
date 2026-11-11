@@ -27,7 +27,7 @@ from coating_studio.gui.theme import mpl_rc
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
 from coating_studio.i18n import issue_text, tr
 from coating_studio.materials import (
-    ConstantMaterial, DispersiveMaterial, MixtureMaterial, PowerLawMaterial, TabulatedMaterial, eps_from_nk,
+    ConstantMaterial, DispersiveMaterial, MixtureMaterial, PowerLawMaterial, TabulatedMaterial, UniaxialMaterial, eps_from_nk,
     loss_from_tangent,
     loss_tangent, make_term, material_from_dict, nk_from_eps_mu,
 )
@@ -38,7 +38,7 @@ from coating_studio.materials.library import load_library, save_library
 from coating_studio.project import ProjectError
 
 KIND_LABEL = {"constant": "Constant", "dispersive": "Dispersive model", "tabulated": "Measured data",
-              "mixture": "Mixture (EMA)", "power_law": "Power law"}
+              "mixture": "Mixture (EMA)", "power_law": "Power law", "uniaxial": "Uniaxial (in-plane / normal)"}
 
 
 class _TermsTable(QWidget):
@@ -172,7 +172,7 @@ class MaterialManager(QDialog):
         self.btn_new = QPushButton(tr("New"))
         set_button_icon(self.btn_new, "add")
         menu = QMenu(self)
-        for kind in ("constant", "dispersive", "power_law", "mixture"):
+        for kind in ("constant", "dispersive", "power_law", "mixture", "uniaxial"):
             menu.addAction(tr(KIND_LABEL[kind]), lambda k=kind: self._new(k))
         menu.addSeparator()
         menu.addAction(icon("import"), tr("Import measured CSV…"), self._import_csv)
@@ -223,6 +223,7 @@ class MaterialManager(QDialog):
         self.stack.addWidget(self._build_tabulated())
         self.stack.addWidget(self._build_mixture())
         self.stack.addWidget(self._build_power_law())
+        self.stack.addWidget(self._build_uniaxial())
         rl.addWidget(self.stack)
 
         self.lbl_issues = QLabel()
@@ -436,6 +437,22 @@ class MaterialManager(QDialog):
         self._show_shape_rows()
         return w
 
+    def _build_uniaxial(self):
+        w = QGroupBox(tr("Uniaxial material (axis along the layer normal)"))
+        f = QFormLayout(w)
+        f.setLabelAlignment(Qt.AlignRight)
+        self.u_inplane = QComboBox()
+        self.u_normal = QComboBox()
+        f.addRow(tr("In-plane (ε∥, μ∥)"), self.u_inplane)
+        f.addRow(tr("Normal (ε⊥, μ⊥)"), self.u_normal)
+        f.addRow(muted(tr("Each component is another material, for example two Odelevskiy mixtures of the same flakes "
+                          "with in-plane and normal shape factors. Normal incidence sees only the in-plane values; the "
+                          "normal values act at oblique incidence (μ⊥ in TE, ε⊥ in TM). The density is that of the "
+                          "in-plane material. A uniaxial material cannot be a mixture constituent.")))
+        self.u_inplane.activated.connect(self._commit)
+        self.u_normal.activated.connect(self._commit)
+        return w
+
     def _show_shape_rows(self):
         shaped = self.m_model.currentData() == "odelevskiy"
         self.m_form.setRowVisible(self.m_n, shaped)
@@ -514,7 +531,7 @@ class MaterialManager(QDialog):
             except Exception:  # noqa: BLE001 - broken references are reported elsewhere
                 rho = m.density
             self.sp_density.set_value(rho / 1000)
-            self.sp_density.setEnabled(m.kind != "mixture")
+            self.sp_density.setEnabled(m.kind not in ("mixture", "uniaxial"))
             if isinstance(m, ConstantMaterial):
                 self.stack.setCurrentIndex(0)
                 self.c_er.set_value(m.eps_re)
@@ -568,6 +585,16 @@ class MaterialManager(QDialog):
                 self.m_n.set_value(1 / 3 if m.shape is None else m.shape.n)  # Maxwell-Garnett until the user changes them
                 self.m_pc.set_value(1.0 if m.shape is None else m.shape.pc)
                 self._show_shape_rows()
+            elif isinstance(m, UniaxialMaterial):
+                self.stack.setCurrentIndex(5)
+                others = [n for n, o in self.doc.project.materials.items()
+                          if n != m.name and not isinstance(o, UniaxialMaterial)]
+                for cb, val in ((self.u_inplane, m.inplane), (self.u_normal, m.normal)):
+                    cb.clear()
+                    cb.addItems(others)
+                    if val not in others:
+                        cb.addItem(val)
+                    cb.setCurrentText(val)
                 try:
                     self.m_density.setText(fmt_num(m.get_density(self.doc.project.resolver) / 1000, 5) + " g/cm³")
                 except Exception:  # noqa: BLE001
@@ -581,7 +608,7 @@ class MaterialManager(QDialog):
         d = m.to_dict()
         d["name"] = self.ed_name.text().strip() or m.name
         d["note"] = self.ed_note.text()
-        if m.kind != "mixture":
+        if m.kind not in ("mixture", "uniaxial"):
             d["density"] = self.sp_density.value() * 1000
         if m.kind == "constant":
             d.update(eps_re=self.c_er.value(), eps_loss=self.c_el.value(),
@@ -599,6 +626,8 @@ class MaterialManager(QDialog):
             d.pop("percolation", None)
             if self.m_model.currentData() == "odelevskiy":
                 d.update(shape_n=self.m_n.value(), percolation=self.m_pc.value())
+        elif m.kind == "uniaxial":
+            d.update(inplane=self.u_inplane.currentText(), normal=self.u_normal.currentText())
         return d
 
     def _commit(self, *_):
@@ -656,6 +685,9 @@ class MaterialManager(QDialog):
                 eps, mu = m.eps_mu(f, p.resolver)
                 eps = np.broadcast_to(eps, f.shape)
                 mu = np.broadcast_to(mu, f.shape)
+                normal = m.eps_mu_normal(f, p.resolver)
+                if normal is not None:
+                    normal = [np.broadcast_to(v, f.shape) for v in normal]
             except Exception as e:  # noqa: BLE001
                 ax = self.fig.add_subplot(111)
                 ax.axis("off")
@@ -666,8 +698,12 @@ class MaterialManager(QDialog):
             x = spectral.x_values(f, unit)
             for k, (vals, sym) in enumerate(((eps, "ε"), (mu, "μ"))):
                 ax = self.fig.add_subplot(1, 2, k + 1)
-                ax.plot(x, vals.real, color=c.series[0], label=f"{sym}′")
-                ax.plot(x, -vals.imag, color=c.series[1], ls="--", label=f"{sym}″")
+                tag = "∥" if normal is not None else ""
+                ax.plot(x, vals.real, color=c.series[0], label=f"{sym}′{tag}")
+                ax.plot(x, -vals.imag, color=c.series[1], ls="--", label=f"{sym}″{tag}")
+                if normal is not None:
+                    ax.plot(x, normal[k].real, color=c.series[2], label=f"{sym}′⊥")
+                    ax.plot(x, -normal[k].imag, color=c.series[3], ls="--", label=f"{sym}″⊥")
                 if sw.log_f:
                     ax.set_xscale("log")
                 spectral.set_xlim(ax, x)
@@ -686,6 +722,13 @@ class MaterialManager(QDialog):
         elif kind == "power_law":
             m = PowerLawMaterial(p.unique_material_name(tr("New power-law material")), eps_re=5.0, eps_a=0.5,
                                  eps_loss=2.0, eps_b=0.5)
+        elif kind == "uniaxial":
+            names = [n for n, o in p.materials.items() if n != p.structure.incident and not isinstance(o, UniaxialMaterial)]
+            if not names:
+                QMessageBox.information(self, tr(KIND_LABEL["uniaxial"]),
+                                        tr("A uniaxial material needs at least one other (isotropic) material."))
+                return
+            m = UniaxialMaterial(p.unique_material_name(tr("New uniaxial material")), names[0], names[min(1, len(names) - 1)])
         else:
             names = [n for n in p.materials if n != p.structure.incident]
             if len(names) < 2:

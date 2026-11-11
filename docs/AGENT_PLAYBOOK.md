@@ -90,9 +90,10 @@ would silently use the old file). Prefer a new file name per trial (`d1.coat`, `
 | `power_law` | `eps_re`, `eps_a`, `eps_loss`, `eps_b`, `mu_re`, `mu_a`, `mu_loss`, `mu_b`: ε′ = eps_re/f^eps_a, ε″ = eps_loss/f^eps_b, same for μ (f in GHz, values at 1 GHz). A curve fit (Michielssen 1993 database); not causal, valid only in its fitted band |
 | `mixture` | `matrix`, `inclusion` (material names), `fraction` (volume, 0–1) or `fraction_wt` (weight), `model`: `"maxwell_garnett"`, `"bruggeman"` or `"odelevskiy"` (flakes, fibres; also requires `shape_n` N and `percolation` pc, with `fraction` < pc) |
 | | Ask the user for N and pc, or fit them to measurements: do not assume them. Published examples, each for one powder and process only, in the form (N/k, pc/k) with the authors' fill factor k: Sendust flakes in paraffin 0.0129, 0.23; nickel flakes 0.105, 0.195. It lets flake composites be modelled, but predictions at other loadings can still be poor (nickel flakes: 29 % median error). |
+| `uniaxial` | `inplane`, `normal` (names of two isotropic materials): ε = diag(ε∥, ε∥, ε⊥), μ likewise, axis along the layer normal. Normal incidence sees only `inplane`; `normal` acts at oblique incidence (μ⊥ in TE, ε⊥ in TM). For flakes aligned in the coating plane. Not a mixture constituent or incident medium. Do not invent the normal values: ask for measurements or a model the user trusts (e.g. a second Odelevskiy mixture with its own N) |
 | measured | `{"name", "csv": "file.csv", "density"?, "note"?}`; the path is relative to **the spec file's folder**; CSV columns `f, eps', eps'', [mu', mu'']`, first header cell sets the unit (default GHz) |
 
-Every material except mixtures also takes `density` (kg/m³; a mixture computes it from its constituents), and all take `note`. `coating-cli materials` prints the built-ins in exactly
+Every material except mixtures and uniaxial materials also takes `density` (kg/m³; a mixture computes it from its constituents, a uniaxial material uses its in-plane component's), and all take `note`. `coating-cli materials` prints the built-ins in exactly
 this format, with their parameter paths and static permeability.
 
 ## The loop

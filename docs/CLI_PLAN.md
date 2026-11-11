@@ -885,6 +885,7 @@ Odelevskiy 규칙(13.9 "비구형 충전재")의 N과 pc를 측정에서 정하�
 | `dispersive` | `eps_inf`, `eps_loss`, `sigma`(S/m), `eps_terms[]`, `mu_inf`, `mu_loss`, `mu_terms[]` | ε = eps_inf − j·eps_loss − jσ/(ωε₀) + Σ 항. 항은 `{"type": "debye", "delta", "f0"}` 또는 `{"type": "lorentz", "delta", "f0", "gamma"}`(Hz) — Debye Δ/(1 + j f/f₀), Lorentz Δ·f₀²/(f₀² − f² + j f γ) |
 | `tabulated` | `f[]`(Hz), `eps_re[]`, `eps_loss[]`, `mu_re[]`, `mu_loss[]`(없으면 μ = 1), `source` | 측정값. 범위 밖은 외삽하지 않고 오류 |
 | `mixture` | `matrix`, `inclusion`(재료 이름), `fraction`(0~1, 부피 분율), `model`(`"maxwell_garnett"` 또는 `"bruggeman"`) | 2성분 유효 매질. 성분은 다른 혼합 재료여도 됨(순환 금지) |
+| `uniaxial` | `inplane`, `normal`(등방성 재료 이름) | 일축 이방성(축 = 층의 법선, 스키마 11). ε = diag(ε∥, ε∥, ε⊥), μ도 같음. 수직 입사는 `inplane`만 보고, `normal`은 사입사에서 작용(TE는 μ⊥, TM은 ε⊥). 밀도는 `inplane`의 밀도. 혼합 재료의 성분·다른 일축 재료의 성분·입사 매질이 될 수 없음(`check`의 `uniaxial_misuse`, 풀이 시 `invalid_value`·`solver_error`) |
 
 측정 CSV는 재료 dict 대신 명세에서 `{"name", "csv", "density"?, "note"?}`로 씁니다(13.2절).
 

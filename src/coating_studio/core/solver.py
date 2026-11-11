@@ -12,6 +12,9 @@ Conventions
 * Time dependence exp(+j*omega*t); eps = eps' - j*eps'', mu = mu' - j*mu''.
 * Waves travel as exp(-j*kz*z); kz is chosen with Im(kz) <= 0 (see csqrt).
 * Wave impedances: TE  Z = omega*mu0*mu/kz ;  TM  Z = kz/(omega*eps0*eps).
+* Uniaxial media (optic axis = layer normal z; eps = diag(et, et, ez), mu = diag(mt, mt, mz)) keep TE and TM
+  separate: TE kz^2 = k0^2 et mt - kx^2 mt/mz, TM kz^2 = k0^2 et mt - kx^2 et/ez, and the impedances above use
+  the tangential components.  An isotropic material takes exactly the isotropic code path.
 * Gamma is the reflection coefficient of the tangential electric field,
   referred to the incident medium.  R = |Gamma|^2.
 * Resistive sheets are shunt admittances 1/Zs (Zs = R + jX, Ohm/sq).
@@ -82,6 +85,22 @@ def _shunt(g, z, zs):
     return num / den
 
 
+def _perturbed(eps, mu, p):
+    """eps, mu scaled by a layer's tolerance factors.  Real and loss parts can be perturbed separately
+    ("eps_re"/"eps_loss"); without those keys the whole complex value is scaled exactly as before."""
+    if "eps_re" in p or "eps_loss" in p:
+        base = p.get("eps", 1.0)
+        eps = eps.real * p.get("eps_re", base) + 1j * (eps.imag * p.get("eps_loss", base))
+    else:
+        eps = eps * p.get("eps", 1.0)
+    if "mu_re" in p or "mu_loss" in p:
+        base = p.get("mu", 1.0)
+        mu = mu.real * p.get("mu_re", base) + 1j * (mu.imag * p.get("mu_loss", base))
+    else:
+        mu = mu * p.get("mu", 1.0)
+    return eps, mu
+
+
 def _power(v, i):
     return 0.5 * np.real(v * np.conj(i))
 
@@ -110,7 +129,7 @@ def solve(structure: Structure, materials, f, theta_deg=0.0, pols=("TE", "TM"),
         except KeyError:
             raise SolverError(f"unknown material: {name!r}") from None
 
-    cache = {}
+    cache, cache_z = {}, {}
 
     def eps_mu(name):
         if name not in cache:
@@ -119,9 +138,19 @@ def solve(structure: Structure, materials, f, theta_deg=0.0, pols=("TE", "TM"),
                            np.broadcast_to(mu, f.shape)[:, None])
         return cache[name]
 
+    def eps_mu_z(name):
+        """(eps_zz, mu_zz) of a uniaxial material, None for an isotropic one."""
+        if name not in cache_z:
+            em = resolve(name).eps_mu_normal(f, resolve)
+            cache_z[name] = None if em is None else (np.broadcast_to(em[0], f.shape)[:, None],
+                                                     np.broadcast_to(em[1], f.shape)[:, None])
+        return cache_z[name]
+
     w = (2.0 * np.pi * f)[:, None]
     k0 = w / C0
     eps_i, mu_i = eps_mu(structure.incident)
+    if eps_mu_z(structure.incident) is not None:
+        raise SolverError("the incident medium must be isotropic")
     n2_i = eps_i * mu_i
     if np.any(np.abs(n2_i.imag) > 1e-9 * np.abs(n2_i)) or np.any(n2_i.real <= 0):
         raise SolverError("the incident medium must be lossless (real eps, mu > 0)")
@@ -133,8 +162,12 @@ def solve(structure: Structure, materials, f, theta_deg=0.0, pols=("TE", "TM"),
         if pol not in ("TE", "TM"):
             raise SolverError(f"unknown polarisation {pol!r}")
 
-        def medium(eps, mu):
-            kz = kz_sqrt(k0 * k0 * eps * mu - kx * kx)
+        def medium(eps, mu, normal=None):
+            if normal is None:
+                kz = kz_sqrt(k0 * k0 * eps * mu - kx * kx)
+            else:  # uniaxial: the z component enters only through the transverse wavenumber term
+                ratio = mu / normal[1] if pol == "TE" else eps / normal[0]
+                kz = kz_sqrt(k0 * k0 * eps * mu - kx * kx * ratio)
             kz = np.where(kz == 0, 1e-30 + 0j, kz)
             z = (w * MU0 * mu / kz) if pol == "TE" else (kz / (w * EPS0 * eps))
             return kz, z
@@ -149,7 +182,7 @@ def solve(structure: Structure, materials, f, theta_deg=0.0, pols=("TE", "TM"),
         elif structure.backing.kind == "halfspace":
             if not structure.backing.material:
                 raise SolverError("half-space backing needs a material")
-            _, zsub = medium(*eps_mu(structure.backing.material))
+            _, zsub = medium(*eps_mu(structure.backing.material), eps_mu_z(structure.backing.material))
             g = np.zeros(shape, dtype=complex)
             zref = zsub
         else:
@@ -160,20 +193,11 @@ def solve(structure: Structure, materials, f, theta_deg=0.0, pols=("TE", "TM"),
             ly = layers[idx]
             p = perturb.get(ly.uid, {})
             if isinstance(ly, SlabLayer):
-                eps, mu = eps_mu(ly.material)
-                # Real and loss parts can be perturbed separately ("eps_re"/"eps_loss"); without
-                # those keys the whole complex value is scaled exactly as before.
-                if "eps_re" in p or "eps_loss" in p:
-                    base = p.get("eps", 1.0)
-                    eps = eps.real * p.get("eps_re", base) + 1j * (eps.imag * p.get("eps_loss", base))
-                else:
-                    eps = eps * p.get("eps", 1.0)
-                if "mu_re" in p or "mu_loss" in p:
-                    base = p.get("mu", 1.0)
-                    mu = mu.real * p.get("mu_re", base) + 1j * (mu.imag * p.get("mu_loss", base))
-                else:
-                    mu = mu * p.get("mu", 1.0)
-                kz, zc = medium(eps, mu)
+                eps, mu = _perturbed(*eps_mu(ly.material), p)
+                normal = eps_mu_z(ly.material)
+                if normal is not None:  # a layer's eps/mu tolerance scales every tensor component alike
+                    normal = _perturbed(*normal, p)
+                kz, zc = medium(eps, mu, normal)
                 d = ly.thickness * p.get("thickness", 1.0)
                 if d < 0:
                     raise SolverError("negative thickness")

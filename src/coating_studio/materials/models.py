@@ -101,6 +101,10 @@ class Material:
     def get_density(self, resolver) -> float:
         return self.density
 
+    def eps_mu_normal(self, f, resolver):
+        """(eps_zz, mu_zz) along the layer normal for a uniaxial material; None for an isotropic one."""
+        return None
+
     # -- parameters ---------------------------------------------------------
     def params(self) -> list[ParamInfo]:
         return []
@@ -404,6 +408,9 @@ class MixtureMaterial(Material):
         self._guard()
         self._busy = True
         try:
+            for n in (self.matrix, self.inclusion):
+                if isinstance(resolver(n), UniaxialMaterial):
+                    raise UniaxialError(f"mixture {self.name!r}: constituent {n!r} is uniaxial; mixing rules are isotropic")
             em_m = resolver(self.matrix).eps_mu(f, resolver)
             em_i = resolver(self.inclusion).eps_mu(f, resolver)
         finally:
@@ -487,9 +494,60 @@ def mixing_rule(em, ei, phi, model, shape=None):
     return maxwell_garnett(em, ei, phi) if model == "maxwell_garnett" else bruggeman(em, ei, phi)
 
 
+class UniaxialError(ValueError):
+    """A uniaxial material used where only an isotropic one has a meaning (mixture constituent, uniaxial component)."""
+
+
+class UniaxialMaterial(Material):
+    """Uniaxial material whose optic axis is the layer normal (z): eps = diag(et, et, ez), mu = diag(mt, mt, mz).
+
+    It references two isotropic materials by name: ``inplane`` gives the tangential components (what a wave at
+    normal incidence sees, so ``eps_mu`` returns them) and ``normal`` the z components.  Flake fillers aligned in the
+    coating plane are the typical case (e.g. two Odelevskiy mixtures with in-plane and normal shape factors).  Only
+    the solver uses the normal components; it cannot be a mixture constituent, the incident medium or a component
+    of another uniaxial material.  Density is that of the in-plane material (both describe the same composite)."""
+
+    kind = "uniaxial"
+
+    def __init__(self, name, inplane, normal, **kw):
+        kw.pop("density", None)
+        super().__init__(name, **kw)
+        self.inplane, self.normal = inplane, normal
+
+    def _component(self, name, resolver):
+        m = resolver(name)
+        if isinstance(m, UniaxialMaterial):
+            raise UniaxialError(f"material {self.name!r}: component {name!r} must be isotropic")
+        return m
+
+    def eps_mu(self, f, resolver):
+        return self._component(self.inplane, resolver).eps_mu(f, resolver)
+
+    def eps_mu_normal(self, f, resolver):
+        return self._component(self.normal, resolver).eps_mu(f, resolver)
+
+    def get_density(self, resolver):
+        return self._component(self.inplane, resolver).get_density(resolver)
+
+    def references(self):
+        return {self.inplane, self.normal}
+
+    def rename_reference(self, old, new):
+        if self.inplane == old:
+            self.inplane = new
+        if self.normal == old:
+            self.normal = new
+
+    def to_dict(self):
+        d = self._base_dict()
+        d.pop("density")
+        d.update(inplane=self.inplane, normal=self.normal)
+        return d
+
+
 # ---------------------------------------------------------------------------
 _KINDS = {c.kind: c for c in (ConstantMaterial, DispersiveMaterial, TabulatedMaterial, MixtureMaterial,
-                                PowerLawMaterial)}
+                                PowerLawMaterial, UniaxialMaterial)}
 
 
 def material_from_dict(d) -> Material:

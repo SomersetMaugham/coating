@@ -266,6 +266,8 @@ KO.update({
     "Remove optimisation variable": "최적화 변수 제거",
     "Cannot start optimisation": "최적화를 시작할 수 없습니다", "Unknown material: {n}": "알 수 없는 재료: {n}",
     "This mixture references itself (directly or through other mixtures).": "이 혼합 재료가 자기 자신을 (직접 또는 다른 혼합 재료를 거쳐) 참조합니다.",
+    "A uniaxial material cannot be a mixture constituent or a component of another uniaxial material.":
+        "일축 이방성 재료는 혼합 재료의 성분이나 다른 일축 재료의 성분이 될 수 없습니다.",
     "Power law": "거듭제곱 법칙", "at 1 GHz": "1 GHz 값", "exponent": "지수",
     "New power-law material": "새 거듭제곱 법칙 재료",
     "Tolerance analysis": "공차 분석",
@@ -579,4 +581,12 @@ KO.update({
         "빈 칸의 파라미터는 흔들지 않습니다. 재료 파라미터는 표본마다 재료 단위로 한 번 뽑으므로, 그 재료를 쓰는 모든 층이 함께 움직입니다. 분산 항의 f₀나 체적 분율을 흔들면 곡선이 주파수 축으로 이동합니다. 층의 ε·μ 공차는 그 위에 그대로 곱해지므로, 같은 오차를 이미 여기서 다룬다면 층 공차를 낮추세요.",
     "Change material parameter tolerance": "재료 파라미터 공차 변경",
     "Material parameters varied per sample (relative): {items}.": "표본마다 흔든 재료 파라미터(상대값): {items}.",
+    "Uniaxial (in-plane / normal)": "일축 이방성 (면내 / 법선)",
+    "Uniaxial material (axis along the layer normal)": "일축 이방성 재료 (축 = 층의 법선)",
+    "In-plane (ε∥, μ∥)": "면내 (ε∥, μ∥)",
+    "Normal (ε⊥, μ⊥)": "법선 (ε⊥, μ⊥)",
+    "Each component is another material, for example two Odelevskiy mixtures of the same flakes with in-plane and normal shape factors. Normal incidence sees only the in-plane values; the normal values act at oblique incidence (μ⊥ in TE, ε⊥ in TM). The density is that of the in-plane material. A uniaxial material cannot be a mixture constituent.":
+        "각 성분은 다른 재료입니다. 예를 들어 같은 플레이크를 면내·법선 형상 인자로 나눈 Odelevskiy 혼합 재료 두 개를 씁니다. 수직 입사는 면내 값만 보고, 법선 값은 사입사에서 작용합니다(TE는 μ⊥, TM은 ε⊥). 밀도는 면내 재료의 밀도입니다. 일축 재료는 혼합 재료의 성분이 될 수 없습니다.",
+    "A uniaxial material needs at least one other (isotropic) material.": "일축 재료에는 다른 (등방성) 재료가 하나 이상 필요합니다.",
+    "New uniaxial material": "새 일축 재료",
 })

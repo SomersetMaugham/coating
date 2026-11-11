@@ -8,7 +8,7 @@ from coating_studio.i18n import _ISSUES_EN, _ISSUES_SPECTRAL
 from coating_studio.i18n_ko import KO
 
 SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "coating_studio"
-INDIRECT = ["Constant", "Dispersive model", "Measured data", "Mixture (EMA)", "Power law", "Salisbury screen",
+INDIRECT = ["Constant", "Dispersive model", "Measured data", "Mixture (EMA)", "Power law", "Uniaxial (in-plane / normal)", "Salisbury screen",
             "Dallenbach layer", "Two-layer Jaumann", "Ferrite tile", "Carbon / epoxy mixture",
             "Before optimisation", "Dual-band Jaumann (X + Ku, oblique)",
             "Circuit-analog absorber (RLC sheet)", "Frequency", "Wavelength", "Wavenumber"]

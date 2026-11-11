@@ -32,6 +32,8 @@ can be added later without rewriting it.
     absorber database. They are curve fits, not causal models: use them only inside their fitted band.
   - **Maxwell-Garnett / Bruggeman** effective-medium mixtures, and **Odelevskiy** for flakes and fibres (shape factor
     N and percolation threshold, which you supply; their ratio N/pc can be fitted from several loadings).
+  - **Uniaxial** materials (axis along the layer normal) with separate in-plane and normal ε, μ, for flake fillers
+    aligned in the coating plane; the normal components act at oblique incidence.
 - **Material checks.**
   - **CSV → dispersion-model fitting**, which gives a causal model you can extrapolate.
   - **Filler inversion** from one measured composite ("Invert filler…" or `coating-cli invert-filler`). The result holds
