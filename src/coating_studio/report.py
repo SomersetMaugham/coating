@@ -21,7 +21,8 @@ from coating_studio.core.structure import SheetLayer, SlabLayer
 from coating_studio.i18n import tr
 from coating_studio.limits import target_limits
 from coating_studio.optimize import evaluate_terms
-from coating_studio.project import describe_path
+from coating_studio.core.units import to_display
+from coating_studio.project import describe_path, param_unit
 from coating_studio.tolerance import CornerResult, ToleranceResult, result_band, result_settings
 
 _COLORS = {"TE": "#2563eb", "TM": "#dc2626", "avg": "#111827", "target": "#c0262d"}
@@ -111,6 +112,19 @@ def _pol_curves(ax, x, res, cut, normal, positive):
         label = tr("TE = TM (normal incidence)") if normal else pol
         ax.plot(x, y, color=_COLORS[pol], ls="-" if pol == "TE" else "--", lw=1.6, label=label)
 
+
+
+def _material_tol_text(project, e):
+    """'name: param 5 %' (relative) or 'name: param ±0.2 GHz (absolute)' in the parameter's display unit."""
+    name = describe_path(project, e["path"])
+    if e.get("mode") != "absolute":
+        return f"{name} {e['tol'] * 100:g} %"
+    try:
+        unit = param_unit(project, e["path"])
+    except (KeyError, ValueError):
+        unit = ""
+    shown = unit if unit not in ("", "frac") else ""
+    return f"{name} ±{to_display(e['tol'], unit):g}{' ' + shown if shown else ''} ({tr('absolute')})"
 
 def corner_label(ti, name, angle, pol):
     """'Target 1 (X) 30° TE' — the angle and polarisation of one target row of a tolerance analysis."""
@@ -420,7 +434,7 @@ def _build_report(project, rl_positive, references, tolerance, source, print_lay
         seed = tr("random") if s.seed is None else s.seed
         out.append(f"<p class=muted>{_e(tr('Tolerances: thickness {t} %, ε′ {e} %, ε″ {el}, μ′ {m} %, μ″ {ml}, sheet {sh} %, real/loss correlation ρ = {rho}; {d} distribution, seed {seed}. Per-layer overrides are not listed.', t=f'{s.thickness * 100:g}', e=f'{s.eps * 100:g}', el=loss(s.eps_loss), m=f'{s.mu * 100:g}', ml=loss(s.mu_loss), sh=f'{s.sheet * 100:g}', rho=f'{s.loss_correlation:g}', d=dist, seed=seed))}</p>")
         if s.material_params:
-            items = "; ".join(f"{describe_path(p, e['path'])} {e['tol'] * 100:g} %" for e in s.material_params)
+            items = "; ".join(_material_tol_text(p, e) for e in s.material_params)
             out.append(f"<p class=muted>{_e(tr('Material parameters varied per sample (relative): {items}.', items=items))}</p>")
 
     # diagnostics

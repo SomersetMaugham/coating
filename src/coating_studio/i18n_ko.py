@@ -660,4 +660,12 @@ KO.update({
     "NRW (ε and μ)": "NRW (ε와 μ)",
     "Non-magnetic fit (μ = 1, stable at half-wave resonances)": "비자성 맞춤 (μ = 1, 반파장 공진에서도 안정)",
     "Method": "방법",
+    'Kind': '종류',
+    'Relative (%)': '상대 (%)',
+    'fraction': '분율',
+    'Absolute ({u})': '절대 ({u})',
+    'Absolute': '절대',
+    'A volume fraction: 0.01 = 1 vol%.': '체적 분율입니다: 0.01 = 1 vol%.',
+    'absolute': '절대',
+    'Relative: % of the value. Absolute: in the unit shown (a volume fraction 0.01 = 1 vol%); f₀ and γ stay in GHz whatever the spectral axis. Both are 1σ for a normal distribution and ± half-width for a uniform one. Changing the kind converts at the current value.': '상대: 값의 %. 절대: 표시한 단위(체적 분율 0.01 = 1 vol%); f₀와 γ는 스펙트럼 축과 관계없이 GHz입니다. 둘 다 정규분포에서는 1σ, 균일분포에서는 ± 반폭입니다. 종류를 바꾸면 현재 값에서 환산합니다.',
 })

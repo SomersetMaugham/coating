@@ -18,7 +18,7 @@ from coating_studio.core.units import DEFAULT_LENGTH_UNIT, DEFAULT_SPECTRAL_UNIT
 from coating_studio.materials.library import builtin_materials
 from coating_studio.materials.models import ConstantMaterial, Material, material_from_dict
 
-SCHEMA_VERSION = 14  # 14: robust optimisation (robust_samples, robust_quantile); 13: GEM mixtures (percolation, exponent); 12: Havriliak-Negami dispersion terms; 11: uniaxial materials; 10: material parameter tolerances; 9: Odelevskiy mixtures (shape_n, percolation); 8: angle-dependent RLC sheets; 7: wavelength-spaced sweep; 6: per-layer real/loss correlation; 5: real/loss error correlation, saved comparison curves; 4: independent loss tolerances; 3: RLC sheets; 2: optimisation targets; 1: one band
+SCHEMA_VERSION = 15  # 15: absolute material-parameter tolerances (material_params[].mode); 14: robust optimisation (robust_samples, robust_quantile); 13: GEM mixtures (percolation, exponent); 12: Havriliak-Negami dispersion terms; 11: uniaxial materials; 10: material parameter tolerances; 9: Odelevskiy mixtures (shape_n, percolation); 8: angle-dependent RLC sheets; 7: wavelength-spaced sweep; 6: per-layer real/loss correlation; 5: real/loss error correlation, saved comparison curves; 4: independent loss tolerances; 3: RLC sheets; 2: optimisation targets; 1: one band
 FILE_EXTENSION = ".coat"
 
 
@@ -276,7 +276,8 @@ class ToleranceSettings:
     # uid -> {"thickness","eps","eps_loss","mu","mu_loss","sheet","loss_correlation"}; a missing key uses the
     # default above.  "loss_correlation" is a coefficient (-1..1, schema 6), the others are relative tolerances.
     per_layer: dict = field(default_factory=dict)
-    # Material parameters perturbed per sample (schema 10): [{"path": ["material", name, *key], "tol": relative}].
+    # Material parameters perturbed per sample (schema 10): [{"path": ["material", name, *key], "tol": relative}];
+    # with "mode": "absolute" (schema 15) "tol" is a deviation in the parameter's SI unit added to the nominal value.
     # The path addresses the same parameters as the optimiser's material variables; one draw per sample moves the
     # material wherever it is used (every layer, every mixture that references it).  Empty in older files.
     material_params: list = field(default_factory=list)
@@ -304,14 +305,24 @@ class ToleranceSettings:
         # A stored None would stop tolerance_for() from falling back to the default.
         kw["per_layer"] = {uid: {k: v for k, v in vals.items() if v is not None}
                            for uid, vals in kw.get("per_layer", {}).items()}
-        kw["material_params"] = [{"path": list(e["path"]), "tol": float(e["tol"])}
-                                 for e in kw.get("material_params", [])]
+        entries = []
+        for e in kw.get("material_params", []):
+            item = {"path": list(e["path"]), "tol": float(e["tol"])}
+            if e.get("mode", "relative") != "relative":  # kept, so _snapshot (a from_dict round trip) keeps it too
+                item["mode"] = e["mode"]
+            entries.append(item)
+        kw["material_params"] = entries
         return cls(**kw)
 
     def material_tolerance(self, path):
-        """Relative tolerance set for material parameter ``path``, or None."""
+        """Tolerance value set for material parameter ``path`` (relative, or absolute in SI), or None."""
+        e = self.material_param_entry(path)
+        return None if e is None else e["tol"]
+
+    def material_param_entry(self, path):
+        """The ``material_params`` entry of ``path`` ({"path", "tol"[, "mode"]}), or None."""
         path = list(path)
-        return next((e["tol"] for e in self.material_params if e["path"] == path), None)
+        return next((e for e in self.material_params if e["path"] == path), None)
 
 
 def _references_from(items):

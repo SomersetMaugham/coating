@@ -118,8 +118,13 @@ def project_to_spec(project: Project) -> dict:
     tolerance["angle_deg"] = tol.angle
     tolerance["per_layer"] = [{"layer": refs.get(uid, uid), **dict(d)} for uid, d in tol.per_layer.items()]
     if tol.material_params:
-        tolerance["material_params"] = [{"material": e["path"][1], "param": list(e["path"][2:]), "tol": e["tol"]}
-                                        for e in tol.material_params]
+        tolerance["material_params"] = []
+        for e in tol.material_params:
+            item = {"material": e["path"][1], "param": list(e["path"][2:]), "tol": e["tol"]}
+            if e.get("mode") == "absolute":  # in the parameter's display unit, as variables[] ranges are
+                unit = param_unit(project, e["path"])
+                item.update(tol=to_display(e["tol"], unit), mode="absolute", unit=unit)
+            tolerance["material_params"].append(item)
     out = {"spec_version": SPEC_VERSION, "name": project.name, "notes": project.notes,
            "incident": project.structure.incident, "backing": backing}
     if removed:
@@ -453,7 +458,23 @@ def spec_to_project(spec: dict, base_dir=".") -> tuple[Project, list]:
         if tuple(mpath) in seen:
             raise spec_error(f"{path}.param", "listed twice")
         seen.add(tuple(mpath))
-        tol.material_params.append({"path": mpath, "tol": float(tv)})
+        mode = d.get("mode", "relative")
+        if mode not in ("relative", "absolute"):
+            raise spec_error(f"{path}.mode", "must be 'relative' or 'absolute'")
+        entry = {"path": mpath, "tol": float(tv)}
+        if mode == "relative":
+            if "unit" in d:
+                raise spec_error(f"{path}.unit", "a relative tolerance has no unit; omit 'unit' or use mode 'absolute'")
+        else:
+            unit = param_unit(p, mpath)
+            given = d.get("unit")
+            if given == "wt":
+                raise spec_error(f"{path}.unit", "absolute tolerances in weight fraction are not supported (the conversion "
+                                 "to volume fraction depends on the loading); give it as a volume fraction ('frac')")
+            if given != unit:
+                raise spec_error(f"{path}.unit", f"this parameter is in {unit!r}, not {given!r}", expected=unit)
+            entry.update(tol=from_display(float(tv), unit), mode="absolute")
+        tol.material_params.append(entry)
     p.tolerance = tol
 
     warnings += _check_measured_ranges(p, spec.get("sweep"))
