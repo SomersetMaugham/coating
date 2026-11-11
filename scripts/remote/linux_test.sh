@@ -57,7 +57,7 @@ for py in "${pythons[@]}"; do
   fi
   if (( status == 0 )); then
     "$venv/bin/python" -c "$versions" > "$res/linux-$py.versions" 2>> "$log"
-    (cd "$run" && "$venv/bin/python" -m pytest -q -rs -p no:cacheprovider --junitxml "$res/linux-$py.xml") \
+    (cd "$run" && "$venv/bin/python" -m pytest -n auto -q -rs -p no:cacheprovider --junitxml "$res/linux-$py.xml") \
       >> "$log" 2>&1 || status=$?
   fi
   echo "$status" > "$res/linux-$py.exit"

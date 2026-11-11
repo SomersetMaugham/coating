@@ -190,7 +190,7 @@ foreach ($py in $pyList) {
         $vlog = Join-Path $res "win-$py.versions"
         Invoke-Logged $python @("-c", $versionsCode) $vlog | Out-Null
         $versions = Read-Versions $vlog
-        $exit = Invoke-Logged $python @("-m", "pytest", "-q", "-rs", "-p", "no:cacheprovider", "--junitxml",
+        $exit = Invoke-Logged $python @("-m", "pytest", "-n", "auto", "-q", "-rs", "-p", "no:cacheprovider", "--junitxml",
                                         (Join-Path $res "win-$py.xml")) $log $run
     }
     Add-Row "Windows Python $py" $exit (Join-Path $res "win-$py.xml") $versions

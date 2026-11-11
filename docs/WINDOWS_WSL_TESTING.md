@@ -11,7 +11,8 @@ scripts/remote_test.sh <커밋|브랜치>
 
 ## 동작 방식
 1. 맥이 저장소를 `git bundle`(약 1 MB)로 묶어 `scp`로 Windows의 `~\coat-test\`에 보냅니다. Windows에는 GitHub 권한이 필요 없습니다.
-2. `ssh`로 `win_test.ps1`을 실행합니다. 커밋을 새 폴더에 받아 Windows py3.10 → py3.13 순서로 테스트합니다.
+2. `ssh`로 `win_test.ps1`을 실행합니다. 커밋을 새 폴더에 받아 Windows py3.10 → py3.13 순서로 테스트합니다. 각 실행은 pytest-xdist(`-n auto`)로
+   CPU 코어에 나눠 돕니다(3.39, 이 머신에서는 아직 실측 전).
 3. 이어서 `wsl.exe`로 `linux_test.sh`를 실행합니다. WSL은 bundle에서 직접 받아(줄바꿈 변환 없음) Linux 파일 시스템에서 py3.10 → py3.13을 돌립니다.
 4. 결과(`summary.txt`, 환경별 로그, JUnit XML, 패키지 버전)를 맥의 `remote-test-results/<커밋>/`로 가져옵니다.
 
