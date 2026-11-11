@@ -630,6 +630,7 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
   `material_params[]`(스키마 10, 선택)는 재료 파라미터를 표본마다 흔듭니다: `{"material": "<이름>", "param": ["mu_terms", 0, "f0"] 또는 "fraction", "tol": 0.05}`.
   `param`은 `variables[]`의 재료 항목과 같은 키이고 `tol`은 상대값입니다(분포는 위와 같음). 재료 단위 오차라 그 재료를 쓰는 모든 층·혼합 재료가 같은 값을 봅니다.
   값은 파라미터의 물리 범위로 잘립니다. 모르는 재료·파라미터, 음수·비숫자 `tol`, 같은 파라미터의 중복은 `invalid_spec`입니다. 항목이 없으면 `spec` 출력에 키가 없습니다.
+  (3.49) `tolerance` 결과의 `material_params_clipped`(`[{"path", "n"}]`)가 범위에 걸려 잘린 표본 수이고, 하나라도 있으면 경고 `tolerance_clipped`를 냅니다.
 - **목표**: `angle_deg`의 상한이 하한보다 크면 `n_angle`이 필수이고 2 이상이어야 합니다. 빠지면 `invalid_spec` —
   `BandTarget.n_angle` 기본값이 1이라 그대로 두면 `grid()`가 하한 각도만 평가합니다(`project.py:102-110`).
 - **재료 dict는 `.coat`와 같은 형식(SI, 접미사 없음)**이라는 예외를 명시합니다. `Material.to_dict()` 그대로이며(`density` kg/m³, `sigma` S/m, 분산 항의 `f0`·`gamma` Hz),

@@ -643,7 +643,7 @@ def cmd_tolerance(path, control, seed=None, n_samples=None, target_db=None, angl
     result = {"scope": {"angle_deg": s.angle, "pol": s.pol}, "n_samples": r.n_samples, "seed_used": s.seed,
               "yield_fraction": r.yield_fraction, "target_db": s.target_db, "lower_pct": s.lower_pct,
               "upper_pct": s.upper_pct, "yield_intervals_hz": [list(iv) for iv in band],
-              "worst_db": _stats(r.worst_db)}
+              "worst_db": _stats(r.worst_db), "material_params_clipped": r.clipped}
     if not summary_only:
         result["data"] = {"f_hz": r.f, "nominal_db": r.nominal_db, "median_db": r.median_db,
                           "lower_db": r.lower_db, "upper_db": r.upper_db}
@@ -653,9 +653,18 @@ def cmd_tolerance(path, control, seed=None, n_samples=None, target_db=None, angl
     warnings = [warning("single_angle_yield",
                         f"yield evaluated at a single angle ({s.angle:g} deg, {s.pol}) only; "
                         "targets over an angle range need a check at every angle and polarisation")]
+    warnings += _clipped_warnings(r.clipped, r.n_samples)
     if control.timed_out:
         warnings.append(warning("timeout", "stopped by --timeout"))
     return CommandResult(result, warnings=warnings, stopped=r.stopped, input_info=inp)
+
+
+def _clipped_warnings(clipped, n):
+    """``tolerance_clipped`` warnings for material parameters whose draws hit their physical bounds."""
+    return [warning("tolerance_clipped",
+                    f"{c['n']} of {n} samples of {'/'.join(str(x) for x in c['path'][1:])} were clipped to the "
+                    "parameter's physical bounds: the tolerance is wide for it, and the samples do not follow the "
+                    "requested distribution", path=c["path"], n_clipped=c["n"]) for c in clipped if c["n"]]
 
 
 def _write_json_output(result, output, force, bulky=()):
@@ -712,13 +721,14 @@ def _tolerance_targets(path, control, mode, n_angle, seed, n_samples, target_db,
     result = {"angle_mode": mode, "n_samples": cr.n_samples, "seed_used": s.seed, "target_db": target_db,
               "corners": rows, "joint_yield_fraction": cr.joint_yield_fraction,
               "min_corner": {k_: worst[k_] for k_ in ("target", "angle_deg", "pol")},
-              "note": _ANGLE_NOTES[mode]}
+              "note": _ANGLE_NOTES[mode], "material_params_clipped": cr.clipped}
     if n_angle is not None:
         result["n_angle"] = n_angle
     result = _write_json_output(result, output, force, ("corners",))
     warnings = [warning("angle_grid_fallback",
                         f"target {ti + 1}: its angle range has fewer than 2 grid points (n_angle); "
                         "its two ends were evaluated instead") for ti in cr.fallback_targets]
+    warnings += _clipped_warnings(cr.clipped, cr.n_samples)
     if control.timed_out:
         warnings.append(warning("timeout", "stopped by --timeout"))
     return CommandResult(result, warnings=warnings, stopped=cr.stopped, input_info=inp)

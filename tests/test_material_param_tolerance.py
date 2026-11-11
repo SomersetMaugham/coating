@@ -151,3 +151,27 @@ def test_spec_round_trip_and_errors():
     spec["tolerance"]["material_params"] = [{"material": CI, "param": "sigma", "tol": 0.1}] * 2
     with pytest.raises(CliError, match="listed twice"):
         spec_to_project(spec)
+
+
+def test_clipped_samples_are_counted_and_reported(tmp_path):
+    """A wide tolerance on a bounded parameter piles samples on the bound; the count is returned and warned about."""
+    from coating_studio.cli.commands import cmd_tolerance
+    from coating_studio.cli.progress import RunControl
+
+    p = EXAMPLES["carbon"][1]()
+    p.tolerance.n_samples = 100
+    p.tolerance.material_params = [{"path": ["material", "Carbon / epoxy", "fraction"], "tol": 2.0},
+                                   {"path": ["material", "Carbon black", "sigma"], "tol": 0.01}]
+    f = tolerance_frequencies(p)
+    r = run_tolerance(p, f)
+    frac, sig = r.clipped
+    assert frac["path"] == ["material", "Carbon / epoxy", "fraction"] and 20 < frac["n"] < 80 and sig["n"] == 0
+    c = run_tolerance_targets(p, f, "corners")
+    assert c.clipped == r.clipped and c.corners[0][5].clipped == r.clipped
+    assert MaterialSampler(p, ToleranceSettings(), np.random.default_rng(0), 5).clipped(5) == []
+    path = tmp_path / "p.coat"
+    p.save(path)
+    res = cmd_tolerance(str(path), RunControl())
+    assert res.result["material_params_clipped"] == r.clipped
+    codes = [w["code"] for w in res.warnings]
+    assert codes.count("tolerance_clipped") == 1

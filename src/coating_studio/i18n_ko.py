@@ -653,4 +653,6 @@ KO.update({
     'Waveguide broad wall a [mm]': '도파관 넓은 벽 a [mm]',
     '{name}: {n} points, {range}, R = {r:g} Ω': '{name}: {n}점, {range}, R = {r:g} Ω',
     '|S11| < {s:g} at {n} frequencies: the sample is close to a multiple of half a wavelength there and the values are unreliable (shaded).': '{n}개 주파수에서 |S11| < {s:g}입니다. 시편이 반파장의 배수에 가까워 값이 불안정합니다(음영 표시).',
+    "Samples clipped to physical bounds (the tolerance is wide for these parameters): {items}.":
+        "물리 범위에서 잘린 표본(이 파라미터들에는 공차가 넓습니다): {items}.",
 })
