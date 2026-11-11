@@ -170,6 +170,19 @@ def build_parser():
     inv.add_argument("--validate", nargs=2, action="append", default=[], metavar=("CSV", "FRACTION"),
                      help="composite at another loading, to test the prediction (same fraction basis as above)")
 
+    nr = sp.add_parser("extract-nrw", help="eps and mu of a sample from a measured two-port .s2p (Nicholson-Ross-Weir)",
+                       formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    nr.add_argument("s2p", help="Touchstone v1 two-port file, referred to the empty line, planes at the sample faces")
+    nr.add_argument("--thickness-mm", type=float, required=True, help="sample thickness")
+    nr.add_argument("--output", "-o", required=True, help="measured-data CSV to write (f, eps', eps'', mu', mu'')")
+    nr.add_argument("--force", action="store_true", help="overwrite an existing output (never an input file)")
+    line = nr.add_mutually_exclusive_group()
+    line.add_argument("--cutoff-ghz", type=float, help="TE10 cutoff of a rectangular waveguide (default: TEM line)")
+    line.add_argument("--waveguide-a-mm", type=float, help="broad wall of a rectangular waveguide (cutoff c/2a)")
+    nr.add_argument("--branch", type=int, default=0, help="phase branch n at the lowest frequency")
+    nr.add_argument("--offset1-mm", type=float, default=0.0, help="empty line between port-1 plane and the sample")
+    nr.add_argument("--offset2-mm", type=float, default=0.0, help="empty line between the sample and port-2 plane")
+
     fs = sp.add_parser("fit-shape", help="Odelevskiy ratio N/pc from composites measured at several loadings",
                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     fs.add_argument("--composite", nargs=2, action="append", required=True, metavar=("CSV", "FRACTION"),
@@ -240,6 +253,9 @@ def _run(args, control):
                                    args.fraction_wt, args.density_matrix, args.matrix_csv, args.matrix_eps,
                                    args.matrix_mu, args.name, args.clamp_nonpassive, args.validate, args.force,
                                    args.shape_n, args.percolation)
+    if c == "extract-nrw":
+        return C.cmd_extract_nrw(args.s2p, args.thickness_mm, args.output, args.force, args.cutoff_ghz,
+                                 args.waveguide_a_mm, args.branch, args.offset1_mm, args.offset2_mm)
     if c == "fit-shape":
         return C.cmd_fit_shape(args.composite, args.matrix_csv, args.matrix_eps, args.matrix_mu, args.weight_fractions,
                                args.density_filler, args.density_matrix)

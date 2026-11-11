@@ -1037,6 +1037,58 @@ def cmd_fit_shape(composites, matrix_csv=None, matrix_eps=None, matrix_mu=None, 
     }, warnings=[_shape_warning(c, a) for c, a in warns])
 
 
+def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None, waveguide_a_mm=None, branch=0,
+                    offset1_mm=0.0, offset2_mm=0.0):
+    """eps(f), mu(f) of a sample from a measured .s2p by Nicholson-Ross-Weir (docs/CLI_PLAN.md, section 13.12)."""
+    from coating_studio.core.constants import C0
+    from coating_studio.materials.csvio import to_csv_text
+    from coating_studio.materials.extraction import RECIPROCITY, SMALL_S11, nrw
+    from coating_studio.touchstone import TouchstoneError, parse_s2p
+
+    try:
+        with open(s2p_path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except FileNotFoundError:
+        raise CliError("file_not_found", f"{s2p_path}: no such file", 3, {"path": str(s2p_path)}) from None
+    try:
+        f, s11, s21, s12, _s22, ref = parse_s2p(text)
+    except TouchstoneError as e:
+        raise CliError("invalid_value", f"{s2p_path}: {e}", 3) from None
+    if waveguide_a_mm is not None:
+        if not waveguide_a_mm > 0:
+            raise CliError("invalid_value", "--waveguide-a-mm must be positive", 3)
+        cutoff_hz = C0 / (2 * waveguide_a_mm * 1e-3)
+    else:
+        cutoff_hz = None if cutoff_ghz is None else cutoff_ghz * 1e9
+    if os.path.abspath(output) == os.path.abspath(s2p_path):
+        raise CliError("invalid_value", f"{output} is the input file; --force does not overwrite measurements", 3,
+                       {"path": str(output)})
+    check_output_path(output, force)
+    try:
+        r = nrw(f, s11, s21, thickness_mm * 1e-3, cutoff_hz, branch, s12=s12, offset1=offset1_mm * 1e-3,
+                offset2=offset2_mm * 1e-3)
+    except ValueError as e:
+        raise CliError("invalid_value", str(e), 4) from None
+    write_text(output, to_csv_text(r.f, r.eps, r.mu))
+    messages = {
+        "half_wave_resonance": lambda a: (f"|S11| < {SMALL_S11:g} at {len(a['f_hz'])} frequencies: the sample is close to a "
+                                          "multiple of half a wavelength there and the values are unreliable"),
+        "branch_suspect": lambda a: (f"the phase branch {a['branch']} looks wrong; branch {a['suggested_branch']} fits the "
+                                     "measured group delay better (rerun with --branch)"),
+        "nonpassive": lambda a: f"the result shows gain (eps'' or mu'' < 0) at {len(a['f_hz'])} frequencies",
+        "nonreciprocal": lambda a: (f"S21 and S12 differ by up to {a['max_relative']:.3g} (relative, more than "
+                                    f"{RECIPROCITY:g}): check the calibration; their mean was used"),
+    }
+    warns = [warning(code, messages[code](args), **args) for code, args in r.warnings]
+    return CommandResult({
+        "output_path": str(output), "n_points": int(r.f.size), "data_range_hz": [float(r.f[0]), float(r.f[-1])],
+        "line": "TEM" if cutoff_hz is None else "TE10 waveguide", "cutoff_hz": cutoff_hz,
+        "thickness_m": thickness_mm * 1e-3, "branch": r.branch, "suggested_branch": r.suggested_branch,
+        "delay_mismatch": r.delay_mismatch, "reciprocity_error": r.reciprocity_error, "reference_ohm": ref,
+        "resonant_points": int(np.count_nonzero(r.resonant)),
+    }, warnings=warns, input_info={"path": str(s2p_path)})
+
+
 # ---------------------------------------------------------------------------
 # build, spec, journal
 

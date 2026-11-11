@@ -1,4 +1,4 @@
-"""Touchstone 1.x one-port files (.s1p): write a design's reflection, read a measured S11.
+"""Touchstone 1.x files: write a design's reflection (.s1p), read a measured S11 (.s1p) or two-port data (.s2p).
 
 No Qt or matplotlib here (the CLI uses it).
 
@@ -82,9 +82,10 @@ def write_design_s1p(path, project, pol="TE"):
     return len(f)
 
 
-def parse_s1p(text):
-    """(f [Hz] ascending, S11 complex) from Touchstone 1.x one-port text (any unit, RI/MA/DB)."""
-    unit, fmt, param = "GHZ", "MA", "S"  # the format's defaults
+def parse_touchstone(text, nports):
+    """(f [Hz] ascending, S [n_f, nports, nports] complex, reference R [ohm]) from Touchstone 1.x text (any unit,
+    RI/MA/DB).  Version 1 lists a 2-port's parameters in the order S11, S21, S12, S22; larger files go row by row."""
+    unit, fmt, param, ref = "GHZ", "MA", "S", 50.0  # the format's defaults
     seen_option = False
     values = []
     for raw in text.splitlines():
@@ -105,8 +106,12 @@ def parse_s1p(text):
                     fmt = t
                 elif t in ("S", "Y", "Z", "H", "G"):
                     param = t
-                elif t == "R":
-                    i += 1  # reference resistance: not needed for |S11|
+                elif t == "R" and i + 1 < len(toks):
+                    i += 1
+                    try:
+                        ref = float(toks[i])
+                    except ValueError:
+                        raise TouchstoneError(f"reference resistance is not a number: {toks[i]!r}") from None
                 i += 1
             continue
         if line.startswith("["):
@@ -117,23 +122,40 @@ def parse_s1p(text):
             raise TouchstoneError(f"not a number in line: {raw.strip()!r}") from None
     if param != "S":
         raise TouchstoneError(f"only S parameters are supported, not {param}")
-    if len(values) % 3:
-        raise TouchstoneError("a one-port file needs 3 numbers per frequency (is this a 2-port .s2p file?)")
-    arr = np.array(values, dtype=float).reshape(-1, 3)
+    per = 1 + 2 * nports * nports
+    if len(values) % per:
+        hint = " (is this a 2-port .s2p file?)" if nports == 1 else ""
+        raise TouchstoneError(f"a {nports}-port file needs {per} numbers per frequency{hint}")
+    arr = np.array(values, dtype=float).reshape(-1, per)
     if len(arr) < 2:
         raise TouchstoneError("need at least two frequencies")
     f = arr[:, 0] * _UNITS[unit]
-    a, b = arr[:, 1], arr[:, 2]
+    a, b = arr[:, 1::2], arr[:, 2::2]
     if fmt == "RI":
-        s = a + 1j * b
+        flat = a + 1j * b
     elif fmt == "MA":
-        s = a * np.exp(1j * np.radians(b))
+        flat = a * np.exp(1j * np.radians(b))
     else:
-        s = 10 ** (a / 20) * np.exp(1j * np.radians(b))
+        flat = 10 ** (a / 20) * np.exp(1j * np.radians(b))
+    s = flat.reshape(-1, nports, nports)
+    if nports == 2:
+        s = s.transpose(0, 2, 1)  # file order S11 S21 S12 S22 is column-major for two ports
     if np.any(f <= 0):
         raise TouchstoneError("frequencies must be positive")
     order = np.argsort(f)
     f, s = f[order], s[order]
     if len(np.unique(f)) != len(f):
         raise TouchstoneError("duplicate frequencies")
-    return f, s
+    return f, s, ref
+
+
+def parse_s1p(text):
+    """(f [Hz] ascending, S11 complex) from Touchstone 1.x one-port text (any unit, RI/MA/DB)."""
+    f, s, _ = parse_touchstone(text, 1)
+    return f, s[:, 0, 0]
+
+
+def parse_s2p(text):
+    """(f [Hz] ascending, S11, S21, S12, S22, reference R [ohm]) from Touchstone 1.x two-port text."""
+    f, s, ref = parse_touchstone(text, 2)
+    return f, s[:, 0, 0], s[:, 1, 0], s[:, 0, 1], s[:, 1, 1], ref

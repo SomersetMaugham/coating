@@ -42,6 +42,7 @@ Coating Studio의 기능은 지금 GUI로만 쓸 수 있습니다. 코딩 에이
 | `invert-filler` (v7) | 복합재 측정 CSV에서 충전재의 유효 파라미터를 역산해 CSV로 씀 | 13.9절 |
 | `fss-grid` (v8) | 메시·패치 치수에서 L 또는 C와 각도 계수, 유효 한계를 계산 | 13.10절 |
 | `fit-shape` (v10) | 여러 함량의 복합재 측정에서 Odelevskiy 비율 N/pc와 시편별 허용 N 범위를 구함 | 13.11절 |
+| `extract-nrw` (v11) | 측정한 2포트 `.s2p`에서 NRW로 시편의 ε(f), μ(f)를 구해 측정 CSV로 씀 | 13.12절 |
 
 (v3) `check`는 활성 목표마다 Rozanov 한계 판정(`result.limits`)을 함께 냅니다. `solve`·`optimize`·`tolerance`·`check`는 공통 옵션 `--journal DIR --note TEXT`를 받습니다.
 
@@ -876,6 +877,23 @@ Odelevskiy 규칙(13.9 "비구형 충전재")의 N과 pc를 측정에서 정하�
 - **경고**: `shape_fit_poor`(rms > 0.10, 규칙이 이 복합재 계열을 설명하지 못할 수 있음), `shape_at_bound`(B가 탐색 범위 끝), `shape_flat`(평탄 구간 끝이 B의 0.5배 미만이나 1.5배 초과), `shape_two_fractions`(함량 2개: 남는 검사가 없음), `shape_no_admissible_n`(그 시편에서 허용 N이 없음).
 - **사용 흐름**: B와 허용 N 범위를 사용자에게 보여 주고, N은 사용자가 형상 정보로 정합니다(편상의 감자 계수 등). 그다음 `invert-filler --model odelevskiy --shape-n N --percolation N/B --validate …`로 표를 만들고 다른 함량으로 검증합니다. 맞춤이 좋다는 것은 측정한 함량 사이의 예측이 된다는 뜻이지 충전재 모양의 증거가 아닙니다(Bruggeman으로 만든 데이터도 rms 0.08~1.5 %로 맞음).
 - **범위 밖**: 공동 맞춤 표를 파일로 쓰기(어느 함량도 정확히 재현하지 않아 출처·왕복 검사와 맞지 않음), N·pc의 최적화 변수화, GUI.
+
+### 13.12 (v11) 2포트 측정에서 물성 추출: `extract-nrw`
+- **`coating-cli extract-nrw S2P --thickness-mm D -o OUT.csv [--force] [--cutoff-ghz FC | --waveguide-a-mm A] [--branch N] [--offset1-mm L1] [--offset2-mm L2]`**
+- 시편이 선로 단면을 채운 동축선·자유공간(TEM, 기본) 또는 직사각 도파관(TE10, 차단 주파수 `--cutoff-ghz` 또는 넓은 벽 `--waveguide-a-mm`에서 c/2a)의
+  Touchstone v1 2포트 파일을 받습니다. S 파라미터는 빈 선로의 파동 임피던스로 정규화되고(TRL 교정처럼) 기준면이 시편 양면에 있어야 합니다.
+  기준면이 시편 앞뒤의 빈 선로에 있으면 `--offset1-mm`·`--offset2-mm`로 옮깁니다. S21과 S12는 평균합니다.
+- `materials/extraction.nrw`(Nicholson-Ross 1970, Weir 1974): K = (S11² − S21² + 1)/(2S11), Γ = K ∓ √(K² − 1)(|Γ| ≤ 1), T = (S11 + S21 − Γ)/(1 − (S11 + S21)Γ),
+  1/Λ = ln(1/T)/(j2πd)(T의 위상을 주파수를 따라 펼침), μ = (1/Λ)(1 + Γ)/((1 − Γ)√(1/λ₀² − 1/λc²)), ε = λ₀²/μ·(1/λc² + 1/Λ²). e^{+jωt} 규약.
+- **위상 가지**: T의 위상은 2πn까지만 정해집니다. 최저 주파수에서 `--branch`(기본 0, 시편이 반파장보다 얇을 때)에서 시작해 펼칩니다.
+  측정 군지연 −d(arg T)/dω(n과 무관)와 추출한 εμ가 예측하는 지연(n에 따라 다름)을 비교하고, 결과가 수동인 가지를 우선해 `suggested_branch`를 냅니다.
+  강한 분산(공진 근처)에서는 지연 비교가 근사입니다.
+- **결과**: `output_path`, `n_points`, `data_range_hz`, `line`(`TEM`/`TE10 waveguide`), `cutoff_hz`, `thickness_m`, `branch`, `suggested_branch`,
+  `delay_mismatch`(중앙값 상대 차), `reciprocity_error`, `reference_ohm`(파일의 R, 정보용), `resonant_points`. 출력 CSV는 측정 CSV 형식이라
+  명세의 `{"name", "csv"}`, `fit`, `invert-filler`에 그대로 씁니다.
+- **경고**: `half_wave_resonance`(|S11| < 0.05: 시편이 반파장의 배수에 가까워 값이 불안정), `branch_suspect`(제안 가지가 다름, `--branch`로 다시),
+  `nonpassive`(이득이 나온 주파수), `nonreciprocal`(|S21 − S12|/|S21| > 0.05, 교정 확인). 입력 파일은 `--force`로도 덮어쓰지 않습니다.
+- **범위 밖**: 비자성 시편용 반복법(Baker-Jarvis), 동축 시편의 공기 틈 보정, 불확도 전파, GUI.
 
 ## 부록 A. (v5) 재료 dict 형식 (`.coat`·명세 공통, SI, 접미사 없음)
 모든 종류 공통: `kind`, `name`, `density`(kg/m³, 혼합 재료에는 없음 — 성분에서 계산), `note`.
