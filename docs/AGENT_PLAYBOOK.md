@@ -114,6 +114,14 @@ this format, with their parameter paths and static permeability.
        check. Pass `--validate` whenever a composite at another loading exists: it is the only real test.
      - Keep `fraction` variables inside `[0.5, 1.5] ×` the inverted loading (`inverted_filler_fraction` warns outside)
        and below the `mixture_fraction_range` interval. Report that the result must be confirmed on a new sample.
+   - **`fit-shape`** helps with `--model odelevskiy` when composites at **two or more** loadings exist:
+     `coating-cli fit-shape --composite A.csv FA --composite B.csv FB [...] (--matrix-csv F | --matrix-eps RE LOSS)`.
+     Measurements fix only the ratio `n_over_pc` = N/pc; N and pc separately are **not** determined. Do not pick N
+     yourself: show the user `n_over_pc`, `flat_interval` and each composite's `shape_n_range`, and ask for N (from
+     the filler's shape) inside that range. Then run `invert-filler --model odelevskiy --shape-n N --percolation
+     N/n_over_pc` on one composite with `--validate` for the others. A good fit (`rms`) means the loadings are
+     reproduced, not that the filler has that shape; `shape_fit_poor`, `shape_flat` and `shape_two_fractions` must
+     be reported.
 2. **Feasibility.** `coating-cli bound --f-ghz LO HI --goal-db G [--mu-s M]`, then `build`, then
    `coating-cli check design.coat --journal DIR`. Fix errors. If `result.limits[].status` is `"infeasible"`
    (`rozanov_infeasible`), no design inside the allowed ranges can meet the target: propose a thinner goal, a

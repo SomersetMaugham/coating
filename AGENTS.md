@@ -69,7 +69,7 @@ exception, and it falls back if Qt is missing.
   unknown). `eps_mu(f, resolver)` takes a resolver because mixtures
   reference other materials by **name**. Cycles raise `MaterialCycleError`. Tabulated data raises
   `OutOfRangeError` outside its measured range and never extrapolates. Each material exposes
-  `params()`/`get(key)`/`set(key)` so the optimiser can address its numbers. `inversion.py` turns one measured composite into effective filler values for a mixture (`coating-cli invert-filler` and `gui/dialogs/invert_filler.py`, which share its checks; docs/CLI_PLAN.md 13.9); `fitting.py` fits CSV
+  `params()`/`get(key)`/`set(key)` so the optimiser can address its numbers. `inversion.py` turns one measured composite into effective filler values for a mixture (`coating-cli invert-filler` and `gui/dialogs/invert_filler.py`, which share its checks; docs/CLI_PLAN.md 13.9); `shape_fit.py` fits the Odelevskiy ratio N/pc from several loadings (`coating-cli fit-shape`, 13.11: only the ratio is determined, never N and pc separately); `fitting.py` fits CSV
   data to dispersion models. `checks.py` returns issue objects that carry `code` + `args`, and
   `i18n.issue_text` renders them.
 - **`project.py`**: `Project` holds materials, the `Structure` and the sweep/optimisation/tolerance
