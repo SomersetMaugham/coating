@@ -1054,11 +1054,11 @@ def cmd_fit_shape(composites, matrix_csv=None, matrix_eps=None, matrix_mu=None, 
 
 def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None, waveguide_a_mm=None, branch=0,
                     offset1_mm=0.0, offset2_mm=0.0, uncertainty_csv=None, thickness_sigma_mm=0.0, mag_sigma_db=0.0,
-                    phase_sigma_deg=0.0, uncertainty_samples=200, seed=0):
+                    phase_sigma_deg=0.0, uncertainty_samples=200, seed=0, method="nrw"):
     """eps(f), mu(f) of a sample from a measured .s2p by Nicholson-Ross-Weir (docs/CLI_PLAN.md, section 13.12)."""
     from coating_studio.core.constants import C0
     from coating_studio.materials.csvio import to_csv_text
-    from coating_studio.materials.extraction import RECIPROCITY, SMALL_S11, nrw, nrw_uncertainty
+    from coating_studio.materials.extraction import RECIPROCITY, SMALL_S11, nonmagnetic, nrw, nrw_uncertainty
     from coating_studio.touchstone import TouchstoneError, parse_s2p
 
     try:
@@ -1091,9 +1091,12 @@ def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None
     check_output_path(output, force)
     if uncertainty_csv:
         check_output_path(uncertainty_csv, force)
+    if method not in ("nrw", "nonmagnetic"):
+        raise CliError("usage", f"unknown method {method!r}", 2)
+    extract = nrw if method == "nrw" else nonmagnetic
     try:
-        r = nrw(f, s11, s21, thickness_mm * 1e-3, cutoff_hz, branch, s12=s12, offset1=offset1_mm * 1e-3,
-                offset2=offset2_mm * 1e-3)
+        r = extract(f, s11, s21, thickness_mm * 1e-3, cutoff_hz, branch, s12=s12, offset1=offset1_mm * 1e-3,
+                    offset2=offset2_mm * 1e-3)
     except ValueError as e:
         raise CliError("invalid_value", str(e), 4) from None
     write_text(output, to_csv_text(r.f, r.eps, r.mu))
@@ -1103,7 +1106,7 @@ def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None
             u = nrw_uncertainty(f, s11, s21, thickness_mm * 1e-3, cutoff_hz, branch, s12=s12, offset1=offset1_mm * 1e-3,
                                 offset2=offset2_mm * 1e-3, sigma_thickness=thickness_sigma_mm * 1e-3,
                                 sigma_mag_db=mag_sigma_db, sigma_phase_deg=phase_sigma_deg,
-                                n_samples=uncertainty_samples, seed=seed)
+                                n_samples=uncertainty_samples, seed=seed, method=method)
         except ValueError as e:
             raise CliError("invalid_value", str(e), 4) from None
         rows = [[f"{a / 1e9:.9g}", f"{b:.6g}", f"{c:.6g}", f"{d:.6g}", f"{e:.6g}"]
@@ -1121,11 +1124,13 @@ def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None
         "nonpassive": lambda a: f"the result shows gain (eps'' or mu'' < 0) at {len(a['f_hz'])} frequencies",
         "nonreciprocal": lambda a: (f"S21 and S12 differ by up to {a['max_relative']:.3g} (relative, more than "
                                     f"{RECIPROCITY:g}): check the calibration; their mean was used"),
+        "fit_poor": lambda a: (f"the mu = 1 fit misses the measured S-parameters at {len(a['f_hz'])} frequencies "
+                               f"(rms up to {a['max_residual']:.3g}): the sample may be magnetic; use --method nrw"),
     }
     warns = [warning(code, messages[code](args), **args) for code, args in r.warnings]
     return CommandResult({
         "output_path": str(output), "n_points": int(r.f.size), "data_range_hz": [float(r.f[0]), float(r.f[-1])],
-        "line": "TEM" if cutoff_hz is None else "TE10 waveguide", "cutoff_hz": cutoff_hz,
+        "line": "TEM" if cutoff_hz is None else "TE10 waveguide", "cutoff_hz": cutoff_hz, "method": method,
         "thickness_m": thickness_mm * 1e-3, "branch": r.branch, "suggested_branch": r.suggested_branch,
         "delay_mismatch": r.delay_mismatch, "reciprocity_error": r.reciprocity_error, "reference_ohm": ref,
         "resonant_points": int(np.count_nonzero(r.resonant)), "uncertainty": unc,

@@ -20,7 +20,7 @@ from coating_studio.gui.icons import set_button_icon
 from coating_studio.gui.theme import mpl_rc
 from coating_studio.gui.widgets.inputs import muted
 from coating_studio.i18n import tr
-from coating_studio.materials.extraction import RECIPROCITY, SMALL_S11, nrw
+from coating_studio.materials.extraction import RECIPROCITY, SMALL_S11, nonmagnetic, nrw
 from coating_studio.materials.models import TabulatedMaterial
 from coating_studio.touchstone import TouchstoneError, parse_s2p
 
@@ -46,6 +46,8 @@ def warning_text(code, a):
         "nonpassive": lambda: tr("The result shows gain (ε″ or μ″ < 0) at {n} frequencies.", n=len(a["f_hz"])),
         "nonreciprocal": lambda: tr("S21 and S12 differ by up to {r:.3g} (more than {lim:g}): check the calibration; "
                                     "their mean was used.", r=a["max_relative"], lim=RECIPROCITY),
+        "fit_poor": lambda: tr("The μ = 1 fit misses the measured S-parameters at {n} frequencies: the sample may be "
+                               "magnetic; use NRW.", n=len(a["f_hz"])),
     }[code]()
 
 
@@ -91,6 +93,10 @@ class NrwDialog(QDialog):
         form.addRow(tr("Empty line before the sample [mm]"), self.ed_off1)
         form.addRow(tr("Empty line after the sample [mm]"), self.ed_off2)
         form.addRow(tr("Phase branch"), self.sp_branch)
+        self.cb_method = QComboBox()
+        self.cb_method.addItem(tr("NRW (ε and μ)"), "nrw")
+        self.cb_method.addItem(tr("Non-magnetic fit (μ = 1, stable at half-wave resonances)"), "nonmagnetic")
+        form.addRow(tr("Method"), self.cb_method)
         self.form = form
         form.setRowVisible(self.ed_a, False)
         form.addRow(muted(tr("The S-parameters must be referred to the empty line (as a TRL calibration does). The offsets "
@@ -142,6 +148,7 @@ class NrwDialog(QDialog):
         for w in (self.ed_thick, self.ed_a, self.ed_off1, self.ed_off2):
             w.textEdited.connect(self._invalidate)
         self.sp_branch.valueChanged.connect(self._invalidate)
+        self.cb_method.currentIndexChanged.connect(self._invalidate)
         self._invalidate()
 
     # ------------------------------------------------------------------
@@ -203,8 +210,9 @@ class NrwDialog(QDialog):
             return
         d, cutoff, o1, o2 = inp
         f, s11, s21, s12, _s22, _ref = self.data
+        extract = nrw if self.cb_method.currentData() == "nrw" else nonmagnetic
         try:
-            r = nrw(f, s11, s21, d, cutoff, self.sp_branch.value(), s12=s12, offset1=o1, offset2=o2)
+            r = extract(f, s11, s21, d, cutoff, self.sp_branch.value(), s12=s12, offset1=o1, offset2=o2)
         except ValueError as e:
             self._status(str(e), "error")
             self._draw(None)
@@ -262,8 +270,9 @@ class NrwDialog(QDialog):
             return
         r = self.result
         line = "TEM" if self.cb_line.currentData() == "tem" else f"TE10 waveguide a = {self.ed_a.text().strip()} mm"
+        method = "NRW" if self.cb_method.currentData() == "nrw" else "non-magnetic fit (mu = 1)"
         note = (f"{NRW_PREFIX} {os.path.basename(self.path)}, d = {self.ed_thick.text().strip()} mm, {line}, "
-                f"branch {r.branch}")
+                f"branch {r.branch}, {method}")
         if np.any(r.resonant):
             note += f"; {int(np.count_nonzero(r.resonant))} points near half-wave resonances"
         self.result_material = TabulatedMaterial(name, r.f, r.eps.real, -r.eps.imag, r.mu.real, -r.mu.imag,

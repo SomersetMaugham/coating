@@ -150,7 +150,7 @@ class NrwUncertainty:
 
 
 def nrw_uncertainty(f, s11, s21, thickness, cutoff_hz=None, branch=0, s12=None, offset1=0.0, offset2=0.0,
-                    sigma_thickness=0.0, sigma_mag_db=0.0, sigma_phase_deg=0.0, n_samples=200, seed=0):
+                    sigma_thickness=0.0, sigma_mag_db=0.0, sigma_phase_deg=0.0, n_samples=200, seed=0, method="nrw"):
     """Standard deviations of eps', eps'', mu', mu'' from measurement errors, by Monte Carlo over ``nrw``.
 
     Error model (all 1 sigma, normal; 0 = that error is off):
@@ -158,7 +158,9 @@ def nrw_uncertainty(f, s11, s21, thickness, cutoff_hz=None, branch=0, s12=None, 
     * ``sigma_mag_db``, ``sigma_phase_deg``: an independent error on the magnitude (dB) and phase of each S-parameter at
       each frequency (random noise).  Calibration drift is smooth over frequency rather than independent, so treat
       this as a noise estimate, not a full calibration-uncertainty budget.
-    The phase branch is held at ``branch``.  Near half-wave resonances the spread grows large: that is the point."""
+    The phase branch is held at ``branch``.  Near half-wave resonances the spread grows large: that is the point.
+    ``method``: "nrw" or "nonmagnetic" (the extraction that is repeated)."""
+    extract = {"nrw": nrw, "nonmagnetic": nonmagnetic}[method]
     f = np.asarray(f, dtype=float)
     if not all(x >= 0 for x in (sigma_thickness, sigma_mag_db, sigma_phase_deg)):
         raise ValueError("uncertainties must not be negative")
@@ -179,8 +181,8 @@ def nrw_uncertainty(f, s11, s21, thickness, cutoff_hz=None, branch=0, s12=None, 
         if d <= 0:
             continue
         try:
-            r = nrw(f, noisy[0], noisy[1], d, cutoff_hz, branch, s12=noisy[2] if s12 is not None else None,
-                    offset1=offset1, offset2=offset2)
+            r = extract(f, noisy[0], noisy[1], d, cutoff_hz, branch, s12=noisy[2] if s12 is not None else None,
+                        offset1=offset1, offset2=offset2)
         except ValueError:
             continue
         out.append((r.eps, r.mu))
@@ -190,3 +192,71 @@ def nrw_uncertainty(f, s11, s21, thickness, cutoff_hz=None, branch=0, s12=None, 
     mu = np.array([m for _, m in out])
     return NrwUncertainty(f, np.std(eps.real, axis=0, ddof=1), np.std(-eps.imag, axis=0, ddof=1),
                           np.std(mu.real, axis=0, ddof=1), np.std(-mu.imag, axis=0, ddof=1), len(out))
+
+
+def slab_sparams(f, eps, mu, thickness, cutoff_hz=None):
+    """Closed-form S11, S21 of a uniform slab filling a matched line, reference planes at its faces (the forward model
+    the non-magnetic fit inverts): Gamma = (Z - Z0)/(Z + Z0), T = exp(-gamma d),
+    S11 = Gamma (1 - T^2) / (1 - Gamma^2 T^2),  S21 = T (1 - Gamma^2) / (1 - Gamma^2 T^2).
+    TEM: Z/Z0 = sqrt(mu/eps); TE10: Z/Z0 = mu gamma0 / gamma, gamma = j 2 pi sqrt(eps mu / lambda0^2 - 1/lambdac^2)."""
+    f = np.asarray(f, dtype=float)
+    lam0 = C0 / f
+    inv_lc2 = 0.0 if cutoff_hz is None else (float(cutoff_hz) / C0) ** 2
+    em = np.asarray(eps, dtype=complex) * np.asarray(mu, dtype=complex)
+    # e^{+jwt}: gamma = j beta + alpha with Im(sqrt) <= 0 for a passive medium
+    kz = np.sqrt(em / lam0 ** 2 - inv_lc2 + 0j)
+    kz = np.where(kz.imag > 0, -kz, kz)
+    gamma = 1j * 2 * np.pi * kz
+    gamma0 = 1j * 2 * np.pi * np.sqrt(1 / lam0 ** 2 - inv_lc2 + 0j)
+    z = np.asarray(mu, dtype=complex) * gamma0 / gamma
+    g = (z - 1) / (z + 1)
+    t = np.exp(-gamma * thickness)
+    den = 1 - g ** 2 * t ** 2
+    return g * (1 - t ** 2) / den, t * (1 - g ** 2) / den
+
+
+def nonmagnetic(f, s11, s21, thickness, cutoff_hz=None, branch=0, s12=None, offset1=0.0, offset2=0.0):
+    """eps of a non-magnetic sample (mu = 1) by a least-squares fit of S11 and S21 at each frequency.
+
+    Two real unknowns against four real measurements, so the fit stays well posed where |S11| -> 0 and NRW is unstable
+    (low-loss samples at half-wave thicknesses); this is the idea of the NIST iterative method (J. Baker-Jarvis et al.,
+    IEEE Trans. Microw. Theory Tech. 38, 1096 (1990)), here with a plain complex least-squares fit.  The first
+    frequency starts from the NRW value on ``branch``; each later one starts from the previous solution, which also
+    carries the phase branch along.  Returns an ``NrwResult`` with mu = 1; its warnings come from the NRW start
+    (branch) and a ``fit_poor`` entry where the fitted S-parameters miss the measured ones."""
+    from scipy.optimize import least_squares
+
+    f = np.asarray(f, dtype=float)
+    start = nrw(f, s11, s21, thickness, cutoff_hz, branch, s12=s12, offset1=offset1, offset2=offset2)
+    s11 = np.asarray(s11, dtype=complex)
+    s21 = np.asarray(s21, dtype=complex)
+    if s12 is not None:
+        s21 = 0.5 * (s21 + np.asarray(s12, dtype=complex))
+    lam0 = C0 / f
+    inv_lc2 = 0.0 if cutoff_hz is None else (float(cutoff_hz) / C0) ** 2
+    beta0 = 2 * np.pi * np.sqrt(1 / lam0 ** 2 - inv_lc2)
+    if offset1 or offset2:
+        s11 = s11 * np.exp(2j * beta0 * offset1)
+        s21 = s21 * np.exp(1j * beta0 * (offset1 + offset2))
+    eps = np.empty(f.shape, dtype=complex)
+    resid = np.empty(f.shape)
+    guess = complex(start.eps[0])
+    for i, fi in enumerate(f):
+        def res(x, fi=fi, i=i):
+            a, b = slab_sparams(np.array([fi]), np.array([x[0] - 1j * x[1]]), np.array([1.0]), thickness, cutoff_hz)
+            d = np.array([a[0] - s11[i], b[0] - s21[i]])
+            return np.concatenate([d.real, d.imag])
+        sol = least_squares(res, [guess.real, -guess.imag], x_scale="jac", xtol=1e-14, ftol=1e-14, gtol=1e-14)
+        eps[i] = sol.x[0] - 1j * sol.x[1]
+        resid[i] = float(np.sqrt(np.mean(sol.fun ** 2)))
+        guess = eps[i]
+    warnings = [w for w in start.warnings if w[0] in ("branch_suspect", "nonreciprocal")]
+    bad = resid > 0.02
+    if np.any(bad):
+        warnings.append(("fit_poor", {"f_hz": [float(x) for x in f[bad]], "max_residual": float(resid.max())}))
+    if np.any(eps.imag > 1e-9 * np.abs(eps)):
+        warnings.append(("nonpassive", {"f_hz": [float(x) for x in f[eps.imag > 1e-9 * np.abs(eps)]]}))
+    r = NrwResult(f, eps, np.ones(f.shape, dtype=complex), start.gamma, start.transmission, start.branch,
+                  start.suggested_branch, start.resonant, start.delay_mismatch, start.reciprocity_error, warnings)
+    r.fit_residual = resid
+    return r

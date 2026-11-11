@@ -122,3 +122,20 @@ def test_manager_adds_the_material_as_one_undo_step(window, monkeypatch):
     window.doc.undo_stack.undo()
     assert set(window.project.materials) == before
     dlg.close()
+
+
+def test_non_magnetic_method_in_the_dialog(window, tmp_path):
+    from coating_studio.gui.dialogs.nrw import NrwDialog
+    from coating_studio.materials import ConstantMaterial
+
+    f = np.linspace(2e9, 18e9, 81)
+    eps, mu = ConstantMaterial("ptfe", 2.1, 0.0005).eps_mu(f, None)
+    dlg = NrwDialog(window, window)
+    dlg.load_file(_write(tmp_path, f, eps, mu, 10e-3))
+    dlg.ed_thick.setText("10")
+    dlg.cb_method.setCurrentIndex(dlg.cb_method.findData("nonmagnetic"))
+    dlg.compute()
+    dlg.ed_rho.setText("2200")
+    dlg._accept()
+    m = dlg.result_material
+    assert "non-magnetic fit" in m.note and np.max(np.abs(m.eps_mu(f, None)[0] - eps)) < 1e-9
