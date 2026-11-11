@@ -186,6 +186,7 @@ class MaterialManager(QDialog):
             menu.addAction(tr(KIND_LABEL[kind]), lambda k=kind: self._new(k))
         menu.addSeparator()
         menu.addAction(icon("import"), tr("Import measured CSV…"), self._import_csv)
+        menu.addAction(icon("import"), tr("Extract from S-parameters (.s2p)…"), self._extract_nrw)
         self.btn_new.setMenu(menu)
         self.btn_dup = QToolButton()
         set_button_icon(self.btn_dup, "duplicate")
@@ -815,6 +816,16 @@ class MaterialManager(QDialog):
             new.name = self.doc.project.unique_material_name(new.name)
             self.doc.edit(tr("Add fitted material"), lambda pr: pr.add_material(new))
             self._fill_list(new.name)
+
+    def _extract_nrw(self):
+        from coating_studio.gui.dialogs.nrw import NrwDialog
+
+        dlg = NrwDialog(self.ctx, self)
+        if dlg.exec() and dlg.result_material is not None:
+            m = dlg.result_material
+            m.name = self.doc.project.unique_material_name(m.name)
+            self.doc.edit(tr("Add material"), lambda pr: pr.add_material(m))
+            self._fill_list(m.name)
 
     def _invert_filler(self):
         m = self._mat()
