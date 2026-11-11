@@ -793,8 +793,9 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
   1. **함량별 측정 CSV가 여러 개** → 각각 재료로 등록하고 층의 재료 후보(`choices`)로 둡니다. 이 경우 재료 이름에 함량을 넣어도 됩니다(값이 고정이므로, 13.2절 이름 규칙의 예외).
   2. **성분 재료 데이터가 있음**(매트릭스, 충전재 각각의 ε·μ) → 혼합 재료 + `fraction_wt`/`fraction` 변수. 혼합 모델 오차가 있으므로 결과는 실제 시편을 만들어 다시 측정해 확인해야 한다고 보고합니다.
   3. **둘 다 없음** → 매트릭스 물성과 실제 함량을 알면 `invert-filler`(13.9절)로 충전재 유효값을 구합니다. 그것도 없으면 두께만 최적화하고, 함량 탐색에는 추가 측정이 필요하다고 보고합니다. **성분 물성을 짐작해 만들지 않습니다.**
-- **`coating-cli fit CSV [--name N] [--eps-debye K] [--eps-lorentz K] [--sigma] [--eps-const-loss] [--mu-debye K] [--mu-lorentz K] [--mu-const-loss] [--density RHO]`**
-  - `materials/fitting.fit_dispersive`를 부릅니다(Debye·Lorentz 항은 인과적이라 측정 범위 밖에서도 계산은 됨).
+- **`coating-cli fit CSV [--name N] [--eps-debye K] [--eps-lorentz K] [--eps-hn K] [--sigma] [--eps-const-loss] [--mu-debye K] [--mu-lorentz K] [--mu-hn K] [--mu-const-loss] [--density RHO]`**
+  - `materials/fitting.fit_dispersive`를 부릅니다(Debye·Lorentz·Havriliak-Negami 항은 인과적이라 측정 범위 밖에서도 계산은 됨).
+    `--eps-hn`·`--mu-hn`은 Havriliak-Negami 항 수입니다(α, β를 0.05~1에서 맞춤). Debye 항 하나로 맞지 않는 넓은 완화(고분자, 탄소 복합재)에 씁니다.
   - 결과: `material`(부록 A의 `dispersive` dict, 명세에 그대로 사용), `rms_eps`, `rms_mu`(최대 |ε|·|μ| 대비 상대 잔차), `data_range_hz`, `warnings`.
   - 잔차가 크면(예: 0.05 초과) 경고 `fit_poor`를 냅니다. 항 수를 늘려 보라는 안내를 함께 냅니다.
   - 용도: 측정 범위 밖(예: 더 넓은 sweep)을 계산하거나, 정적 투자율을 추정할 때(Rozanov). 이때 `static_mu`는 **외삽 추정**이므로 `limits[].note`에 "fitted model, extrapolated"를 적습니다.
@@ -882,7 +883,7 @@ Odelevskiy 규칙(13.9 "비구형 충전재")의 N과 pc를 측정에서 정하�
 | `kind` | 필드 | 의미 |
 |---|---|---|
 | `constant` | `eps_re`, `eps_loss`, `mu_re`, `mu_loss` | ε = eps_re − j·eps_loss, μ도 같음(손실 > 0). 주파수와 무관 |
-| `dispersive` | `eps_inf`, `eps_loss`, `sigma`(S/m), `eps_terms[]`, `mu_inf`, `mu_loss`, `mu_terms[]` | ε = eps_inf − j·eps_loss − jσ/(ωε₀) + Σ 항. 항은 `{"type": "debye", "delta", "f0"}` 또는 `{"type": "lorentz", "delta", "f0", "gamma"}`(Hz) — Debye Δ/(1 + j f/f₀), Lorentz Δ·f₀²/(f₀² − f² + j f γ) |
+| `dispersive` | `eps_inf`, `eps_loss`, `sigma`(S/m), `eps_terms[]`, `mu_inf`, `mu_loss`, `mu_terms[]` | ε = eps_inf − j·eps_loss − jσ/(ωε₀) + Σ 항. 항은 `{"type": "debye", "delta", "f0"}`, `{"type": "lorentz", "delta", "f0", "gamma"}`(Hz) 또는 `{"type": "havriliak_negami", "delta", "f0", "alpha", "beta"}`(스키마 12) — Debye Δ/(1 + j f/f₀), Lorentz Δ·f₀²/(f₀² − f² + j f γ), Havriliak-Negami Δ/(1 + (j f/f₀)^α)^β(0 < α, β ≤ 1, 범위 밖은 `check`의 `hn_exponent`) |
 | `tabulated` | `f[]`(Hz), `eps_re[]`, `eps_loss[]`, `mu_re[]`, `mu_loss[]`(없으면 μ = 1), `source` | 측정값. 범위 밖은 외삽하지 않고 오류 |
 | `mixture` | `matrix`, `inclusion`(재료 이름), `fraction`(0~1, 부피 분율), `model`(`"maxwell_garnett"` 또는 `"bruggeman"`) | 2성분 유효 매질. 성분은 다른 혼합 재료여도 됨(순환 금지) |
 | `uniaxial` | `inplane`, `normal`(등방성 재료 이름) | 일축 이방성(축 = 층의 법선, 스키마 11). ε = diag(ε∥, ε∥, ε⊥), μ도 같음. 수직 입사는 `inplane`만 보고, `normal`은 사입사에서 작용(TE는 μ⊥, TM은 ε⊥). 밀도는 `inplane`의 밀도. 혼합 재료의 성분·다른 일축 재료의 성분·입사 매질이 될 수 없음(`check`의 `uniaxial_misuse`, 풀이 시 `invalid_value`·`solver_error`) |

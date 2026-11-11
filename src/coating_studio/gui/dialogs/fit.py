@@ -36,21 +36,25 @@ class FitDialog(QDialog):
         def side(title, allow_sigma):
             g = QGroupBox(title)
             f = QFormLayout(g)
-            nd, nl = QSpinBox(), QSpinBox()
+            nd, nl, nh = QSpinBox(), QSpinBox(), QSpinBox()
             nd.setRange(0, 4)
             nl.setRange(0, 4)
+            nh.setRange(0, 4)
+            nh.setToolTip(tr("Broadened relaxations Δ/(1 + (jf/f₀)^α)^β, for polymer and composite data that one Debye "
+                             "term does not fit."))
             cl = QCheckBox(tr("Constant loss term"))
             f.addRow(tr("Debye terms"), nd)
             f.addRow(tr("Lorentz terms"), nl)
+            f.addRow(tr("Havriliak-Negami terms"), nh)
             sg = None
             if allow_sigma:
                 sg = QCheckBox(tr("Conductivity σ"))
                 f.addRow("", sg)
             f.addRow("", cl)
-            return g, nd, nl, cl, sg
+            return g, nd, nl, nh, cl, sg
 
-        ge, self.e_nd, self.e_nl, self.e_cl, self.e_sig = side(tr("Permittivity ε"), True)
-        gm, self.m_nd, self.m_nl, self.m_cl, _ = side(tr("Permeability μ"), False)
+        ge, self.e_nd, self.e_nl, self.e_nh, self.e_cl, self.e_sig = side(tr("Permittivity ε"), True)
+        gm, self.m_nd, self.m_nl, self.m_nh, self.m_cl, _ = side(tr("Permeability μ"), False)
         self.e_nd.setValue(1)
         magnetic = np.any(np.abs(material.mu_re - 1) > 1e-6) or np.any(np.abs(material.mu_loss) > 1e-6)
         self.m_nd.setValue(1 if magnetic else 0)
@@ -88,8 +92,9 @@ class FitDialog(QDialog):
         m = self.src
         eps = m.eps_re - 1j * m.eps_loss
         mu = m.mu_re - 1j * m.mu_loss
-        es = FitSpec(self.e_nd.value(), self.e_nl.value(), self.e_sig.isChecked(), self.e_cl.isChecked())
-        ms = FitSpec(self.m_nd.value(), self.m_nl.value(), False, self.m_cl.isChecked())
+        es = FitSpec(self.e_nd.value(), self.e_nl.value(), self.e_sig.isChecked(), self.e_cl.isChecked(),
+                     n_hn=self.e_nh.value())
+        ms = FitSpec(self.m_nd.value(), self.m_nl.value(), False, self.m_cl.isChecked(), n_hn=self.m_nh.value())
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             self._fit = fit_dispersive(self.ed_name.text().strip() or m.name, m.f, eps, mu, es, ms,

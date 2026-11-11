@@ -589,4 +589,13 @@ KO.update({
         "각 성분은 다른 재료입니다. 예를 들어 같은 플레이크를 면내·법선 형상 인자로 나눈 Odelevskiy 혼합 재료 두 개를 씁니다. 수직 입사는 면내 값만 보고, 법선 값은 사입사에서 작용합니다(TE는 μ⊥, TM은 ε⊥). 밀도는 면내 재료의 밀도입니다. 일축 재료는 혼합 재료의 성분이 될 수 없습니다.",
     "A uniaxial material needs at least one other (isotropic) material.": "일축 재료에는 다른 (등방성) 재료가 하나 이상 필요합니다.",
     "New uniaxial material": "새 일축 재료",
+    "Havriliak-Negami": "Havriliak-Negami",
+    "Havriliak-Negami term": "Havriliak-Negami 항",
+    "Havriliak-Negami terms": "Havriliak-Negami 항",
+    "Δ/(1 + (jf/f₀)^α)^β: a broadened relaxation. β = 1 is Cole-Cole, α = 1 Cole-Davidson, α = β = 1 Debye; both exponents between 0 and 1.":
+        "Δ/(1 + (jf/f₀)^α)^β: 넓게 퍼진 완화입니다. β = 1이면 Cole-Cole, α = 1이면 Cole-Davidson, α = β = 1이면 Debye이고, 두 지수는 0과 1 사이입니다.",
+    "Broadened relaxations Δ/(1 + (jf/f₀)^α)^β, for polymer and composite data that one Debye term does not fit.":
+        "넓게 퍼진 완화 Δ/(1 + (jf/f₀)^α)^β입니다. Debye 항 하나로 맞지 않는 고분자·복합재 데이터에 씁니다.",
+    "A Havriliak-Negami term needs 0 < α ≤ 1 and 0 < β ≤ 1; outside that range it can be non-causal or show gain.":
+        "Havriliak-Negami 항은 0 < α ≤ 1, 0 < β ≤ 1이어야 합니다. 범위 밖에서는 인과성이 깨지거나 이득이 생길 수 있습니다.",
 })

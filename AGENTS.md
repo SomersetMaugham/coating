@@ -125,7 +125,8 @@ exception, and it falls back if Qt is missing.
 
 - Physics sign conventions: e^{+jωt}; ε = ε′ − jε″ (loss > 0); RL = 20·log₁₀|Γ| (negative is
   better) internally. The display sign is a preference. The top row of the layer stack faces the
-  incident wave. The Debye term is Δ/(1 + j f/f₀) and the Lorentz term is Δ·f₀²/(f₀² − f² + j f γ).
+  incident wave. The Debye term is Δ/(1 + j f/f₀), the Lorentz term is Δ·f₀²/(f₀² − f² + j f γ) and the
+  Havriliak-Negami term is Δ/(1 + (j f/f₀)^α)^β with 0 < α, β ≤ 1 (principal powers; α = β = 1 is Debye).
 - **i18n**: UI strings are English source text wrapped in `tr("...", **kwargs)` (`i18n.py`).
   Korean lives in the `KO` dict in `i18n_ko.py`. `tests/test_i18n.py` AST-scans every literal
   `tr()` call and fails if a translation is missing or its `{placeholders}` don't match. When you add

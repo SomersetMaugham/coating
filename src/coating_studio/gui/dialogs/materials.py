@@ -52,13 +52,13 @@ class _TermsTable(QWidget):
         self.unit = DEFAULT_SPECTRAL_UNIT
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        self.tbl = QTableWidget(0, 5)
+        self.tbl = QTableWidget(0, 7)
         self._set_headers()
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.setSelectionMode(QAbstractItemView.NoSelection)
         hh = self.tbl.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.Stretch)
-        hh.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(6, QHeaderView.ResizeToContents)
         self.tbl.setMinimumHeight(90)
         lay.addWidget(self.tbl)
         row = QHBoxLayout()
@@ -68,8 +68,14 @@ class _TermsTable(QWidget):
         b2 = QPushButton(tr("Lorentz term"))
         set_button_icon(b2, "add")
         b2.clicked.connect(lambda: self._add("lorentz"))
+        b3 = QPushButton(tr("Havriliak-Negami term"))
+        set_button_icon(b3, "add")
+        b3.setToolTip(tr("Δ/(1 + (jf/f₀)^α)^β: a broadened relaxation. β = 1 is Cole-Cole, α = 1 Cole-Davidson, "
+                         "α = β = 1 Debye; both exponents between 0 and 1."))
+        b3.clicked.connect(lambda: self._add("havriliak_negami"))
         row.addWidget(b1)
         row.addWidget(b2)
+        row.addWidget(b3)
         row.addStretch(1)
         lay.addLayout(row)
 
@@ -77,7 +83,7 @@ class _TermsTable(QWidget):
         u = self.unit
         pos = f"{spectral.position_symbol(u)} [{SPECTRAL_LABEL[u]}]"
         gam = f"γ [{SPECTRAL_LABEL[LINEWIDTH_UNIT[u]]}]"
-        self.tbl.setHorizontalHeaderLabels([tr("Type"), "Δ", pos, gam, ""])
+        self.tbl.setHorizontalHeaderLabels([tr("Type"), "Δ", pos, gam, "α", "β", ""])
         kind = spectral_kind(u)
         tips = {2: tr("Vacuum wavelength of the resonance, λ₀ = c/f₀.") if kind == "wl" else
                 tr("Wavenumber of the resonance, ν̃₀ = f₀/c.") if kind == "wn" else "",
@@ -94,11 +100,12 @@ class _TermsTable(QWidget):
         self.terms = [dict(t) for t in terms]
         self.tbl.setRowCount(len(self.terms))
         for r, t in enumerate(self.terms):
-            it = QTableWidgetItem(tr("Debye") if t["type"] == "debye" else tr("Lorentz"))
+            it = QTableWidgetItem({"debye": tr("Debye"), "lorentz": tr("Lorentz"),
+                                   "havriliak_negami": tr("Havriliak-Negami")}[t["type"]])
             it.setFlags(Qt.ItemIsEnabled)
             self.tbl.setItem(r, 0, it)
-            for c, key in ((1, "delta"), (2, "f0"), (3, "gamma")):
-                if key == "gamma" and t["type"] != "lorentz":
+            for c, key in ((1, "delta"), (2, "f0"), (3, "gamma"), (4, "alpha"), (5, "beta")):
+                if key not in t:
                     dash = QTableWidgetItem("—")
                     dash.setFlags(Qt.NoItemFlags)
                     self.tbl.removeCellWidget(r, c)
@@ -110,6 +117,9 @@ class _TermsTable(QWidget):
                 elif key == "f0":
                     sp = SciSpinBox(minimum=spectral.INPUT_RANGE[0], maximum=spectral.INPUT_RANGE[1])
                     sp.set_value(to_spectral(t[key], self.unit))
+                elif key in ("alpha", "beta"):
+                    sp = SciSpinBox(minimum=1e-3, maximum=1.0)
+                    sp.set_value(t[key])
                 else:
                     sp = SciSpinBox(minimum=0.0, maximum=spectral.INPUT_RANGE[1])
                     sp.set_value(to_linewidth(t[key], self.unit))
@@ -121,7 +131,7 @@ class _TermsTable(QWidget):
             b.setAutoRaise(True)
             b.setToolTip(tr("Remove term"))
             b.clicked.connect(lambda _=False, r=r: self._remove(r))
-            self.tbl.setCellWidget(r, 4, b)
+            self.tbl.setCellWidget(r, 6, b)
 
     def _edit(self, r, key, v):
         """``v`` is the displayed number of the edited box; only that key is converted and written, so the

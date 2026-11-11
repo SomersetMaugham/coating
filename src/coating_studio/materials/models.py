@@ -244,20 +244,28 @@ def nk_from_eps_mu(eps, mu=1.0 + 0j):
 
 
 # ---------------------------------------------------------------------------
-def make_term(kind="debye", delta=1.0, f0=1e9, gamma=1e9):
-    if kind not in ("debye", "lorentz"):
+TERM_TYPES = ("debye", "lorentz", "havriliak_negami")
+
+
+def make_term(kind="debye", delta=1.0, f0=1e9, gamma=1e9, alpha=1.0, beta=1.0):
+    if kind not in TERM_TYPES:
         raise ValueError(f"unknown term type {kind!r}")
     t = {"type": kind, "delta": float(delta), "f0": float(f0)}
     if kind == "lorentz":
         t["gamma"] = float(gamma)
+    elif kind == "havriliak_negami":
+        t["alpha"], t["beta"] = float(alpha), float(beta)
     return t
 
 
 def eval_terms(terms, f):
     """Sum of relaxation / resonance terms (complex, engineering convention).
 
-    debye  : delta / (1 + j f/f0)
-    lorentz: delta * f0^2 / (f0^2 - f^2 + j f gamma)
+    debye           : delta / (1 + j f/f0)
+    lorentz         : delta * f0^2 / (f0^2 - f^2 + j f gamma)
+    havriliak_negami: delta / (1 + (j f/f0)^alpha)^beta, 0 < alpha, beta <= 1 (principal powers).  A distribution
+                      of relaxation times: alpha = beta = 1 is Debye, beta = 1 Cole-Cole (symmetric broadening),
+                      alpha = 1 Cole-Davidson (skewed).  Causal and passive for exponents in (0, 1].
     For mu, a Debye term is the Snoek-type domain-wall/spin relaxation of ferrites.
     """
     f = np.asarray(f, dtype=float)
@@ -265,6 +273,10 @@ def eval_terms(terms, f):
     for t in terms:
         if t["type"] == "debye":
             out = out + t["delta"] / (1.0 + 1j * f / t["f0"])
+        elif t["type"] == "havriliak_negami":
+            out = out + t["delta"] / (1.0 + (1j * f / t["f0"]) ** t["alpha"]) ** t["beta"]
+        elif t["type"] != "lorentz":
+            raise ValueError(f"unknown term type {t['type']!r}")
         else:
             f0 = t["f0"]
             out = out + t["delta"] * f0 * f0 / (f0 * f0 - f * f + 1j * f * t["gamma"])
@@ -308,6 +320,9 @@ class DispersiveMaterial(Material):
                 out.append(ParamInfo((prefix, i, "f0"), f"{tag} f0", "GHz", lower=1.0))
                 if t["type"] == "lorentz":
                     out.append(ParamInfo((prefix, i, "gamma"), f"{tag} gamma", "GHz", lower=0.0))
+                elif t["type"] == "havriliak_negami":
+                    out.append(ParamInfo((prefix, i, "alpha"), f"{tag} alpha", "", lower=1e-3, upper=1.0))
+                    out.append(ParamInfo((prefix, i, "beta"), f"{tag} beta", "", lower=1e-3, upper=1.0))
         return out
 
     def to_dict(self):

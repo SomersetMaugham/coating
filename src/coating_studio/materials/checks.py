@@ -94,6 +94,10 @@ def check_material(mat: Material, f, resolver) -> list[Issue]:
             if t["delta"] < 0 or t["f0"] <= 0 or t.get("gamma", 1.0) < 0:
                 issues.append(Issue("warning", "term_negative", mat.name, {}))
                 break
+        for t in mat.eps_terms + mat.mu_terms:
+            if t["type"] == "havriliak_negami" and not (0 < t["alpha"] <= 1 and 0 < t["beta"] <= 1):
+                issues.append(Issue("warning", "hn_exponent", mat.name, {}))
+                break
     if np.any(eps.real > 1e4):
         issues.append(Issue("warning", "eps_huge", mat.name, {"value": float(eps.real.max())}))
     if is_builtin_demo(mat):

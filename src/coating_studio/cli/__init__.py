@@ -132,16 +132,18 @@ def build_parser():
     bo.add_argument("--goal-db", type=float, required=True)
     bo.add_argument("--mu-s", type=float, default=1.0)
 
-    fi = sp.add_parser("fit", help="fit Debye/Lorentz terms to a measured CSV; prints a spec-ready material",
+    fi = sp.add_parser("fit", help="fit Debye/Lorentz/Havriliak-Negami terms to a measured CSV; prints a spec-ready material",
                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     fi.add_argument("csv")
     fi.add_argument("--name")
     fi.add_argument("--eps-debye", type=int, default=1)
     fi.add_argument("--eps-lorentz", type=int, default=0)
+    fi.add_argument("--eps-hn", type=int, default=0, help="Havriliak-Negami terms for eps")
     fi.add_argument("--sigma", action="store_true")
     fi.add_argument("--eps-const-loss", action="store_true")
     fi.add_argument("--mu-debye", type=int, default=0)
     fi.add_argument("--mu-lorentz", type=int, default=0)
+    fi.add_argument("--mu-hn", type=int, default=0, help="Havriliak-Negami terms for mu")
     fi.add_argument("--mu-const-loss", action="store_true")
     fi.add_argument("--density", type=float, default=1000.0)
 
@@ -232,7 +234,7 @@ def _run(args, control):
         return C.cmd_bound(args.f_ghz[0], args.f_ghz[1], args.goal_db, args.mu_s)
     if c == "fit":
         return C.cmd_fit(args.csv, args.name, args.eps_debye, args.eps_lorentz, args.sigma, args.eps_const_loss,
-                         args.mu_debye, args.mu_lorentz, args.mu_const_loss, args.density)
+                         args.mu_debye, args.mu_lorentz, args.mu_const_loss, args.density, args.eps_hn, args.mu_hn)
     if c == "invert-filler":
         return C.cmd_invert_filler(args.composite, args.output, args.model, args.density_filler, args.fraction,
                                    args.fraction_wt, args.density_matrix, args.matrix_csv, args.matrix_eps,

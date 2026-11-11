@@ -795,16 +795,16 @@ def _read_measured(csv_path, name=None, density=1000.0):
 
 
 def cmd_fit(csv_path, name=None, eps_debye=1, eps_lorentz=0, sigma=False, eps_const_loss=False, mu_debye=0,
-            mu_lorentz=0, mu_const_loss=False, density=1000.0):
+            mu_lorentz=0, mu_const_loss=False, density=1000.0, eps_hn=0, mu_hn=0):
     from coating_studio.materials.fitting import FitSpec, fit_dispersive
     tab = _read_measured(csv_path, name, density)
     f = tab.f
     eps, mu = tab.eps_mu(f, lambda n: None)
-    mu_spec = FitSpec(n_debye=mu_debye, n_lorentz=mu_lorentz, fit_const_loss=mu_const_loss) \
-        if (mu_debye or mu_lorentz or mu_const_loss) else None
+    mu_spec = FitSpec(n_debye=mu_debye, n_lorentz=mu_lorentz, fit_const_loss=mu_const_loss, n_hn=mu_hn) \
+        if (mu_debye or mu_lorentz or mu_hn or mu_const_loss) else None
     try:
         fr = fit_dispersive(tab.name, f, eps, mu,
-                            FitSpec(n_debye=eps_debye, n_lorentz=eps_lorentz, fit_sigma=sigma,
+                            FitSpec(n_debye=eps_debye, n_lorentz=eps_lorentz, n_hn=eps_hn, fit_sigma=sigma,
                                     fit_const_loss=eps_const_loss), mu_spec, density=density)
     except (ValueError, RuntimeError) as e:
         raise CliError("invalid_value", f"fit failed: {e}", 4) from None

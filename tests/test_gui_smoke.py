@@ -1300,3 +1300,26 @@ def test_material_manager_uniaxial_page(app):
     w.doc.undo_stack.setClean()
     dlg.close()
     w.close()
+
+
+def test_havriliak_negami_term_row(app):
+    """The terms table shows α and β only on a Havriliak-Negami row, and edits reach the material."""
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.dialogs.materials import MaterialManager
+    from coating_studio.gui.main_window import MainWindow
+
+    w = MainWindow()
+    w.doc.set_project(EXAMPLES["dallenbach"][1]())
+    dlg = MaterialManager(w.doc, w, select="Carbonyl iron / epoxy")
+    tt = dlg.d_mterms
+    n = len(tt.terms)
+    tt._add("havriliak_negami")
+    m = w.project.materials["Carbonyl iron / epoxy"]
+    assert m.mu_terms[n]["type"] == "havriliak_negami"
+    assert tt.tbl.cellWidget(n, 4) is not None and tt.tbl.cellWidget(n, 3) is None  # α box, no γ box
+    assert tt.tbl.item(0, 4).text() == "—"  # the Debye row has no α
+    tt.tbl.cellWidget(n, 4).valueEdited.emit(0.6)
+    assert w.project.materials["Carbonyl iron / epoxy"].mu_terms[n]["alpha"] == 0.6
+    w.doc.undo_stack.setClean()
+    dlg.close()
+    w.close()
