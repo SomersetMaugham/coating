@@ -204,3 +204,70 @@ def test_cli_uncertainty_csv(tmp_path):
         out = kw.pop("output", str(tmp_path / "x.csv"))
         with pytest.raises((CliError, TypeError)):
             cmd_extract_nrw(str(src), 2.0, out, **kw)
+
+
+def test_closed_form_slab_model_matches_the_independent_one():
+    from coating_studio.materials.extraction import slab_sparams as closed
+
+    eps, mu = LOSSY.eps_mu(F, None)
+    for fc, f in ((None, F), (6.557e9, np.linspace(8e9, 12e9, 41))):
+        e, m = LOSSY.eps_mu(f, None)
+        a, b = slab_sparams(f, e, m, 3e-3, fc)
+        c, d = closed(f, e, m, 3e-3, fc)
+        assert np.max(np.abs(a - c)) < 1e-13 and np.max(np.abs(b - d)) < 1e-13
+
+
+def _noisy(s, rng):
+    """VNA-like noise: 0.02 dB and 0.2 deg relative, plus an additive floor at -50 dB.  Without the floor a small
+    |S11| would be almost noise-free, which flatters S11 near a half-wave resonance."""
+    floor = 10 ** (-50 / 20) / np.sqrt(2) * (rng.normal(size=s.shape) + 1j * rng.normal(size=s.shape))
+    return s * 10 ** (rng.normal(0, 0.02, s.shape) / 20) * np.exp(1j * np.radians(rng.normal(0, 0.2, s.shape))) + floor
+
+
+def test_nonmagnetic_fit_is_stable_where_nrw_is_not():
+    """A 10 mm PTFE sample is half a wavelength thick near 10.35 GHz.  With VNA-like noise NRW's eps' is off by more
+    than 0.3 there (0.42-1.32 over seeds 0-5), while the mu = 1 fit of S11 and S21 stays within 0.016 (0.006-0.0145);
+    fitting S11 alone gives 0.017-0.025, so both measurements are needed."""
+    from coating_studio.materials.extraction import nonmagnetic
+
+    f = np.linspace(2e9, 18e9, 401)
+    eps, mu = ConstantMaterial("ptfe", 2.1, 0.0005).eps_mu(f, None)
+    d = 10e-3
+    s11, s21 = slab_sparams(f, eps, mu, d)
+    exact = nonmagnetic(f, s11, s21, d)
+    assert np.max(np.abs(exact.eps - eps)) < 1e-12 and np.all(exact.mu == 1) and not exact.warnings
+    rng = np.random.default_rng(0)
+    n11, n21 = _noisy(s11, rng), _noisy(s21, rng)
+    near = np.abs(f - C0 / (2 * d * np.sqrt(2.1))) < 0.4e9
+    err_nrw = np.abs(nrw(f, n11, n21, d).eps.real - 2.1)
+    err_fit = np.abs(nonmagnetic(f, n11, n21, d).eps.real - 2.1)
+    assert err_nrw[near].max() > 0.3 and err_fit[near].max() < 0.016
+    assert np.median(err_fit[~near]) < 1.2 * np.median(err_nrw[~near])
+
+
+def test_nonmagnetic_fit_flags_a_magnetic_sample_and_works_in_a_waveguide():
+    from coating_studio.materials.extraction import nonmagnetic
+
+    f = np.linspace(8e9, 12e9, 41)
+    fc = C0 / (2 * 22.86e-3)
+    eps, mu = ConstantMaterial("d", 4.0, 0.1).eps_mu(f, None)
+    s11, s21 = slab_sparams(f, eps, mu, 3e-3, fc)
+    assert np.max(np.abs(nonmagnetic(f, s11, s21, 3e-3, cutoff_hz=fc).eps - eps)) < 1e-10
+    eps, mu = LOSSY.eps_mu(f, None)
+    s11, s21 = slab_sparams(f, eps, mu, 2e-3)
+    assert "fit_poor" in {c for c, _ in nonmagnetic(f, s11, s21, 2e-3).warnings}
+
+
+def test_cli_method_option(tmp_path):
+    from coating_studio.cli.commands import cmd_extract_nrw
+
+    f = np.linspace(2e9, 18e9, 81)
+    eps, mu = ConstantMaterial("ptfe", 2.1, 0.0005).eps_mu(f, None)
+    s11, s21 = slab_sparams(f, eps, mu, 10e-3)
+    src = tmp_path / "p.s2p"
+    src.write_text(_s2p_text(f, s11, s21))
+    res = cmd_extract_nrw(str(src), 10.0, str(tmp_path / "p.csv"), method="nonmagnetic",
+                          uncertainty_csv=str(tmp_path / "u.csv"), mag_sigma_db=0.02, uncertainty_samples=20)
+    assert res.result["method"] == "nonmagnetic" and res.result["uncertainty"]["n_samples"] == 20
+    tab = load_csv(str(tmp_path / "p.csv"), name="p")
+    assert np.max(np.abs(tab.eps_mu(f, None)[0] - eps)) < 1e-7

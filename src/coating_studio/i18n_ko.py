@@ -655,4 +655,9 @@ KO.update({
     '|S11| < {s:g} at {n} frequencies: the sample is close to a multiple of half a wavelength there and the values are unreliable (shaded).': '{n}개 주파수에서 |S11| < {s:g}입니다. 시편이 반파장의 배수에 가까워 값이 불안정합니다(음영 표시).',
     "Samples clipped to physical bounds (the tolerance is wide for these parameters): {items}.":
         "물리 범위에서 잘린 표본(이 파라미터들에는 공차가 넓습니다): {items}.",
+    "The μ = 1 fit misses the measured S-parameters at {n} frequencies: the sample may be magnetic; use NRW.":
+        "{n}개 주파수에서 μ = 1 맞춤이 측정 S 파라미터와 어긋납니다. 시편이 자성일 수 있으니 NRW를 쓰세요.",
+    "NRW (ε and μ)": "NRW (ε와 μ)",
+    "Non-magnetic fit (μ = 1, stable at half-wave resonances)": "비자성 맞춤 (μ = 1, 반파장 공진에서도 안정)",
+    "Method": "방법",
 })
