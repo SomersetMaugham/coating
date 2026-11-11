@@ -240,3 +240,23 @@ def test_result_table_uses_the_display_unit(app):
     assert text.endswith(" nm") and float(text.split()[0]) == pytest.approx(C0 / res.values[path] * 1e9, rel=1e-5)
     _close(w)
 
+
+def test_plot_fonts_fall_back_for_the_micro_sign():
+    """Every µm axis drew '[⍰m]' on macOS: the Korean font has no µ and the generic family did not fall back."""
+    import warnings
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    from coating_studio.mplfonts import configure_matplotlib_fonts
+
+    configure_matplotlib_fonts()
+    fig = Figure()
+    FigureCanvasAgg(fig)
+    fig.text(0.1, 0.5, "Wavelength [µm] 파장 cm⁻¹ λ₀ ν̃₀")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # "Glyph ... missing from font(s)"
+        fig.canvas.draw()
