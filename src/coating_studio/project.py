@@ -18,7 +18,7 @@ from coating_studio.core.units import DEFAULT_LENGTH_UNIT, DEFAULT_SPECTRAL_UNIT
 from coating_studio.materials.library import builtin_materials
 from coating_studio.materials.models import ConstantMaterial, Material, material_from_dict
 
-SCHEMA_VERSION = 13  # 13: GEM mixtures (percolation, exponent); 12: Havriliak-Negami dispersion terms; 11: uniaxial materials; 10: material parameter tolerances; 9: Odelevskiy mixtures (shape_n, percolation); 8: angle-dependent RLC sheets; 7: wavelength-spaced sweep; 6: per-layer real/loss correlation; 5: real/loss error correlation, saved comparison curves; 4: independent loss tolerances; 3: RLC sheets; 2: optimisation targets; 1: one band
+SCHEMA_VERSION = 14  # 14: robust optimisation (robust_samples, robust_quantile); 13: GEM mixtures (percolation, exponent); 12: Havriliak-Negami dispersion terms; 11: uniaxial materials; 10: material parameter tolerances; 9: Odelevskiy mixtures (shape_n, percolation); 8: angle-dependent RLC sheets; 7: wavelength-spaced sweep; 6: per-layer real/loss correlation; 5: real/loss error correlation, saved comparison curves; 4: independent loss tolerances; 3: RLC sheets; 2: optimisation targets; 1: one band
 FILE_EXTENSION = ".coat"
 
 
@@ -184,6 +184,11 @@ class OptimizationSettings:
     popsize: int = 15
     seed: int | None = None
     polish: bool = True
+    # Robust mode (schema 14): with robust_samples = K > 0, the worst-case term is taken over K fixed manufacturing
+    # samples drawn from the tolerance settings: the robust_quantile of their worst margins (<= 0: at least that share
+    # of the samples meets every target).  0 = off, the nominal design only (earlier files).
+    robust_samples: int = 0
+    robust_quantile: float = 0.8
     variables: list = field(default_factory=list)
     choices: list = field(default_factory=list)
 

@@ -63,6 +63,8 @@ can be added later without rewriting it.
   - Weighted, normalised objective terms: worst-case RL, mean reflectance, thickness and areal mass, plus an optional thickness limit.
   - Any numeric parameter can be a variable, including dispersion parameters and the volume fraction of a mixture.
   - Each layer's material can be **chosen from a list of candidates**. Small candidate sets are searched exhaustively.
+  - **Robust mode** optimises for manufacturing yield: the worst case is taken over fixed tolerance samples, as the
+    share of samples that must meet every target.
 - **Tolerance analysis.**
   - Monte-Carlo perturbation of thickness, ε′, ε″, μ′, μ″ and sheet impedance, set globally or per layer.
     The loss parts vary independently of the real parts (so tan δ varies too), or follow them (tan δ fixed);

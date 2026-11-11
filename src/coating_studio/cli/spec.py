@@ -108,6 +108,8 @@ def project_to_spec(project: Project) -> dict:
                     "mass_ref_kg_m2": s.mass_ref,
                     "thickness_max_mm": None if s.thickness_max is None else to_display(s.thickness_max, "mm"),
                     "maxiter": s.maxiter, "popsize": s.popsize, "seed": s.seed, "polish": s.polish}
+    if s.robust_samples:
+        optimization.update(robust_samples=s.robust_samples, robust_quantile=s.robust_quantile)
     tol = project.tolerance
     tolerance = {k: getattr(tol, k) for k in ("n_samples", "distribution", *_TOL_KEYS, "loss_correlation",
                                               "target_db", "pol", "lower_pct", "upper_pct", "seed")}
@@ -356,6 +358,16 @@ def spec_to_project(spec: dict, base_dir=".") -> tuple[Project, list]:
         s.seed = None if o["seed"] is None else int(o["seed"])
     if "polish" in o:
         s.polish = bool(o["polish"])
+    if "robust_samples" in o:
+        k = o["robust_samples"]
+        if isinstance(k, bool) or not isinstance(k, int) or not 0 <= k <= 1000:
+            raise spec_error("optimization.robust_samples", "must be a whole number from 0 to 1000 (0 = off)")
+        s.robust_samples = k
+    if "robust_quantile" in o:
+        q = o["robust_quantile"]
+        if isinstance(q, bool) or not isinstance(q, (int, float)) or not 0 < q <= 1:
+            raise spec_error("optimization.robust_quantile", "must be a number above 0 and at most 1")
+        s.robust_quantile = float(q)
     p.optimization = s
 
     for i, d in enumerate(spec.get("variables", [])):

@@ -179,7 +179,12 @@ this format, with their parameter paths and static permeability.
    checks only the two ends of each range.
    A design optimised to exactly meet the goal usually has a low yield (about half the samples fall on the wrong
    side). If the yield matters, re-optimise with a stricter goal (for example 1–2 dB below the user's) and check
-   the yield again against the user's goal with `--target-db`.
+   the yield again against the user's goal with `--target-db`, or switch on the robust mode:
+   `"optimization": {"robust_samples": 32, "robust_quantile": <required yield>}` optimises the margin met by that
+   share of fixed samples drawn from the spec's `tolerance` settings (so set the user's real tolerances first; each
+   evaluation costs one solve per sample, about 30x slower at 32). It reports `robust_margin_db` and `sample_yield`;
+   the latter is optimistic (measured: 0.92–0.94 in-sample against 0.81–0.83 on independent samples), so still report
+   the yield from `coating-cli tolerance`. It helps only when the variables can absorb the tolerances.
 6. **Stop** when the targets and the yield requirement are met, when the trial budget is used up (20 runs unless
    the user said otherwise), after three runs without improvement on the same targets (each with `--restarts 3`),
    or when `rozanov_infeasible` appears.

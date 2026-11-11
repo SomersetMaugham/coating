@@ -489,9 +489,12 @@ def _terms_dict(t, thickness_max=None):
     if t is None:
         return None
     at_limit = thickness_max is not None and t.thickness >= thickness_max * (1 - 1e-3)
-    return {"objective": t.objective, "worst_db": t.worst_db, "margin_db": t.margin_db, "mean_r": t.mean_r,
-            "thickness_m": t.thickness, "mass_kg_m2": t.mass, "thickness_max_m": thickness_max,
-            "thickness_at_limit": at_limit}
+    d = {"objective": t.objective, "worst_db": t.worst_db, "margin_db": t.margin_db, "mean_r": t.mean_r,
+         "thickness_m": t.thickness, "mass_kg_m2": t.mass, "thickness_max_m": thickness_max,
+         "thickness_at_limit": at_limit}
+    if math.isfinite(t.sample_yield):  # robust mode
+        d.update(robust_margin_db=t.robust_margin_db, sample_yield=t.sample_yield)
+    return d
 
 
 def cmd_optimize(path, control, output=None, in_place=False, force=False, seed=None, maxiter=None,

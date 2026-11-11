@@ -35,6 +35,7 @@ from coating_studio.core.solver import SolverError, solve
 from coating_studio.materials.checks import Issue, check_material
 from coating_studio.materials.models import MaterialCycleError, OutOfRangeError, PercolationError
 from coating_studio.project import OptimizationSettings, Project, get_param, set_param
+from coating_studio.tolerance import MaterialSampler, sample_factors
 
 MAX_ENUMERATED_COMBOS = 64
 INVALID = 1e6
@@ -58,11 +59,16 @@ class ObjectiveTerms:
     objective: float
     margin_db: float = math.nan  # largest worst-minus-goal over the targets (<= 0: all met)
     per_target: tuple = ()  # ((worst_db, margin_db), ...) for the enabled targets, in order
+    # robust mode only (NaN otherwise): the robust_quantile of the samples' largest margins, and the share of
+    # samples that meet every target (on the optimiser's grids and fixed samples)
+    robust_margin_db: float = math.nan
+    sample_yield: float = math.nan
 
     def as_dict(self):
         return {"worst_db": self.worst_db, "mean_r": self.mean_r, "thickness": self.thickness,
                 "mass": self.mass, "objective": self.objective, "margin_db": self.margin_db,
-                "per_target": [list(t) for t in self.per_target]}
+                "per_target": [list(t) for t in self.per_target],
+                "robust_margin_db": self.robust_margin_db, "sample_yield": self.sample_yield}
 
 
 @dataclass
@@ -121,12 +127,25 @@ class Evaluator:
         # equals the RL reference (schema-1 projects), so their objective is bit-for-bit unchanged.
         self.shift = [s_ if (s_ := settings.rl_ref_db - t.goal_db) != 0 else 0.0 for t in self.targets]
         self.n_evals = 0
+        self.samples = []  # robust mode: [(layer perturbation, material sampler index)]
+        self.mat_sampler = None
+        k = int(settings.robust_samples or 0)
+        if k > 0:
+            # Fixed samples (common random numbers): every evaluation sees the same manufacturing errors, so the
+            # objective stays deterministic.  Layer factors are relative and the material sampler applies its errors
+            # to the current nominal values, so both follow the optimiser's moves.
+            tol = self.p.tolerance
+            rng = np.random.default_rng(0 if tol.seed is None else tol.seed)
+            factors = sample_factors(self.p, tol, rng, k)
+            self.mat_sampler = MaterialSampler(self.p, tol, rng, k)
+            self.samples = [{uid: {key: arr[i] for key, arr in d.items()} for uid, d in factors.items()}
+                            for i in range(k)]
 
-    def _per_target_db(self):
+    def _per_target_db(self, perturb=None, materials=None):
         """[(dB array over the target's own grid, R array)] in target order."""
         out = [None] * len(self.targets)
         for g in self.groups:
-            res = solve(self.p.structure, self.p.materials, g.f, g.th, pols=g.pols)
+            res = solve(self.p.structure, materials or self.p.materials, g.f, g.th, pols=g.pols, perturb=perturb)
             for i, t, idx in g.slices:
                 r = np.stack([res.pol[k].R[:, idx] for k in t.pols])
                 out[i] = (10 * np.log10(np.maximum(r, 1e-30)), r)
@@ -139,16 +158,23 @@ class Evaluator:
         try:
             data = self._per_target_db()
             true_worst = [float(db.max()) for db, _ in data]
-            if smooth:
-                # Smooth max per target; with several targets remove the grid-size bias
-                # (SMOOTH*ln N) so a dense angle grid does not outweigh a single-angle target.
-                sm = [float(SMOOTH_DB * logsumexp(db / SMOOTH_DB)) - (SMOOTH_DB * math.log(db.size) if k > 1 else 0.0)
-                      for db, _ in data]
-            else:
-                sm = true_worst
-            vals = [w + sh for w, sh in zip(sm, self.shift)]
-            worst_term = vals[0] if k == 1 else (float(SMOOTH_DB * logsumexp(np.array(vals) / SMOOTH_DB))
-                                                 if smooth else max(vals))
+            worst_term = self._worst_term(data, smooth)
+            robust = None
+            if self.samples:
+                per_sample = []  # (term over targets, largest true margin) per sample
+                for i, pert in enumerate(self.samples):
+                    d_i = self._per_target_db(pert, self.mat_sampler.at(i))
+                    m_i = max(float(db.max()) - t.goal_db for (db, _), t in zip(d_i, self.targets))
+                    per_sample.append((self._worst_term(d_i, smooth), m_i))
+                vals_s = np.array([v for v, _ in per_sample])
+                marg_s = np.array([m for _, m in per_sample])
+                q = float(s.robust_quantile)
+                if smooth:  # CVaR: mean of the worst (1 - q) tail, smoother than a quantile for the local polish
+                    tail = max(1, math.ceil((1.0 - q) * len(vals_s)))
+                    worst_term = float(np.mean(np.sort(vals_s)[-tail:]))
+                else:
+                    worst_term = float(np.quantile(vals_s, q, method="higher"))
+                robust = (float(np.quantile(marg_s, q, method="higher")), float(np.mean(marg_s <= 0.0)))
             means = [float(r.mean()) for _, r in data]
             mean_r = float(np.mean(means))
             mean_term = float(np.mean([m / 10 ** (t.goal_db / 10) for m, t in zip(means, self.targets)]))
@@ -160,8 +186,9 @@ class Evaluator:
         b = int(np.argmax(margins))
         worst = true_worst[b]
         per = tuple(zip(true_worst, margins))
+        rob = robust or (math.nan, math.nan)
         if not np.isfinite(worst_term):
-            return ObjectiveTerms(worst, mean_r, thick, mass, INVALID, margins[b], per)
+            return ObjectiveTerms(worst, mean_r, thick, mass, INVALID, margins[b], per, *rob)
         j = 0.0
         if s.w_worst:
             j += s.w_worst * worst_term / max(abs(s.rl_ref_db), 1e-9)
@@ -177,7 +204,21 @@ class Evaluator:
             # when the optimum sits on the limit.  Polish results are re-scored with the step before
             # they are kept, so a polished design over the limit still never wins.
             j += (0.0 if smooth else 10.0) + 100.0 * (thick / s.thickness_max - 1.0)
-        return ObjectiveTerms(worst, mean_r, thick, mass, float(j), margins[b], per)
+        return ObjectiveTerms(worst, mean_r, thick, mass, float(j), margins[b], per, *rob)
+
+    def _worst_term(self, data, smooth):
+        """The worst-case term of one solved design: each target's worst RL shifted by (RL_ref - goal), maximised over
+        the targets.  ``smooth``: LogSumExp instead of max, for the local polish."""
+        k = len(self.targets)
+        if smooth:
+            # Smooth max per target; with several targets remove the grid-size bias
+            # (SMOOTH*ln N) so a dense angle grid does not outweigh a single-angle target.
+            sm = [float(SMOOTH_DB * logsumexp(db / SMOOTH_DB)) - (SMOOTH_DB * math.log(db.size) if k > 1 else 0.0)
+                  for db, _ in data]
+        else:
+            sm = [float(db.max()) for db, _ in data]
+        vals = [w + sh for w, sh in zip(sm, self.shift)]
+        return vals[0] if k == 1 else (float(SMOOTH_DB * logsumexp(np.array(vals) / SMOOTH_DB)) if smooth else max(vals))
 
 
 class _Space:
@@ -204,6 +245,17 @@ def validate_settings(project: Project, s: OptimizationSettings):
     targets = s.enabled_targets()
     if not targets:
         raise OptimizationError("no enabled optimisation target")
+    k = s.robust_samples
+    if isinstance(k, bool) or not isinstance(k, int) or not 0 <= k <= 1000:
+        raise OptimizationError(f"robust_samples must be a whole number from 0 to 1000, got {k!r}")
+    if not 0.0 < float(s.robust_quantile) <= 1.0:
+        raise OptimizationError(f"robust_quantile must be above 0 and at most 1, got {s.robust_quantile!r}")
+    if k:
+        try:  # the tolerance settings the samples are drawn from
+            sample_factors(project, project.tolerance, np.random.default_rng(0), 1)
+            MaterialSampler(project, project.tolerance, np.random.default_rng(0), 1)
+        except ValueError as e:
+            raise OptimizationError(f"robust mode: invalid tolerance settings: {e}") from None
     for n, t in enumerate(s.targets, start=1):
         if not t.enabled:
             continue

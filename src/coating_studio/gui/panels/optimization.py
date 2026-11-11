@@ -9,7 +9,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
+    QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
     QHeaderView, QLabel, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSpinBox, QSplitter,
     QMenu, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
@@ -214,8 +214,22 @@ class OptimizationPanel(QWidget):
         f.addRow(tr("Population factor"), self.popsize)
         f.addRow(tr("Random seed"), self.seed)
         f.addRow("", self.polish)
+        self.robust_n = QSpinBox()
+        self.robust_n.setRange(0, 1000)
+        self.robust_n.setSpecialValueText(tr("off"))
+        self.robust_n.setToolTip(tr("Optimise for manufacturing yield: the worst case is taken over this many fixed samples "
+                                    "drawn from the Tolerance tab's settings. Each evaluation costs one solve per sample."))
+        self.robust_q = QDoubleSpinBox()
+        self.robust_q.setRange(0.01, 1.0)
+        self.robust_q.setDecimals(2)
+        self.robust_q.setSingleStep(0.05)
+        self.robust_q.setToolTip(tr("Share of the samples that must meet every target (the quantile of their worst margins)."))
+        f.addRow(tr("Robust samples"), self.robust_n)
+        f.addRow(tr("Required share"), self.robust_q)
         f.addRow(muted(tr("Global search: differential evolution. Material choices with ≤ {n} "
                           "combinations are enumerated exhaustively.", n=MAX_ENUMERATED_COMBOS)))
+        f.addRow(muted(tr("Robust mode reports the share of its own samples that pass; it is optimistic, so confirm the "
+                          "yield in the Tolerance tab with its own samples.")))
         ll.addWidget(g)
         ll.addStretch(1)
         split.addWidget(scroll)
@@ -276,7 +290,7 @@ class OptimizationPanel(QWidget):
         for w in (self.f_min, self.f_max, self.a_min, self.a_max, self.goal, self.w_worst, self.w_mean,
                   self.w_thick, self.w_mass, self.rl_ref, self.t_ref, self.m_ref, self.t_max):
             w.valueEdited.connect(self._commit)
-        for w in (self.n_f, self.n_a, self.maxiter, self.popsize, self.seed):
+        for w in (self.n_f, self.n_a, self.maxiter, self.popsize, self.seed, self.robust_n, self.robust_q):
             w.valueChanged.connect(self._commit)
         for w in (self.pol_te, self.pol_tm, self.chk_tmax, self.polish):
             w.toggled.connect(self._commit)
@@ -411,6 +425,9 @@ class OptimizationPanel(QWidget):
             self.popsize.setValue(s.popsize)
             self.seed.setValue(-1 if s.seed is None else s.seed)
             self.polish.setChecked(s.polish)
+            self.robust_n.setValue(s.robust_samples)
+            self.robust_q.setValue(s.robust_quantile)
+            self.robust_q.setEnabled(s.robust_samples > 0)
             self._refresh_variables()
         finally:
             self._loading = False
@@ -531,6 +548,9 @@ class OptimizationPanel(QWidget):
             s.maxiter, s.popsize = self.maxiter.value(), self.popsize.value()
             s.seed = None if self.seed.value() < 0 else self.seed.value()
             s.polish = self.polish.isChecked()
+            s.robust_samples = self.robust_n.value()
+            s.robust_quantile = round(self.robust_q.value(), 2)
+        self.robust_q.setEnabled(self.robust_n.value() > 0)
         self.doc.edit_settings(mut)
 
     def _set_bound(self, path, attr, unit, val):
@@ -707,7 +727,13 @@ class OptimizationPanel(QWidget):
                 state = (tr("met (margin {m} dB)", m=f"{-margin:.2f}") if margin <= 0
                          else tr("missed by {m} dB", m=f"{margin:.2f}"))
                 target_rows.append((tr("Target {n}: {s}", n=n, s=summary), f"{self._rl(worst)} dB · {state}"))
-        rows = [(tr("Worst-case RL in band"), self._rl(res.terms.worst_db) + " dB"), *target_rows,
+        robust_rows = []
+        if math.isfinite(res.terms.sample_yield):
+            m = res.terms.robust_margin_db
+            robust_rows = [(tr("Samples meeting every target"), f"{res.terms.sample_yield:.0%}"),
+                           (tr("Margin at the required share"),
+                            tr("met (margin {m} dB)", m=f"{-m:.2f}") if m <= 0 else tr("missed by {m} dB", m=f"{m:.2f}"))]
+        rows = [(tr("Worst-case RL in band"), self._rl(res.terms.worst_db) + " dB"), *target_rows, *robust_rows,
                 (tr("Mean reflectance |Γ|²"), fmt_num(res.terms.mean_r, 4)),
                 (tr("Total thickness"), lengths.fmt_length(res.terms.thickness, lengths.unit_of(p), 5)),
                 (tr("Areal mass"), fmt_num(res.terms.mass, 4) + " kg/m²"),

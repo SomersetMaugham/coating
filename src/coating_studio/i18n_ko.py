@@ -604,4 +604,15 @@ KO.update({
     "Exponent t": "지수 t",
     "McLachlan GEM: continuous through the percolation threshold, which it takes as a parameter (carbon black and CNT percolate far below Bruggeman's 1/3).":
         "McLachlan GEM: 퍼콜레이션 임계값을 파라미터로 받아 그 전후를 연속으로 다룹니다(카본블랙·CNT는 Bruggeman의 1/3보다 훨씬 낮은 함량에서 퍼콜레이션됩니다).",
+    "off": "끔",
+    "Optimise for manufacturing yield: the worst case is taken over this many fixed samples drawn from the Tolerance tab's settings. Each evaluation costs one solve per sample.":
+        "제조 수율을 목표로 최적화합니다. 최악값을 공차 탭 설정에서 뽑은 이만큼의 고정 표본에서 구합니다. 평가마다 표본 수만큼 계산합니다.",
+    "Share of the samples that must meet every target (the quantile of their worst margins).":
+        "모든 목표를 만족해야 하는 표본의 비율(표본별 최악 여유의 분위수)입니다.",
+    "Robust samples": "강건 표본 수",
+    "Required share": "요구 비율",
+    "Robust mode reports the share of its own samples that pass; it is optimistic, so confirm the yield in the Tolerance tab with its own samples.":
+        "강건 모드는 자기 표본 중 통과한 비율을 보여 줍니다. 낙관적인 값이므로 수율은 공차 탭에서 별도 표본으로 확인하세요.",
+    "Samples meeting every target": "모든 목표를 만족한 표본",
+    "Margin at the required share": "요구 비율에서의 여유",
 })
