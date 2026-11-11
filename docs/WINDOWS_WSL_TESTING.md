@@ -47,15 +47,17 @@ ssh-keygen -t ed25519 -f ~/.ssh/coat_win -C coat-win     # 암호(passphrase)를
 ssh-add --apple-use-keychain ~/.ssh/coat_win
 cat ~/.ssh/coat_win.pub                                    # Windows 설정에 붙여 넣을 공개키
 ipconfig getifaddr en0                                     # 맥의 IP (Wi-Fi). 유선이면 en1 등
-dscacheutil -q host -a name <Windows 컴퓨터 이름>.local     # mDNS로 Windows가 찾아지는지 (hostname 명령의 결과 + .local)
+dns-sd -G v4 <Windows 컴퓨터 이름>.local   # mDNS 확인(Ctrl-C로 끝냄): IF가 0이 아닌 줄에 사설 IP가 보여야 함 (IF 0은 통신사 DNS 캐시)
 ```
-`~/.ssh/config`에 추가합니다(`<...>`는 실제 값으로). IP 대신 mDNS 이름을 쓰고, 호스트 키를 IP가 아닌 `coat-win`이라는 이름으로 확인합니다.
-IPv6 링크 로컬 주소로도 풀리는데 방화벽이 받지 않으므로 IPv4만 씁니다:
+`scripts/remote/mdns_connect.sh`를 `~/.ssh/`에 복사하고(`cp scripts/remote/mdns_connect.sh ~/.ssh/ && chmod +x ~/.ssh/mdns_connect.sh`),
+`~/.ssh/config`에 추가합니다(`<...>`는 실제 값으로). IP 대신 mDNS 이름을 쓰고, 호스트 키는 IP가 아닌 `coat-win`이라는 이름으로 확인합니다.
+이름은 일반 조회가 아니라 이 스크립트로 찾습니다: mDNS 응답만 쓰고 사설 IPv4 주소만 받습니다. 일반 조회는 mDNS 응답이 늦을 때 통신사 DNS에도
+묻는데, 모르는 이름에 자기(공인) 주소를 돌려주는 DNS가 이기면 접속이 인터넷 주소로 갑니다(2026-11-12 실제로 발생, 호스트 키 검사가 막아 유출은 없었음).
 ```
 Host coat-win
     HostName <Windows 컴퓨터 이름>.local
     HostKeyAlias coat-win
-    AddressFamily inet
+    ProxyCommand ~/.ssh/mdns_connect.sh %h %p
     User <Windows 사용자 이름>
     IdentityFile ~/.ssh/coat_win
     IdentitiesOnly yes
