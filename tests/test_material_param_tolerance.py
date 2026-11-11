@@ -86,10 +86,13 @@ def test_mixture_fraction_is_clipped_and_shared_through_references():
     p.tolerance.material_params = [{"path": ["material", "Carbon / epoxy", "fraction"], "tol": 5.0},
                                    {"path": ["material", "Carbon black", "sigma"], "tol": 0.2}]
     m = MaterialSampler(p, p.tolerance, np.random.default_rng(3), 200)
-    fr = m.entries[0][1]
+    fr = np.array([m.at(k)["Carbon / epoxy"].fraction for k in range(200)])
     assert fr.min() == 0.0 and fr.max() == 1.0  # clipped to the physical range
     mats = m.at(7)
-    assert mats["Carbon / epoxy"].fraction == fr[7] and mats["Carbon black"].sigma == m.entries[1][1][7]
+    assert mats["Carbon / epoxy"].fraction == fr[7]
+    assert mats["Carbon black"].sigma == p.materials["Carbon black"].sigma * m.entries[1][1][7]
+    p.materials["Carbon black"].sigma *= 2  # factors apply to the current nominal value (robust optimisation)
+    assert m.at(7)["Carbon black"].sigma == p.materials["Carbon black"].sigma * m.entries[1][1][7]
     assert mats["Epoxy"] is p.materials["Epoxy"]  # untouched materials are not copied
     assert p.materials["Carbon / epoxy"].fraction == 0.3
     assert MaterialSampler(_quiet(EXAMPLES["carbon"][1]()), ToleranceSettings(), np.random.default_rng(0), 5).at(0) is None

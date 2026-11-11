@@ -972,6 +972,10 @@ Odelevskiy 규칙(13.9 "비구형 충전재")의 N과 pc를 측정에서 정하�
 (구현 후 추가, 실제 CLI 블라인드 테스트 반영) `result.terms`에 `thickness_max_m`, `thickness_at_limit`(총 두께가 `thickness_max`에 걸림 —
 이때 개별 층은 보통 자기 범위 끝에 있지 않음), `result.run_settings`(`maxiter`, `popsize`, `polish` — 이번 실행에만 적용, 결과 파일에 저장하지 않음),
 `best_seed`(보고한 설계를 만든 시드). 실험 기록에도 `best_seed`를 남깁니다.
+(v12) 명세의 `optimization.robust_samples`(정수 0~1000, 0 = 끔)·`robust_quantile`(0 초과 1 이하, 기본 0.8)로 강건 모드를 켭니다(3.44).
+최악값 항이 공차 설정에서 뽑은 고정 표본 K개의 표본별 최대 여유의 `robust_quantile` 분위수가 됩니다(국소 정밀화는 그 위쪽 꼬리의 평균).
+켜면 `result.terms`에 `robust_margin_db`(그 분위수; ≤ 0이면 그 비율 이상의 표본이 모든 목표를 만족)와 `sample_yield`(최적화기 자기 표본에서의 통과 비율)가
+붙습니다. `sample_yield`는 같은 표본에 맞춘 값이라 낙관적입니다. 수율은 `tolerance --angle-grid`로 따로 확인합니다.
 
 `tolerance --corners --target-db -15` (`--angle-grid`면 `angle_mode: "grid"`, 행은 격자 각도마다, `note`는 "angle grid only; …", `--n-angle`을 주면 `n_angle`)
 ```json

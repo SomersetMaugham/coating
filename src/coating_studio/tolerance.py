@@ -244,35 +244,34 @@ def material_param_info(project: Project, path):
 class MaterialSampler:
     """Per-sample material mappings for ``ToleranceSettings.material_params``.
 
-    The values are drawn in the constructor (after ``sample_factors``, in list order, so a file without entries
-    draws exactly as before), each as nominal x (1 + relative error) clipped to the parameter's physical bounds
-    (a volume fraction stays in 0..1, or below an Odelevskiy mixture's percolation threshold).  ``at(k)`` returns
-    the material mapping of sample k, or None when nothing is perturbed (the solver then uses the project's)."""
+    The relative errors are drawn in the constructor (after ``sample_factors``, in list order, so a file without
+    entries draws exactly as before).  ``at(k)`` applies sample k's errors to the project's *current* values - the
+    optimiser's robust mode moves the nominal values between calls - each value clipped to the parameter's physical
+    bounds (a volume fraction stays in 0..1, or below an Odelevskiy mixture's percolation threshold).  It returns the
+    material mapping of sample k, or None when nothing is perturbed (the solver then uses the project's)."""
 
     def __init__(self, project: Project, s: ToleranceSettings, rng, n):
+        self.project = project
         self.entries = []
-        self.mats = None
         for e in s.material_params:
             tol = float(e["tol"])
             if not (np.isfinite(tol) and tol >= 0):
                 raise ValueError(f"tolerance of {e['path']!r} must be a non-negative number, got {e['tol']!r}")
             path = tuple(e["path"])
             info = material_param_info(project, path)
-            nominal = float(project.materials[path[1]].get(path[2:]))
-            vals = nominal * _draw(rng, s.distribution, tol, n)
             lo = -np.inf if info.lower is None else info.lower
             hi = np.inf if info.upper is None else info.upper
-            self.entries.append((path, np.clip(vals, lo, hi)))
-        if self.entries:
-            copies = {name: project.materials[name].clone() for name in {p[1] for p, _ in self.entries}}
-            self.mats = {**project.materials, **copies}
+            self.entries.append((path, _draw(rng, s.distribution, tol, n), lo, hi))
 
     def at(self, k):
-        if self.mats is None:
+        if not self.entries:
             return None
-        for path, vals in self.entries:
-            self.mats[path[1]].set(path[2:], vals[k])
-        return self.mats
+        mats = self.project.materials
+        copies = {name: mats[name].clone() for name in {p[1] for p, *_ in self.entries}}
+        for path, factors, lo, hi in self.entries:
+            nominal = float(mats[path[1]].get(path[2:]))
+            copies[path[1]].set(path[2:], np.clip(nominal * factors[k], lo, hi))
+        return {**mats, **copies}
 
 
 def _correlate(d_re, tol_re, d_loss, tol_loss, rho, dist):
