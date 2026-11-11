@@ -117,7 +117,9 @@ this format, with their parameter paths and static permeability.
      `--branch` = `suggested_branch` when `branch_suspect` appears, and keep targets away from `half_wave_resonance`
      frequencies (or ask for a thinner or lossier sample). For a non-magnetic sample (resins, foams, ceramics; ask),
      `--method nonmagnetic` fits eps with mu = 1 and stays stable at those resonances; a `fit_poor` warning means the
-     sample is probably magnetic after all. In a coax holder, ask for the conductor and sample radii and add
+     sample is probably magnetic after all. If the user knows the holder length between the calibration planes but
+     not exactly where the sample sits, use `--method nonmagnetic-invariant --holder-length-mm L` instead of the
+     offsets (symmetric samples only; `asymmetric` says otherwise). In a coax holder, ask for the conductor and sample radii and add
      `--coax-gap R1 R2 R3 R4` (mm): 10 um gaps in APC-7 make eps = 10 read about 9.1. If the user can state the thickness tolerance and the VNA's
      magnitude/phase noise, add `--uncertainty-csv U.csv --thickness-sigma-mm … --mag-sigma-db … --phase-sigma-deg …`
      and use the spread for the tolerance settings; never assume those values.

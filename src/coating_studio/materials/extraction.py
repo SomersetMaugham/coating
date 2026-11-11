@@ -151,7 +151,7 @@ class NrwUncertainty:
 
 def nrw_uncertainty(f, s11, s21, thickness, cutoff_hz=None, branch=0, s12=None, offset1=0.0, offset2=0.0,
                     sigma_thickness=0.0, sigma_mag_db=0.0, sigma_phase_deg=0.0, n_samples=200, seed=0, method="nrw",
-                    post=None):
+                    post=None, s22=None, holder_length=None, sigma_holder=0.0):
     """Standard deviations of eps', eps'', mu', mu'' from measurement errors, by Monte Carlo over ``nrw``.
 
     Error model (all 1 sigma, normal; 0 = that error is off):
@@ -160,9 +160,16 @@ def nrw_uncertainty(f, s11, s21, thickness, cutoff_hz=None, branch=0, s12=None, 
       each frequency (random noise).  Calibration drift is smooth over frequency rather than independent, so treat
       this as a noise estimate, not a full calibration-uncertainty budget.
     The phase branch is held at ``branch``.  Near half-wave resonances the spread grows large: that is the point.
-    ``method``: "nrw" or "nonmagnetic" (the extraction that is repeated); ``post(eps, mu) -> (eps, mu)`` is applied to
-    every sample (e.g. the coax air-gap correction), so the spread is that of the final values."""
-    extract = {"nrw": nrw, "nonmagnetic": nonmagnetic}[method]
+    ``method``: "nrw", "nonmagnetic" or "nonmagnetic_invariant" (the extraction that is repeated; the last needs
+    ``s12``, ``s22`` and ``holder_length``, whose error ``sigma_holder`` [m] is drawn once per sample);
+    ``post(eps, mu) -> (eps, mu)`` is applied to every sample (e.g. the coax air-gap correction), so the spread is that
+    of the final values."""
+    invariant = method == "nonmagnetic_invariant"
+    extract = {"nrw": nrw, "nonmagnetic": nonmagnetic, "nonmagnetic_invariant": None}[method]
+    if invariant and (s12 is None or s22 is None or holder_length is None):
+        raise ValueError("the position-invariant method needs S12, S22 and the holder length")
+    if sigma_holder < 0:
+        raise ValueError("uncertainties must not be negative")
     f = np.asarray(f, dtype=float)
     if not all(x >= 0 for x in (sigma_thickness, sigma_mag_db, sigma_phase_deg)):
         raise ValueError("uncertainties must not be negative")
@@ -172,6 +179,8 @@ def nrw_uncertainty(f, s11, s21, thickness, cutoff_hz=None, branch=0, s12=None, 
     params = [np.asarray(s11, dtype=complex), np.asarray(s21, dtype=complex)]
     if s12 is not None:
         params.append(np.asarray(s12, dtype=complex))
+    if invariant:
+        params.append(np.asarray(s22, dtype=complex))
     out = []
     for _ in range(int(n_samples)):
         noisy = []
@@ -183,8 +192,12 @@ def nrw_uncertainty(f, s11, s21, thickness, cutoff_hz=None, branch=0, s12=None, 
         if d <= 0:
             continue
         try:
-            r = extract(f, noisy[0], noisy[1], d, cutoff_hz, branch, s12=noisy[2] if s12 is not None else None,
-                        offset1=offset1, offset2=offset2)
+            if invariant:
+                lair = holder_length + (rng.normal(0.0, sigma_holder) if sigma_holder else 0.0)
+                r = nonmagnetic_invariant(f, noisy[0], noisy[1], noisy[2], noisy[3], d, lair, cutoff_hz, branch)
+            else:
+                r = extract(f, noisy[0], noisy[1], d, cutoff_hz, branch, s12=noisy[2] if s12 is not None else None,
+                            offset1=offset1, offset2=offset2)
         except ValueError:
             continue
         out.append(post(r.eps, r.mu) if post is not None else (r.eps, r.mu))
@@ -287,3 +300,78 @@ def coax_gap_correction(eps, mu, r_conductor_in, r_sample_in, r_sample_out, r_co
     if np.any(den.real <= 0.1 * l3):
         raise ValueError("the gap is too large for this permittivity: the correction is ill-conditioned")
     return eps * l2 / den, (mu * l3 - l1) / l2
+
+
+def _invariant_faces(f, s11, s21, s12, s22, gap, cutoff_hz):
+    """(S11s, S21s): the sample's own S-parameters from the position-invariant combinations, with the empty line
+    (total length ``gap``) removed.  S11s is known up to its sign: it is made continuous along frequency here, and the
+    caller picks the overall sign."""
+    lam0 = C0 / f
+    inv_lc2 = 0.0 if cutoff_hz is None else (float(cutoff_hz) / C0) ** 2
+    beta0 = 2 * np.pi * np.sqrt(1 / lam0 ** 2 - inv_lc2)
+    e1 = (s11 * s22 - s21 * s12) * np.exp(2j * beta0 * gap)
+    s21s = 0.5 * (s21 + s12) * np.exp(1j * beta0 * gap)
+    s11s = np.sqrt(e1 + s21s ** 2)
+    for k in range(1, s11s.size):  # continuity of the square root's sign
+        if abs(s11s[k] - s11s[k - 1]) > abs(s11s[k] + s11s[k - 1]):
+            s11s[k] = -s11s[k]
+    return e1, s21s, s11s
+
+
+def nonmagnetic_invariant(f, s11, s21, s12, s22, thickness, holder_length, cutoff_hz=None, branch=0):
+    """eps (mu = 1) without knowing where the sample sits in the holder (NIST TN 1355, Baker-Jarvis et al.).
+
+    With empty line of total length L_air - d around the sample, split L1 + L2 in any way,
+
+        E1 = S11 S22 - S21 S12 = exp(-2 gamma0 (L_air - d)) (S11s^2 - S21s^2),
+        E2 = (S21 + S12) / 2   = exp(-gamma0 (L_air - d)) S21s,
+
+    where S11s, S21s are the sample's S-parameters at its faces (``slab_sparams``): only the holder length enters.
+    The measured combinations are rotated back by the empty line, and at each frequency complex eps is fitted to them
+    (absolute residuals, as ``nonmagnetic``).  The start is position-invariant too: S11s^2 = E1 + S21s^2 gives S11s
+    up to a sign; NRW on both signs is run on the sample's own faces, and the sign whose mu is nearer 1 wins (the
+    sample is assumed non-magnetic).  Later frequencies start from the previous solution.  The sample must be
+    symmetric; ``asymmetric`` warns when |S11| and |S22| differ by more than 0.05 (with a lossless empty line they
+    are equal wherever a symmetric sample sits)."""
+    from scipy.optimize import least_squares
+
+    f = np.asarray(f, dtype=float)
+    d, lair = float(thickness), float(holder_length)
+    if not lair >= d:
+        raise ValueError(f"the holder length {lair * 1e3:g} mm is shorter than the sample {d * 1e3:g} mm")
+    s11, s21, s12, s22 = (np.asarray(x, dtype=complex) for x in (s11, s21, s12, s22))
+    if not all(x.shape == f.shape for x in (s11, s21, s12, s22)):
+        raise ValueError("f and the four S-parameters must have the same length")
+    e1, s21s, s11s = _invariant_faces(f, s11, s21, s12, s22, lair - d, cutoff_hz)
+    recip = float(np.max(np.abs(s21 - s12) / np.maximum(np.abs(s21), 1e-12)))
+    cands = [nrw(f, sign * s11s, s21s, d, cutoff_hz, branch) for sign in (1, -1)]
+    start = min(cands, key=lambda r: float(np.median(np.abs(r.mu - 1))))
+    eps = np.empty(f.shape, dtype=complex)
+    resid = np.empty(f.shape)
+    guess = complex(start.eps[0])
+    for i, fi in enumerate(f):
+        def res(x, fi=fi, i=i):
+            a, b = slab_sparams(np.array([fi]), np.array([x[0] - 1j * x[1]]), np.array([1.0]), d, cutoff_hz)
+            r = np.array([a[0] ** 2 - b[0] ** 2 - e1[i], b[0] - s21s[i]])
+            return np.concatenate([r.real, r.imag])
+        sol = least_squares(res, [guess.real, -guess.imag], x_scale="jac", xtol=1e-14, ftol=1e-14, gtol=1e-14)
+        eps[i] = sol.x[0] - 1j * sol.x[1]
+        resid[i] = float(np.sqrt(np.mean(sol.fun ** 2)))
+        guess = eps[i]
+    warnings = [w for w in start.warnings if w[0] == "branch_suspect"]
+    if recip > RECIPROCITY:
+        warnings.append(("nonreciprocal", {"max_relative": recip}))
+    bad = resid > 0.02
+    if np.any(bad):
+        warnings.append(("fit_poor", {"f_hz": [float(x) for x in f[bad]], "max_residual": float(resid.max())}))
+    asym = float(np.max(np.abs(np.abs(s11) - np.abs(s22))))
+    if asym > 0.05:
+        warnings.append(("asymmetric", {"max_mag_diff": asym}))
+    if np.any(eps.imag > 1e-9 * np.abs(eps)):
+        warnings.append(("nonpassive", {"f_hz": [float(x) for x in f[eps.imag > 1e-9 * np.abs(eps)]]}))
+    ones = np.ones(f.shape, dtype=complex)
+    g_fit, t_fit = slab_sparams(f, eps, ones, d, cutoff_hz)  # the fitted sample's S11s, S21s (for the record)
+    r = NrwResult(f, eps, ones, g_fit, t_fit, start.branch, start.suggested_branch, np.abs(s11s) < SMALL_S11,
+                  start.delay_mismatch, recip, warnings)
+    r.fit_residual = resid
+    return r

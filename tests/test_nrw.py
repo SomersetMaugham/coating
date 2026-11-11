@@ -317,3 +317,74 @@ def test_cli_coax_gap(tmp_path):
     assert np.max(np.abs(got - want) / np.abs(want)) < 1e-7
     with pytest.raises(CliError):
         cmd_extract_nrw(str(src), 2.0, str(tmp_path / "d.csv"), coax_gap=gap, waveguide_a_mm=22.86)
+
+
+def _holder(f, eps, d, l1, l2, fc=None):
+    """Measured S11, S21, S12, S22 of a symmetric sample with empty line l1 before and l2 after it."""
+    s11, s21 = slab_sparams(f, eps, np.ones(f.shape, complex), d, fc)
+    beta0 = 2 * np.pi * np.sqrt((f / C0) ** 2 - (0 if fc is None else (fc / C0) ** 2))
+    g0 = 1j * beta0
+    t = s21 * np.exp(-g0 * (l1 + l2))
+    return s11 * np.exp(-2 * g0 * l1), t, t, s11 * np.exp(-2 * g0 * l2)
+
+
+@pytest.mark.parametrize("eps_v,d,lair,f,branch", [
+    (4.0 - 0.1j, 5e-3, 20e-3, np.linspace(2e9, 18e9, 81), 0),
+    (12.0 - 0.3j, 8e-3, 30e-3, np.linspace(8e9, 12e9, 81), 1),  # thick, high eps: the phase passes pi at 8 GHz
+    (2.1 - 0.0005j, 10e-3, 30e-3, np.linspace(2e9, 18e9, 201), 0),  # a half-wave resonance near 10.35 GHz
+])
+def test_position_invariant_fit_does_not_care_where_the_sample_sits(eps_v, d, lair, f, branch):
+    from coating_studio.materials.extraction import nonmagnetic_invariant
+
+    eps = np.full(f.shape, eps_v)
+    results = []
+    for l1 in (0.5e-3, (lair - d) / 2, lair - d - 0.5e-3):
+        r = nonmagnetic_invariant(f, *_holder(f, eps, d, l1, lair - d - l1), d, lair, branch=branch)
+        assert np.max(np.abs(r.eps - eps)) < 1e-9 and not r.warnings
+        results.append(r)
+    assert len({r.suggested_branch for r in results}) == 1  # the start does not depend on the position either
+    # an equal split assumed where the sample actually sits near one end gets eps wrong
+    from coating_studio.materials.extraction import nonmagnetic
+
+    m11, m21, _, _ = _holder(f, eps, d, 0.5e-3, lair - d - 0.5e-3)
+    wrong = nonmagnetic(f, m11, m21, d, branch=branch, offset1=(lair - d) / 2, offset2=(lair - d) / 2)
+    assert np.max(np.abs(wrong.eps - eps)) > 0.5
+
+
+def test_position_invariant_fit_warnings_and_waveguide():
+    from coating_studio.materials.extraction import nonmagnetic_invariant
+
+    f = np.linspace(8e9, 12e9, 41)
+    fc = C0 / (2 * 22.86e-3)
+    eps = np.full(f.shape, 4.0 - 0.1j)
+    r = nonmagnetic_invariant(f, *_holder(f, eps, 3e-3, 2e-3, 10e-3, fc), 3e-3, 15e-3, cutoff_hz=fc)
+    assert np.max(np.abs(r.eps - eps)) < 1e-9
+    s11, s21, s12, s22 = _holder(f, eps, 3e-3, 2e-3, 10e-3, fc)
+    assert "asymmetric" in {c for c, _ in nonmagnetic_invariant(f, s11, s21, s12, 0.7 * s22, 3e-3, 15e-3,
+                                                                cutoff_hz=fc).warnings}
+    e2, m2 = LOSSY.eps_mu(F, None)  # a magnetic sample
+    a, b = slab_sparams(F, e2, m2, 2e-3)
+    assert "fit_poor" in {c for c, _ in nonmagnetic_invariant(F, a, b, b, a, 2e-3, 2e-3).warnings}
+    with pytest.raises(ValueError, match="shorter"):
+        nonmagnetic_invariant(f, s11, s21, s12, s22, 3e-3, 2e-3, cutoff_hz=fc)
+
+
+def test_cli_position_invariant(tmp_path):
+    from coating_studio.cli.commands import cmd_extract_nrw
+    from coating_studio.cli.output import CliError
+
+    f = np.linspace(2e9, 18e9, 41)
+    eps = np.full(f.shape, 4.0 - 0.1j)
+    s11, s21, s12, s22 = _holder(f, eps, 5e-3, 1e-3, 14e-3)
+    src = tmp_path / "h.s2p"
+    src.write_text(_s2p_text(f, s11, s21, s12, s22))
+    res = cmd_extract_nrw(str(src), 5.0, str(tmp_path / "h.csv"), method="nonmagnetic-invariant", holder_length_mm=20.0,
+                          uncertainty_csv=str(tmp_path / "u.csv"), holder_sigma_mm=0.05, uncertainty_samples=30)
+    assert res.result["method"] == "nonmagnetic-invariant" and res.result["holder_length_m"] == pytest.approx(0.02)
+    assert np.max(np.abs(load_csv(str(tmp_path / "h.csv"), name="h").eps_mu(f, None)[0] - eps)) < 1e-7
+    assert res.result["uncertainty"]["median_relative"]["eps_re"] > 0  # the holder-length error spreads eps
+    for kw in ({"method": "nonmagnetic-invariant"},  # no holder length
+               {"method": "nonmagnetic-invariant", "holder_length_mm": 20.0, "offset1_mm": 1.0},
+               {"holder_length_mm": 20.0}):  # a holder length without the method
+        with pytest.raises(CliError):
+            cmd_extract_nrw(str(src), 5.0, str(tmp_path / "x.csv"), **kw)

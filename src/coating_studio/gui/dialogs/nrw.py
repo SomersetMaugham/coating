@@ -20,7 +20,7 @@ from coating_studio.gui.icons import set_button_icon
 from coating_studio.gui.theme import mpl_rc
 from coating_studio.gui.widgets.inputs import muted
 from coating_studio.i18n import tr
-from coating_studio.materials.extraction import RECIPROCITY, SMALL_S11, nonmagnetic, nrw
+from coating_studio.materials.extraction import RECIPROCITY, SMALL_S11, nonmagnetic, nonmagnetic_invariant, nrw
 from coating_studio.materials.models import TabulatedMaterial
 from coating_studio.touchstone import TouchstoneError, parse_s2p
 
@@ -48,6 +48,8 @@ def warning_text(code, a):
                                     "their mean was used.", r=a["max_relative"], lim=RECIPROCITY),
         "fit_poor": lambda: tr("The μ = 1 fit misses the measured S-parameters at {n} frequencies: the sample may be "
                                "magnetic; use NRW.", n=len(a["f_hz"])),
+        "asymmetric": lambda: tr("|S11| and |S22| differ by up to {d:.3g}: the sample is not symmetric (or the ports are "
+                                 "calibrated differently); this method assumes it is.", d=a["max_mag_diff"]),
     }[code]()
 
 
@@ -96,7 +98,13 @@ class NrwDialog(QDialog):
         self.cb_method = QComboBox()
         self.cb_method.addItem(tr("NRW (ε and μ)"), "nrw")
         self.cb_method.addItem(tr("Non-magnetic fit (μ = 1, stable at half-wave resonances)"), "nonmagnetic")
+        self.cb_method.addItem(tr("Non-magnetic fit, sample position unknown (μ = 1)"), "invariant")
         form.addRow(tr("Method"), self.cb_method)
+        self.ed_lair = QLineEdit()
+        self.ed_lair.setToolTip(tr("Length between the calibration planes, sample included. The sample may sit anywhere "
+                                   "in it; the sample must be symmetric."))
+        form.addRow(tr("Holder length [mm]"), self.ed_lair)
+        form.setRowVisible(self.ed_lair, False)
         self.form = form
         form.setRowVisible(self.ed_a, False)
         form.addRow(muted(tr("The S-parameters must be referred to the empty line (as a TRL calibration does). The offsets "
@@ -148,10 +156,18 @@ class NrwDialog(QDialog):
         for w in (self.ed_thick, self.ed_a, self.ed_off1, self.ed_off2):
             w.textEdited.connect(self._invalidate)
         self.sp_branch.valueChanged.connect(self._invalidate)
-        self.cb_method.currentIndexChanged.connect(self._invalidate)
+        self.cb_method.currentIndexChanged.connect(self._on_method)
+        self.ed_lair.textEdited.connect(self._invalidate)
         self._invalidate()
 
     # ------------------------------------------------------------------
+    def _on_method(self, _index):
+        invariant = self.cb_method.currentData() == "invariant"
+        self.form.setRowVisible(self.ed_lair, invariant)
+        self.form.setRowVisible(self.ed_off1, not invariant)
+        self.form.setRowVisible(self.ed_off2, not invariant)
+        self._invalidate()
+
     def _on_line(self, _index):
         self.form.setRowVisible(self.ed_a, self.cb_line.currentData() == "waveguide")
         self._invalidate()
@@ -198,6 +214,11 @@ class NrwDialog(QDialog):
             if a is None or a <= 0:
                 return tr("Enter the waveguide's broad wall a.")
             cutoff = C0 / (2 * a * 1e-3)
+        if self.cb_method.currentData() == "invariant":
+            lair = _number(self.ed_lair)
+            if lair is None or lair < d:
+                return tr("Enter the holder length (at least the sample thickness).")
+            return d * 1e-3, cutoff, lair * 1e-3, None
         o1, o2 = _number(self.ed_off1), _number(self.ed_off2)
         if o1 is None or o2 is None or o1 < 0 or o2 < 0:
             return tr("Offsets must be zero or positive.")
@@ -210,9 +231,13 @@ class NrwDialog(QDialog):
             return
         d, cutoff, o1, o2 = inp
         f, s11, s21, s12, _s22, _ref = self.data
-        extract = nrw if self.cb_method.currentData() == "nrw" else nonmagnetic
+        method = self.cb_method.currentData()
         try:
-            r = extract(f, s11, s21, d, cutoff, self.sp_branch.value(), s12=s12, offset1=o1, offset2=o2)
+            if method == "invariant":
+                r = nonmagnetic_invariant(f, s11, s21, s12, self.data[4], d, o1, cutoff, self.sp_branch.value())
+            else:
+                extract = nrw if method == "nrw" else nonmagnetic
+                r = extract(f, s11, s21, d, cutoff, self.sp_branch.value(), s12=s12, offset1=o1, offset2=o2)
         except ValueError as e:
             self._status(str(e), "error")
             self._draw(None)
@@ -270,7 +295,9 @@ class NrwDialog(QDialog):
             return
         r = self.result
         line = "TEM" if self.cb_line.currentData() == "tem" else f"TE10 waveguide a = {self.ed_a.text().strip()} mm"
-        method = "NRW" if self.cb_method.currentData() == "nrw" else "non-magnetic fit (mu = 1)"
+        method = {"nrw": "NRW", "nonmagnetic": "non-magnetic fit (mu = 1)",
+                  "invariant": f"position-invariant non-magnetic fit (mu = 1), holder {self.ed_lair.text().strip()} mm"}[
+            self.cb_method.currentData()]
         note = (f"{NRW_PREFIX} {os.path.basename(self.path)}, d = {self.ed_thick.text().strip()} mm, {line}, "
                 f"branch {r.branch}, {method}")
         if np.any(r.resonant):

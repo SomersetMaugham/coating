@@ -668,4 +668,11 @@ KO.update({
     'A volume fraction: 0.01 = 1 vol%.': '체적 분율입니다: 0.01 = 1 vol%.',
     'absolute': '절대',
     'Relative: % of the value. Absolute: in the unit shown (a volume fraction 0.01 = 1 vol%); f₀ and γ stay in GHz whatever the spectral axis. Both are 1σ for a normal distribution and ± half-width for a uniform one. Changing the kind converts at the current value.': '상대: 값의 %. 절대: 표시한 단위(체적 분율 0.01 = 1 vol%); f₀와 γ는 스펙트럼 축과 관계없이 GHz입니다. 둘 다 정규분포에서는 1σ, 균일분포에서는 ± 반폭입니다. 종류를 바꾸면 현재 값에서 환산합니다.',
+    "Non-magnetic fit, sample position unknown (μ = 1)": "비자성 맞춤, 시편 위치 모름 (μ = 1)",
+    "Length between the calibration planes, sample included. The sample may sit anywhere in it; the sample must be symmetric.":
+        "교정 기준면 사이의 길이(시편 포함)입니다. 시편은 그 안 어디에 있어도 되지만, 대칭이어야 합니다.",
+    "Holder length [mm]": "홀더 길이 [mm]",
+    "Enter the holder length (at least the sample thickness).": "홀더 길이를 넣으세요(시편 두께 이상).",
+    "|S11| and |S22| differ by up to {d:.3g}: the sample is not symmetric (or the ports are calibrated differently); this method assumes it is.":
+        "|S11|과 |S22|가 최대 {d:.3g} 다릅니다. 시편이 대칭이 아니거나 두 포트의 교정이 다릅니다. 이 방법은 대칭을 가정합니다.",
 })

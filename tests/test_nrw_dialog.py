@@ -139,3 +139,28 @@ def test_non_magnetic_method_in_the_dialog(window, tmp_path):
     dlg._accept()
     m = dlg.result_material
     assert "non-magnetic fit" in m.note and np.max(np.abs(m.eps_mu(f, None)[0] - eps)) < 1e-9
+
+
+def test_position_invariant_method_in_the_dialog(window, tmp_path):
+    from test_nrw import _holder
+
+    from coating_studio.gui.dialogs.nrw import NrwDialog
+    from test_nrw import _s2p_text as s2p
+
+    f = np.linspace(2e9, 18e9, 41)
+    eps = np.full(f.shape, 4.0 - 0.1j)
+    path = tmp_path / "h.s2p"
+    path.write_text(s2p(f, *_holder(f, eps, 5e-3, 1e-3, 14e-3)))
+    dlg = NrwDialog(window, window)
+    dlg.load_file(str(path))
+    dlg.ed_thick.setText("5")
+    dlg.cb_method.setCurrentIndex(dlg.cb_method.findData("invariant"))
+    assert dlg.form.isRowVisible(dlg.ed_lair) and not dlg.form.isRowVisible(dlg.ed_off1)
+    dlg.compute()
+    assert "holder length" in dlg.lbl_status.text()
+    dlg.ed_lair.setText("20")
+    dlg.compute()
+    assert np.max(np.abs(dlg.result.eps - eps)) < 1e-9 and dlg.lbl_status.text() == "No warnings."
+    dlg.ed_rho.setText("1500")
+    dlg._accept()
+    assert "position-invariant" in dlg.result_material.note and "holder 20 mm" in dlg.result_material.note
