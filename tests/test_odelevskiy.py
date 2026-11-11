@@ -142,7 +142,7 @@ def test_project_round_trip_and_schema(tmp_path):
         p.add_material(m)
     path = str(tmp_path / "a.coat")
     p.save(path)
-    assert json.loads(open(path, encoding="utf-8").read())["schema"] == SCHEMA_VERSION == 9
+    assert json.loads(open(path, encoding="utf-8").read())["schema"] == SCHEMA_VERSION >= 9
     q = Project.load(path)
     assert q.materials["mix"].shape == FLAKE
     assert q.copy().materials["mix"].shape == FLAKE

@@ -82,7 +82,9 @@ exception, and it falls back if Qt is missing.
   discrete-material combinations it enumerates them all. Otherwise it treats them as integer
   variables ordered by impedance. A `progress` callback returns True to stop.
 - **`tolerance.py`**: Monte Carlo perturbation that gives percentile bands and yield. `yield_intervals` and
-  `tolerance_frequencies` define the yield band and grid shared by the GUI and the CLI.
+  `tolerance_frequencies` define the yield band and grid shared by the GUI and the CLI. `MaterialSampler` varies
+  material parameters (`ToleranceSettings.material_params`) after all layer draws; keep that order, since files
+  without entries must give the same samples bit for bit.
 - **`limits.py`**: Rozanov thickness bound (PEC backing, normal incidence), analytic static permeability, the
   mixing-model validity warning and measured-data ranges.
 - **`comparison.py`**: comparison curves (pinned design snapshots, measured CSV/.s1p curves); saved in the `.coat`.

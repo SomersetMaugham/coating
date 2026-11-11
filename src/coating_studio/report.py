@@ -21,6 +21,7 @@ from coating_studio.core.structure import SheetLayer, SlabLayer
 from coating_studio.i18n import tr
 from coating_studio.limits import target_limits
 from coating_studio.optimize import evaluate_terms
+from coating_studio.project import describe_path
 from coating_studio.tolerance import CornerResult, ToleranceResult, result_band, result_settings
 
 _COLORS = {"TE": "#2563eb", "TM": "#dc2626", "avg": "#111827", "target": "#c0262d"}
@@ -418,6 +419,9 @@ def _build_report(project, rl_positive, references, tolerance, source, print_lay
         dist = tr("uniform") if s.distribution == "uniform" else tr("normal")
         seed = tr("random") if s.seed is None else s.seed
         out.append(f"<p class=muted>{_e(tr('Tolerances: thickness {t} %, ε′ {e} %, ε″ {el}, μ′ {m} %, μ″ {ml}, sheet {sh} %, real/loss correlation ρ = {rho}; {d} distribution, seed {seed}. Per-layer overrides are not listed.', t=f'{s.thickness * 100:g}', e=f'{s.eps * 100:g}', el=loss(s.eps_loss), m=f'{s.mu * 100:g}', ml=loss(s.mu_loss), sh=f'{s.sheet * 100:g}', rho=f'{s.loss_correlation:g}', d=dist, seed=seed))}</p>")
+        if s.material_params:
+            items = "; ".join(f"{describe_path(p, e['path'])} {e['tol'] * 100:g} %" for e in s.material_params)
+            out.append(f"<p class=muted>{_e(tr('Material parameters varied per sample (relative): {items}.', items=items))}</p>")
 
     # diagnostics
     out.append(f"<h2>{_e(tr('Diagnostics'))}</h2>")

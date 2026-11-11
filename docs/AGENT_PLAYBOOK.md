@@ -72,6 +72,12 @@ would silently use the old file). Prefer a new file name per trial (`d1.coat`, `
   layer's real-part and loss errors (ε′ with ε″, μ′ with μ″) where a loss tolerance is set; use it only when the
   user knows the errors move together (e.g. filler content raises ε′ and ε″ together → positive).
   A `tolerance.per_layer[]` entry can set its own `loss_correlation` for that layer (a coefficient, not relative).
+- `tolerance.material_params[]` (`{"material", "param", "tol"}`, `param` as in `variables[]`, `tol` relative) varies a
+  material parameter per sample: a mixture's `fraction`, a dispersion term's `f0`, `sigma`, … This moves a relaxation or
+  resonance along the frequency axis, which the layer `eps`/`mu` factors cannot. One draw per sample per material, so
+  every layer using it moves together. The layer tolerances still apply on top: when the user's process error is the
+  filler content, lower `eps`/`mu` rather than counting the same error twice. Use values the user gives you; do not
+  invent process tolerances.
 - Omitted sections use defaults; omitted `targets` means **no target** (optimisation then refuses to run).
 - Do not put fractions in material names ("CB 20%"): an optimised fraction makes the name wrong.
 

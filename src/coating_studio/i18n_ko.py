@@ -573,4 +573,10 @@ KO.update({
         "γ는 감쇠율(주파수 간격)입니다. 파장으로 바꿀 수 없어 THz로 표시합니다.",
     "A bound of 0 Hz or below has no wavelength or wavenumber; switch the spectral axis to a frequency unit to "
     "edit it.": "0 Hz 이하의 경계는 파장이나 파수로 나타낼 수 없습니다. 편집하려면 스펙트럼 축을 주파수 단위로 바꾸십시오.",
+    "Material parameter tolerances": "재료 파라미터 공차",
+    "Tolerance (%)": "공차 (%)",
+    "Blank cells leave the parameter at its value. A material parameter is drawn once per sample for the material, so every layer that uses it moves together; shifting a term's f₀ or a volume fraction moves the curve along the frequency axis. The layer ε and μ tolerances still apply on top, so lower them when these already cover the same error.":
+        "빈 칸의 파라미터는 흔들지 않습니다. 재료 파라미터는 표본마다 재료 단위로 한 번 뽑으므로, 그 재료를 쓰는 모든 층이 함께 움직입니다. 분산 항의 f₀나 체적 분율을 흔들면 곡선이 주파수 축으로 이동합니다. 층의 ε·μ 공차는 그 위에 그대로 곱해지므로, 같은 오차를 이미 여기서 다룬다면 층 공차를 낮추세요.",
+    "Change material parameter tolerance": "재료 파라미터 공차 변경",
+    "Material parameters varied per sample (relative): {items}.": "표본마다 흔든 재료 파라미터(상대값): {items}.",
 })

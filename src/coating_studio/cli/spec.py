@@ -8,6 +8,7 @@ to by name (when unique) or by 1-based index; uids never appear.
 
 from __future__ import annotations
 
+import math
 import os
 
 from coating_studio.cli.output import CliError
@@ -16,6 +17,7 @@ from coating_studio.core.units import (
     DEFAULT_LENGTH_UNIT, DEFAULT_SPECTRAL_UNIT, DISPLAY_SCALE, LENGTH_UNITS, SPECTRAL_UNITS, from_display, to_display,
 )
 from coating_studio.limits import measured_range
+from coating_studio.tolerance import material_param_info
 from coating_studio.materials.csvio import CsvFormatError, load_csv
 from coating_studio.materials.library import builtin_materials
 from coating_studio.materials.models import MixtureMaterial, material_from_dict, vol_to_wt, wt_to_vol  # noqa: F401
@@ -113,6 +115,9 @@ def project_to_spec(project: Project) -> dict:
                              else _f_pair(tol.band_min, tol.band_max))
     tolerance["angle_deg"] = tol.angle
     tolerance["per_layer"] = [{"layer": refs.get(uid, uid), **dict(d)} for uid, d in tol.per_layer.items()]
+    if tol.material_params:
+        tolerance["material_params"] = [{"material": e["path"][1], "param": list(e["path"][2:]), "tol": e["tol"]}
+                                        for e in tol.material_params]
     out = {"spec_version": SPEC_VERSION, "name": project.name, "notes": project.notes,
            "incident": project.structure.incident, "backing": backing}
     if removed:
@@ -418,6 +423,25 @@ def spec_to_project(spec: dict, base_dir=".") -> tuple[Project, list]:
         if isinstance(rho, bool) or not isinstance(rho, (int, float)) or not -1 <= rho <= 1:
             raise spec_error(f"tolerance.per_layer[{i}].loss_correlation", "must be a number between -1 and 1")
         tol.per_layer[layers[li].uid] = {k: v for k, v in d.items() if k != "layer"}
+    seen = set()
+    for i, d in enumerate(t.get("material_params", [])):
+        path = f"tolerance.material_params[{i}]"
+        if not isinstance(d, dict) or d.get("material") not in p.materials:
+            raise spec_error(f"{path}.material", f"unknown material {d.get('material') if isinstance(d, dict) else d!r}")
+        key = d.get("param")
+        key = [key] if isinstance(key, str) else list(key or [])
+        mpath = ["material", d["material"], *key]
+        try:
+            material_param_info(p, mpath)
+        except ValueError:
+            raise spec_error(f"{path}.param", f"no parameter {key!r}") from None
+        tv = d.get("tol")
+        if isinstance(tv, bool) or not isinstance(tv, (int, float)) or not math.isfinite(tv) or tv < 0:
+            raise spec_error(f"{path}.tol", "must be a non-negative number (relative, e.g. 0.05)")
+        if tuple(mpath) in seen:
+            raise spec_error(f"{path}.param", "listed twice")
+        seen.add(tuple(mpath))
+        tol.material_params.append({"path": mpath, "tol": float(tv)})
     p.tolerance = tol
 
     warnings += _check_measured_ranges(p, spec.get("sweep"))
