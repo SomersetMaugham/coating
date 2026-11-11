@@ -66,7 +66,8 @@ exception, and it falls back if Qt is missing.
   and `core/units.py` converts to display units (GHz, mm, °, Ω/sq).
 - **`materials/`**: the `Material` subclasses are Constant, Dispersive (Debye/Lorentz/σ), Tabulated
   (CSV), Mixture (MG/Bruggeman/Odelevskiy, the last needing a shape factor and percolation threshold) and PowerLaw (Michielssen-style ε′(1 GHz)/fᵃ fits; not causal, so its static μ is
-  unknown). `eps_mu(f, resolver)` takes a resolver because mixtures
+  unknown). Uniaxial references two isotropic materials (in-plane, normal); `eps_mu` returns the in-plane values,
+  `eps_mu_normal` the z components (None for isotropic materials), and only the solver uses the latter. `eps_mu(f, resolver)` takes a resolver because mixtures
   reference other materials by **name**. Cycles raise `MaterialCycleError`. Tabulated data raises
   `OutOfRangeError` outside its measured range and never extrapolates. Each material exposes
   `params()`/`get(key)`/`set(key)` so the optimiser can address its numbers. `inversion.py` turns one measured composite into effective filler values for a mixture (`coating-cli invert-filler` and `gui/dialogs/invert_filler.py`, which share its checks; docs/CLI_PLAN.md 13.9); `shape_fit.py` fits the Odelevskiy ratio N/pc from several loadings (`coating-cli fit-shape`, 13.11: only the ratio is determined, never N and pc separately); `fitting.py` fits CSV

@@ -1271,3 +1271,32 @@ def test_material_parameter_tolerance_table(app):
     assert w.project.tolerance.material_params == []
     w.doc.undo_stack.setClean()
     w.close()
+
+
+def test_material_manager_uniaxial_page(app):
+    """New uniaxial material: two component combos (isotropic materials only), edits are undoable, and the preview
+    draws the in-plane and normal curves."""
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.dialogs.materials import MaterialManager
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.materials import UniaxialMaterial
+
+    w = MainWindow()
+    w.doc.set_project(EXAMPLES["dallenbach"][1]())
+    dlg = MaterialManager(w.doc, w)
+    dlg._new("uniaxial")
+    m = next(x for x in w.project.materials.values() if isinstance(x, UniaxialMaterial))
+    dlg._fill_list(m.name)
+    assert dlg.stack.currentIndex() == 5 and not dlg.sp_density.isEnabled()
+    items = [dlg.u_normal.itemText(i) for i in range(dlg.u_normal.count())]
+    assert m.name not in items and "Carbonyl iron / epoxy" in items
+    dlg.u_normal.setCurrentText("Carbonyl iron / epoxy")
+    dlg.u_normal.activated.emit(dlg.u_normal.currentIndex())
+    assert w.project.materials[m.name].normal == "Carbonyl iron / epoxy"
+    labels = [ln.get_label() for ax in dlg.fig.axes for ln in ax.get_lines()]
+    assert "ε′∥" in labels and "μ″⊥" in labels
+    w.doc.undo_stack.undo()
+    assert w.project.materials[m.name].normal != "Carbonyl iron / epoxy"
+    w.doc.undo_stack.setClean()
+    dlg.close()
+    w.close()

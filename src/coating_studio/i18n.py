@@ -55,6 +55,7 @@ _ISSUES_EN = {
                    "Use measured data for a real design.",
     "unknown_material": "Unknown material: {n}",
     "material_cycle": "This mixture references itself (directly or through other mixtures).",
+    "uniaxial_misuse": "A uniaxial material cannot be a mixture constituent or a component of another uniaxial material.",
     "percolation_exceeded": "The volume fraction {fraction:.3g} is at or above the percolation threshold {pc:.3g}, where the Odelevskiy rule has no meaning.",
     "rozanov_limit": "Target {target}: the design's mu_s x d is {design_mm:.3g} mm but at least {required_mm:.3g} mm "
                      "is needed (Rozanov bound, normal incidence).",

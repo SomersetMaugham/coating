@@ -20,6 +20,7 @@ from coating_studio.core.structure import SlabLayer
 from coating_studio.materials.checks import Issue
 from coating_studio.materials.models import (
     ConstantMaterial, DispersiveMaterial, MaterialCycleError, MixtureMaterial, PercolationError, Shape, TabulatedMaterial,
+    UniaxialMaterial,
     mixing_rule, INVERTED_PREFIX,
 )
 from coating_studio.project import Project, set_param
@@ -67,6 +68,8 @@ def static_permeability(mat, resolver, _seen=None):
         except PercolationError:
             return None, xm or xi
         return float(np.real(mu)[0]), xm or xi
+    if isinstance(mat, UniaxialMaterial):  # the bound is for normal incidence, which sees only the in-plane mu
+        return static_permeability(resolver(mat.inplane), resolver, seen | {mat.name})
     if isinstance(mat, TabulatedMaterial):
         return None, False
     return None, False
@@ -260,6 +263,7 @@ def _inverted_direct_issues(project: Project, names):
     used = {getattr(ly, "material", None) for ly in project.structure.layers}
     used |= {c for ch in project.optimization.choices for c in ch.candidates}
     used |= {m.matrix for m in project.materials.values() if isinstance(m, MixtureMaterial)}
+    used |= {n for m in project.materials.values() if isinstance(m, UniaxialMaterial) for n in m.references()}
     return [Issue("warning", "inverted_filler_direct", n, {}) for n, mat in project.materials.items()
             if n in used and (names is None or n in names) and inversion_provenance(mat) is not None]
 
@@ -309,8 +313,8 @@ def data_range(mat, resolver, _seen=None):
         return None
     if isinstance(mat, TabulatedMaterial):
         return float(mat.f[0]), float(mat.f[-1])
-    if isinstance(mat, MixtureMaterial):
-        rs = [data_range(resolver(n), resolver, seen | {mat.name}) for n in (mat.matrix, mat.inclusion)]
+    if isinstance(mat, (MixtureMaterial, UniaxialMaterial)):
+        rs = [data_range(resolver(n), resolver, seen | {mat.name}) for n in sorted(mat.references())]
         rs = [r for r in rs if r is not None]
         if not rs:
             return None
