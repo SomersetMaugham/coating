@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4"]
+dev = ["pytest>=7.4", "pytest-xdist>=3.5"]
 
 [project.gui-scripts]
 coating-studio = "coating_studio.gui.app:main"

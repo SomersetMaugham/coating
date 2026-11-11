@@ -63,14 +63,28 @@ def resolve(mode: str) -> Colors:
 
 def _check_image(color: str) -> str:
     """Write a small check-mark SVG for checkbox indicators; return a stylesheet-safe path."""
+    import os
     import pathlib
     import tempfile
 
     path = pathlib.Path(tempfile.gettempdir()) / f"coating_studio_check_{color.strip('#')}.svg"
     if not path.exists():
-        path.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14">'
-                        f'<path d="M3 7.2l2.6 2.6L11 4.4" fill="none" stroke="{color}" stroke-width="2" '
-                        'stroke-linecap="round" stroke-linejoin="round"/></svg>', encoding="utf-8")
+        # Write to a file of our own and rename it into place: other processes (a second app window, parallel test
+        # workers) may read or write the same shared path, and must never see a half-written file.
+        fd, tmp = tempfile.mkstemp(prefix=path.stem + ".", suffix=".tmp", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14">'
+                         f'<path d="M3 7.2l2.6 2.6L11 4.4" fill="none" stroke="{color}" stroke-width="2" '
+                         'stroke-linecap="round" stroke-linejoin="round"/></svg>')
+            os.replace(tmp, path)  # atomic on POSIX and Windows; the content is the same whoever wins
+        except OSError:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            if not path.exists():
+                raise
     return path.as_posix()
 
 

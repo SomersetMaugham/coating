@@ -12,14 +12,15 @@ deferred work) is recorded in `docs/DEVELOPMENT_HISTORY.md` (Korean); read it be
 
 ```bash
 python -m pip install -e ".[dev]"          # dev install (Python >= 3.10)
-python -m pytest                            # all tests (testpaths=tests, -q)
+python -m pytest -n auto                    # all tests in parallel (pytest-xdist; about 20 s instead of 4 min)
+python -m pytest                            # all tests, one process (testpaths=tests, -q)
 python -m pytest tests/test_solver.py::test_name -v   # single test
 QT_QPA_PLATFORM=offscreen python -m pytest tests/test_gui_smoke.py   # GUI smoke, headless
 coating-studio [file.coat]                  # run app (or: python -m coating_studio)
 coating-cli <command> …                     # Qt-free CLI, JSON on stdout (or: python -m coating_studio.cli)
 ```
 
-No linter or formatter is configured. CI (`.github/workflows/ci.yml`) runs `pytest -v` on
+No linter or formatter is configured. CI (`.github/workflows/ci.yml`) runs `pytest -n auto -v` on
 ubuntu/windows/macos × Python 3.10/3.13 with `QT_QPA_PLATFORM=offscreen`, but **only when started by hand**
 (Actions → CI → Run workflow): the repository is private and automatic runs used up the Actions minutes.
 Do not start it, or push changes that re-enable automatic runs, unless the user asks. Before a merge, run the
@@ -27,7 +28,7 @@ suite locally on both supported Python versions instead (conda environments `coa
 created with `conda create -n coat-py310 python=3.10` and `pip install -e ".[dev]"`):
 
 ```bash
-for e in coat-py310 coat-py313; do QT_QPA_PLATFORM=offscreen conda run -n $e python -m pytest -q; done
+scripts/local_test.sh   # both versions at once, in parallel workers; exit 0 only if both pass with no skipped test
 ```
 
 Windows and Linux run on the Windows machine next to the Mac (native Windows and its WSL distro, Python 3.10
