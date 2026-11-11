@@ -10,7 +10,8 @@ from __future__ import annotations
 import numpy as np
 
 from coating_studio.core.units import (
-    SPECTRAL_LABEL, fmt_num, from_spectral, spectral_bounds, spectral_kind, spectral_reversed, to_spectral,
+    LINEWIDTH_UNIT, SPECTRAL_LABEL, fmt_num, from_display, from_linewidth, from_spectral, spectral_bounds,
+    spectral_kind, spectral_reversed, to_display, to_linewidth, to_spectral,
 )
 from coating_studio.i18n import tr
 
@@ -97,3 +98,69 @@ def ascending(x, *arrays):
     return (x,) + tuple(np.asarray(a) for a in arrays)
 
 
+
+
+# -- model parameters (optimiser paths, material editor) ----------------------------------------------------
+# Debye/Lorentz f0 and gamma are stored in Hz and addressed with the unit "GHz" (the CLI contract); the GUI shows
+# f0 as a spectral position in the project's unit and gamma as a damping rate (core.units.LINEWIDTH_UNIT).
+_POSITION_SYMBOL = {"f": "f₀", "wl": "λ₀", "wn": "ν̃₀"}
+
+
+def param_kind(path, unit):
+    """"position" for a dispersion-term f0, "linewidth" for its gamma, "length" for a thickness, else None."""
+    path = tuple(path)
+    if unit == "mm":
+        return "length"
+    if unit == "GHz" and path and path[0] == "material" and path[-1] in ("f0", "gamma"):
+        return "position" if path[-1] == "f0" else "linewidth"
+    return None
+
+
+def position_symbol(unit):
+    """'f₀', 'λ₀' or 'ν̃₀': the resonance of a dispersion term in the spectral unit ``unit``."""
+    return _POSITION_SYMBOL[spectral_kind(unit)]
+
+
+def param_display_unit(project, path, unit):
+    """Display unit id of the parameter at ``path`` whose own unit is ``unit`` (see ``param_kind``)."""
+    kind = param_kind(path, unit)
+    if kind == "length":
+        return project.sweep.length_unit
+    if kind == "position":
+        return project.sweep.spectral_unit
+    if kind == "linewidth":
+        return LINEWIDTH_UNIT[project.sweep.spectral_unit]
+    return unit
+
+
+def param_reversed(project, path, unit):
+    """True when the displayed number falls as the stored value rises (an f0 shown as a wavelength)."""
+    return param_kind(path, unit) == "position" and spectral_reversed(project.sweep.spectral_unit)
+
+
+def param_to_display(si, project, path, unit):
+    """Stored value -> displayed number.  ValueError for an f0 <= 0 in a wavelength or wavenumber unit."""
+    from coating_studio.core.units import to_length
+
+    kind = param_kind(path, unit)
+    if kind == "length":
+        return to_length(si, project.sweep.length_unit)
+    if kind == "position":
+        return to_spectral(si, project.sweep.spectral_unit)
+    if kind == "linewidth":
+        return to_linewidth(si, project.sweep.spectral_unit)
+    return to_display(si, unit)
+
+
+def param_from_display(x, project, path, unit):
+    """Displayed number -> stored value (inverse of ``param_to_display``)."""
+    from coating_studio.core.units import from_length
+
+    kind = param_kind(path, unit)
+    if kind == "length":
+        return from_length(x, project.sweep.length_unit)
+    if kind == "position":
+        return from_spectral(x, project.sweep.spectral_unit)
+    if kind == "linewidth":
+        return from_linewidth(x, project.sweep.spectral_unit)
+    return from_display(x, unit)

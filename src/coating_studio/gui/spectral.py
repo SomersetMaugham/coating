@@ -3,10 +3,11 @@ Qt-free ``coating_studio.spectral`` and are re-exported here for the GUI."""
 
 from __future__ import annotations
 
-from coating_studio.core.units import SPECTRAL_LABEL, from_spectral, spectral_reversed, to_spectral
+from coating_studio.core.units import SPECTRAL_LABEL, from_spectral, spectral_kind, spectral_reversed, to_spectral  # noqa: F401
 from coating_studio.spectral import (  # noqa: F401 (re-exported)
-    INPUT_RANGE, ascending, axis_label, csv_header, cursor_text, fmt_point, fmt_range, fmt_value, quantity_name,
-    set_xlim, span, symbol, unit_label, unit_of, x_values,
+    INPUT_RANGE, ascending, axis_label, csv_header, cursor_text, fmt_point, fmt_range, fmt_value, param_display_unit,
+    param_from_display, param_kind, param_reversed, param_to_display, position_symbol, quantity_name, set_xlim, span,
+    symbol, unit_label, unit_of, x_values,
 )
 
 

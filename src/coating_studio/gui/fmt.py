@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from coating_studio.core.units import fmt_num, from_display, to_display  # noqa: F401 (re-exported)
+from coating_studio.core.units import (  # noqa: F401 (fmt_num, from_display, to_display re-exported)
+    LENGTH_LABEL, SPECTRAL_LABEL, fmt_num, from_display, to_display,
+)
 from coating_studio.i18n import tr
 
-_LABEL = {"mm": "mm", "GHz": "GHz", "ohm": "Ω/sq", "S/m": "S/m", "frac": "", "": "", "g/cm3": "g/cm³",
+# parameter units plus the display units a parameter can be shown in (thickness: mm/µm/nm; f0 and gamma: the
+# spectral and linewidth units).  The length and spectral tables agree on their shared ids "um" and "nm".
+_LABEL = {**SPECTRAL_LABEL, **LENGTH_LABEL, "ohm": "Ω/sq", "S/m": "S/m", "frac": "", "": "", "g/cm3": "g/cm³",
           "nH": "nH", "pF": "pF"}
 
 
@@ -20,21 +24,22 @@ def unit_label(unit):
     return _LABEL.get(unit, unit)
 
 
-def param_label(label: str) -> str:
-    """Translate an engine parameter label such as 'L2 Spacer: thickness'."""
+def param_label(label: str, position: str = "f₀") -> str:
+    """Translate an engine parameter label such as 'L2 Spacer: thickness'.  ``position`` is the symbol of a
+    dispersion term's f0 in the display unit (``spectral.position_symbol``: f₀, λ₀ or ν̃₀)."""
     if ": " in label:
         head, tail = label.split(": ", 1)
-        return f"{head}: {translate_param_name(tail)}"
-    return translate_param_name(label)
+        return f"{head}: {translate_param_name(tail, position)}"
+    return translate_param_name(label, position)
 
 
-def translate_param_name(name: str) -> str:
+def translate_param_name(name: str, position: str = "f₀") -> str:
     # dispersion term labels look like "mu debye #1 delta"
     parts = name.split(" ")
     if len(parts) == 4 and parts[1] in ("debye", "lorentz") and parts[2].startswith("#"):
         sym = "ε" if parts[0] == "eps" else "μ"
         kind = tr("Debye") if parts[1] == "debye" else tr("Lorentz")
-        what = {"delta": "Δ", "f0": "f₀", "gamma": "γ"}[parts[3]]
+        what = {"delta": "Δ", "f0": position, "gamma": "γ"}[parts[3]]
         return f"{sym} {kind} {parts[2]} {what}"
     table = {
         "thickness": tr("thickness"), "R": "R", "X": "X",

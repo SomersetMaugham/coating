@@ -14,6 +14,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from coating_studio.core.units import (
+    DEFAULT_SPECTRAL_UNIT, LINEWIDTH_UNIT, SPECTRAL_LABEL, from_linewidth, from_spectral, spectral_kind, to_linewidth,
+    to_spectral,
+)
 from coating_studio.gui.dialogs.fit import FitDialog
 from coating_studio.gui.dialogs.invert_filler import FillerInversionDialog
 from coating_studio.gui import spectral
@@ -38,16 +42,18 @@ KIND_LABEL = {"constant": "Constant", "dispersive": "Dispersive model", "tabulat
 
 
 class _TermsTable(QWidget):
-    """Editable list of Debye / Lorentz terms."""
+    """Editable list of Debye / Lorentz terms.  f0 is shown as a spectral position in the project's unit (f₀, λ₀ or
+    ν̃₀) and gamma as a damping rate (``core.units.LINEWIDTH_UNIT``); the terms keep Hz."""
 
     def __init__(self, on_change, parent=None):
         super().__init__(parent)
         self.on_change = on_change
         self.terms = []
+        self.unit = DEFAULT_SPECTRAL_UNIT
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         self.tbl = QTableWidget(0, 5)
-        self.tbl.setHorizontalHeaderLabels([tr("Type"), "Δ", "f₀ [GHz]", "γ [GHz]", ""])
+        self._set_headers()
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.setSelectionMode(QAbstractItemView.NoSelection)
         hh = self.tbl.horizontalHeader()
@@ -67,24 +73,48 @@ class _TermsTable(QWidget):
         row.addStretch(1)
         lay.addLayout(row)
 
-    def set_terms(self, terms):
+    def _set_headers(self):
+        u = self.unit
+        pos = f"{spectral.position_symbol(u)} [{SPECTRAL_LABEL[u]}]"
+        gam = f"γ [{SPECTRAL_LABEL[LINEWIDTH_UNIT[u]]}]"
+        self.tbl.setHorizontalHeaderLabels([tr("Type"), "Δ", pos, gam, ""])
+        kind = spectral_kind(u)
+        tips = {2: tr("Vacuum wavelength of the resonance, λ₀ = c/f₀.") if kind == "wl" else
+                tr("Wavenumber of the resonance, ν̃₀ = f₀/c.") if kind == "wn" else "",
+                3: tr("γ is a damping rate (a frequency interval). A wavelength has no equivalent of it, so it is "
+                      "shown in THz.") if kind == "wl" else ""}
+        for c, tip in tips.items():
+            self.tbl.horizontalHeaderItem(c).setToolTip(tip)
+
+    def set_terms(self, terms, unit=None):
+        """Show ``terms`` [Hz]; ``unit`` is the project's spectral unit (kept for later redraws)."""
+        if unit is not None and unit != self.unit:
+            self.unit = unit
+            self._set_headers()
         self.terms = [dict(t) for t in terms]
         self.tbl.setRowCount(len(self.terms))
         for r, t in enumerate(self.terms):
             it = QTableWidgetItem(tr("Debye") if t["type"] == "debye" else tr("Lorentz"))
             it.setFlags(Qt.ItemIsEnabled)
             self.tbl.setItem(r, 0, it)
-            for c, key, scale in ((1, "delta", 1.0), (2, "f0", 1e9), (3, "gamma", 1e9)):
+            for c, key in ((1, "delta"), (2, "f0"), (3, "gamma")):
                 if key == "gamma" and t["type"] != "lorentz":
                     dash = QTableWidgetItem("—")
                     dash.setFlags(Qt.NoItemFlags)
                     self.tbl.removeCellWidget(r, c)
                     self.tbl.setItem(r, c, dash)
                     continue
-                sp = SciSpinBox(minimum=0.0, maximum=1e12)
+                if key == "delta":
+                    sp = SciSpinBox(minimum=0.0, maximum=1e12)
+                    sp.set_value(t[key])
+                elif key == "f0":
+                    sp = SciSpinBox(minimum=spectral.INPUT_RANGE[0], maximum=spectral.INPUT_RANGE[1])
+                    sp.set_value(to_spectral(t[key], self.unit))
+                else:
+                    sp = SciSpinBox(minimum=0.0, maximum=spectral.INPUT_RANGE[1])
+                    sp.set_value(to_linewidth(t[key], self.unit))
                 sp.setFrame(False)
-                sp.set_value(t[key] / scale)
-                sp.valueEdited.connect(lambda v, r=r, k=key, s=scale: self._edit(r, k, v * s))
+                sp.valueEdited.connect(lambda v, r=r, k=key: self._edit(r, k, v))
                 self.tbl.setCellWidget(r, c, sp)
             b = QToolButton()
             set_button_icon(b, "delete")
@@ -94,7 +124,16 @@ class _TermsTable(QWidget):
             self.tbl.setCellWidget(r, 4, b)
 
     def _edit(self, r, key, v):
-        if key == "f0" and v <= 0:
+        """``v`` is the displayed number of the edited box; only that key is converted and written, so the
+        other boxes keep their stored Hz exactly."""
+        try:
+            if key == "f0":
+                if v <= 0:
+                    return
+                v = from_spectral(v, self.unit)
+            elif key == "gamma":
+                v = from_linewidth(v, self.unit)
+        except ValueError:
             return
         self.terms[r][key] = v
         self.on_change()
@@ -489,10 +528,10 @@ class MaterialManager(QDialog):
                 self.d_einf.set_value(m.eps_inf)
                 self.d_eloss.set_value(m.eps_loss)
                 self.d_sigma.set_value(m.sigma)
-                self.d_eterms.set_terms(m.eps_terms)
+                self.d_eterms.set_terms(m.eps_terms, sw.spectral_unit)
                 self.d_minf.set_value(m.mu_inf)
                 self.d_mloss.set_value(m.mu_loss)
-                self.d_mterms.set_terms(m.mu_terms)
+                self.d_mterms.set_terms(m.mu_terms, sw.spectral_unit)
             elif isinstance(m, TabulatedMaterial):
                 self.stack.setCurrentIndex(2)
                 lo, hi = m.f_range
