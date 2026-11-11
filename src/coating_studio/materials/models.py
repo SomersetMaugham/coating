@@ -523,8 +523,12 @@ def bruggeman(em, ei, phi):
     ei = np.asarray(ei, dtype=complex)
     b = (3 * phi - 1) * ei + (2 - 3 * phi) * em
     disc = np.sqrt(b * b + 8 * ei * em)
-    r1 = (b + disc) / 4
-    r2 = (b - disc) / 4
+    # Stable roots (as in ``gem``): the larger one without cancellation, the other from r1 r2 = -ei em / 2.  The plain
+    # formula lost the small root's digits at high contrast (4e-6 relative at |ei/em| = 1e12).
+    q = np.where(np.abs(b + disc) >= np.abs(b - disc), b + disc, b - disc)
+    r1 = q / 4
+    with np.errstate(divide="ignore", invalid="ignore"):
+        r2 = np.where(q != 0, -2 * ei * em / q, 0.0)
     # Physical root: Re > 0 and least gain (Im <= 0 in this convention).
     def score(r):
         return (r.real > 0).astype(float) * 2 + (r.imag <= 1e-12 * np.abs(r)).astype(float)
