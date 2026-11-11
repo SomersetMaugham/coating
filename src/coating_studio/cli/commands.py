@@ -22,7 +22,7 @@ from coating_studio.core.structure import SheetLayer, SlabLayer
 from coating_studio.core.units import power_to_db, si_unit, to_display
 from coating_studio.examples import EXAMPLES
 from coating_studio.limits import (
-    FITTED_PREFIX, limit_issues, measured_range, mixture_range_issues, rozanov_required_mu_d, static_permeability,
+    FITTED_PREFIX, limit_issues, measured_range, mixture_range_issues, sheet_proximity_issues, rozanov_required_mu_d, static_permeability,
     target_limits,
 )
 from coating_studio.materials.checks import Issue, check_material, is_builtin_demo
@@ -330,6 +330,8 @@ def cmd_check(path, no_opt=False):
     for iss in mixture_range_issues(p, float(np.sqrt(p.sweep.f_min * p.sweep.f_max)), names=set(used)):
         add(issue_dict(iss))
     for iss in measured_range_issues(p):
+        add(issue_dict(iss))
+    for iss in sheet_proximity_issues(p, p.sweep.f_max):
         add(issue_dict(iss))
     limits = target_limits(p)
     for ti, iss in limit_issues(limits):

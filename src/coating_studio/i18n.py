@@ -56,6 +56,11 @@ _ISSUES_EN = {
                    "Use measured data for a real design.",
     "unknown_material": "Unknown material: {n}",
     "material_cycle": "This mixture references itself (directly or through other mixtures).",
+    "sheets_close": "Pattern sheets {a} and {b} are {d_mm:.3g} mm apart, {ratio:.2g} of the shortest wavelength between them. "
+                    "If that is not well above the unit-cell period, near-field coupling between the patterns (higher "
+                    "Floquet modes, not modelled) can shift their resonances: check with a full-wave solver.",
+    "sheets_same_plane": "Pattern sheets {a} and {b} lie in the same plane and are combined as parallel admittances; "
+                         "coupling between the two patterns is not modelled.",
     "uniaxial_misuse": "A uniaxial material cannot be a mixture constituent or a component of another uniaxial material.",
     "percolation_exceeded": "The volume fraction {fraction:.3g} is at or above the percolation threshold {pc:.3g}, where the Odelevskiy rule has no meaning.",
     "rozanov_limit": "Target {target}: the design's mu_s x d is {design_mm:.3g} mm but at least {required_mm:.3g} mm "

@@ -16,7 +16,7 @@ import re
 import numpy as np
 
 from coating_studio.core.constants import C0
-from coating_studio.core.structure import SlabLayer
+from coating_studio.core.structure import SheetLayer, SlabLayer
 from coating_studio.materials.checks import Issue
 from coating_studio.materials.models import (
     ConstantMaterial, DispersiveMaterial, MaterialCycleError, MixtureMaterial, PercolationError, Shape, TabulatedMaterial,
@@ -335,3 +335,42 @@ def measured_range(project: Project, names):
     if not rs:
         return None
     return max(r[0] for r in rs), min(r[1] for r in rs)
+
+
+# ---------------------------------------------------------------------------
+# patterned sheets close together
+
+SHEET_GAP_RATIO = 0.1  # spacing below this share of the shortest wavelength in the spacer: likely below the period
+
+
+def sheet_proximity_issues(project: Project, f_max):
+    """Issues for consecutive patterned (RLC) sheets close together.
+
+    The solver joins sheets through the fundamental mode only; the evanescent higher Floquet modes of a pattern decay
+    over about its unit-cell period D (as exp(-2 pi d / D)), so sheets closer than about D couple in a way the model
+    does not see.  D is not stored, so the spacing is compared with the shortest wavelength in the spacer at ``f_max``
+    (unit cells are usually a tenth to a half of it): below ``SHEET_GAP_RATIO`` is a warning.  Sheets in the same plane
+    are the documented way to combine resonances (parallel admittances); that gets an info note.  Uniform resistive
+    sheets (model "constant") have no higher modes and are skipped."""
+    layers = project.structure.layers
+    idx = [i for i, ly in enumerate(layers) if isinstance(ly, SheetLayer) and ly.is_rlc]
+    issues = []
+    lam0 = C0 / float(f_max)
+    for a, b in zip(idx, idx[1:]):
+        slabs = [ly for ly in layers[a + 1:b] if isinstance(ly, SlabLayer)]
+        names = {"a": a + 1, "b": b + 1}
+        if not slabs:
+            issues.append(Issue("info", "sheets_same_plane", "", names))
+            continue
+        try:
+            path = 0.0  # optical thickness of the spacer
+            for ly in slabs:
+                eps, mu = project.resolver(ly.material).eps_mu(np.array([float(f_max)]), project.resolver)
+                path += ly.thickness * float(np.real(np.sqrt(np.asarray(eps)[0] * np.asarray(mu)[0] + 0j)))
+        except Exception:  # noqa: BLE001 - a broken material is reported by its own check
+            continue
+        ratio = path / lam0
+        if ratio < SHEET_GAP_RATIO:
+            d_mm = sum(ly.thickness for ly in slabs) * 1e3
+            issues.append(Issue("warning", "sheets_close", "", {**names, "d_mm": d_mm, "ratio": ratio}))
+    return issues
