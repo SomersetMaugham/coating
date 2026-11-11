@@ -1074,12 +1074,13 @@ def cmd_fit_shape(composites, matrix_csv=None, matrix_eps=None, matrix_mu=None, 
 
 def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None, waveguide_a_mm=None, branch=0,
                     offset1_mm=0.0, offset2_mm=0.0, uncertainty_csv=None, thickness_sigma_mm=0.0, mag_sigma_db=0.0,
-                    phase_sigma_deg=0.0, uncertainty_samples=200, seed=0, method="nrw", coax_gap=None):
+                    phase_sigma_deg=0.0, uncertainty_samples=200, seed=0, method="nrw", coax_gap=None,
+                    holder_length_mm=None, holder_sigma_mm=0.0):
     """eps(f), mu(f) of a sample from a measured .s2p by Nicholson-Ross-Weir (docs/CLI_PLAN.md, section 13.12)."""
     from coating_studio.core.constants import C0
     from coating_studio.materials.csvio import to_csv_text
     from coating_studio.materials.extraction import (
-        RECIPROCITY, SMALL_S11, coax_gap_correction, nonmagnetic, nrw, nrw_uncertainty,
+        RECIPROCITY, SMALL_S11, coax_gap_correction, nonmagnetic, nonmagnetic_invariant, nrw, nrw_uncertainty,
     )
     from coating_studio.touchstone import TouchstoneError, parse_s2p
 
@@ -1089,7 +1090,7 @@ def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None
     except FileNotFoundError:
         raise CliError("file_not_found", f"{s2p_path}: no such file", 3, {"path": str(s2p_path)}) from None
     try:
-        f, s11, s21, s12, _s22, ref = parse_s2p(text)
+        f, s11, s21, s12, s22, ref = parse_s2p(text)
     except TouchstoneError as e:
         raise CliError("invalid_value", f"{s2p_path}: {e}", 3) from None
     if waveguide_a_mm is not None:
@@ -1104,7 +1105,7 @@ def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None
                            {"path": str(out_path)})
     if uncertainty_csv and os.path.abspath(uncertainty_csv) == os.path.abspath(output):
         raise CliError("usage", "--uncertainty-csv must differ from --output", 2)
-    sigmas = (thickness_sigma_mm, mag_sigma_db, phase_sigma_deg)
+    sigmas = (thickness_sigma_mm, mag_sigma_db, phase_sigma_deg, holder_sigma_mm)
     if uncertainty_csv and not any(sigmas):
         raise CliError("usage", "--uncertainty-csv needs at least one of --thickness-sigma-mm, --mag-sigma-db, "
                        "--phase-sigma-deg (no error is assumed by default)", 2)
@@ -1113,8 +1114,17 @@ def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None
     check_output_path(output, force)
     if uncertainty_csv:
         check_output_path(uncertainty_csv, force)
-    if method not in ("nrw", "nonmagnetic"):
+    if method not in ("nrw", "nonmagnetic", "nonmagnetic-invariant"):
         raise CliError("usage", f"unknown method {method!r}", 2)
+    invariant = method == "nonmagnetic-invariant"
+    if invariant:
+        if holder_length_mm is None:
+            raise CliError("usage", "--method nonmagnetic-invariant needs --holder-length-mm (the empty-line length "
+                           "between the calibration planes, sample included)", 2)
+        if offset1_mm or offset2_mm:
+            raise CliError("usage", "the position-invariant method does not take --offset1-mm/--offset2-mm", 2)
+    elif holder_length_mm is not None or holder_sigma_mm:
+        raise CliError("usage", "--holder-length-mm and --holder-sigma-mm go with --method nonmagnetic-invariant", 2)
     post = None
     if coax_gap is not None:
         if cutoff_hz is not None:
@@ -1124,10 +1134,14 @@ def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None
         except ValueError as e:
             raise CliError("invalid_value", f"--coax-gap: {e}", 3) from None
         post = lambda e, m: coax_gap_correction(e, m, *coax_gap)  # noqa: E731
-    extract = nrw if method == "nrw" else nonmagnetic
     try:
-        r = extract(f, s11, s21, thickness_mm * 1e-3, cutoff_hz, branch, s12=s12, offset1=offset1_mm * 1e-3,
-                    offset2=offset2_mm * 1e-3)
+        if invariant:
+            r = nonmagnetic_invariant(f, s11, s21, s12, s22, thickness_mm * 1e-3, holder_length_mm * 1e-3, cutoff_hz,
+                                      branch)
+        else:
+            extract = nrw if method == "nrw" else nonmagnetic
+            r = extract(f, s11, s21, thickness_mm * 1e-3, cutoff_hz, branch, s12=s12, offset1=offset1_mm * 1e-3,
+                        offset2=offset2_mm * 1e-3)
     except ValueError as e:
         raise CliError("invalid_value", str(e), 4) from None
     eps_out, mu_out = r.eps, r.mu
@@ -1143,7 +1157,9 @@ def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None
             u = nrw_uncertainty(f, s11, s21, thickness_mm * 1e-3, cutoff_hz, branch, s12=s12, offset1=offset1_mm * 1e-3,
                                 offset2=offset2_mm * 1e-3, sigma_thickness=thickness_sigma_mm * 1e-3,
                                 sigma_mag_db=mag_sigma_db, sigma_phase_deg=phase_sigma_deg,
-                                n_samples=uncertainty_samples, seed=seed, method=method, post=post)
+                                n_samples=uncertainty_samples, seed=seed, method=method.replace("-", "_"), post=post,
+                                s22=s22, holder_length=None if holder_length_mm is None else holder_length_mm * 1e-3,
+                                sigma_holder=holder_sigma_mm * 1e-3)
         except ValueError as e:
             raise CliError("invalid_value", str(e), 4) from None
         rows = [[f"{a / 1e9:.9g}", f"{b:.6g}", f"{c:.6g}", f"{d:.6g}", f"{e:.6g}"]
@@ -1163,11 +1179,14 @@ def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None
                                     f"{RECIPROCITY:g}): check the calibration; their mean was used"),
         "fit_poor": lambda a: (f"the mu = 1 fit misses the measured S-parameters at {len(a['f_hz'])} frequencies "
                                f"(rms up to {a['max_residual']:.3g}): the sample may be magnetic; use --method nrw"),
+        "asymmetric": lambda a: (f"|S11| and |S22| differ by up to {a['max_mag_diff']:.3g}: the sample is not symmetric "
+                                 "(or the calibration differs at the two ports); the position-invariant fit assumes it is"),
     }
     warns = [warning(code, messages[code](args), **args) for code, args in r.warnings]
     return CommandResult({
         "output_path": str(output), "n_points": int(r.f.size), "data_range_hz": [float(r.f[0]), float(r.f[-1])],
         "line": "TEM" if cutoff_hz is None else "TE10 waveguide", "cutoff_hz": cutoff_hz, "method": method,
+        "holder_length_m": None if holder_length_mm is None else holder_length_mm * 1e-3,
         "coax_gap_mm": None if coax_gap is None else list(coax_gap),
         "thickness_m": thickness_mm * 1e-3, "branch": r.branch, "suggested_branch": r.suggested_branch,
         "delay_mismatch": r.delay_mismatch, "reciprocity_error": r.reciprocity_error, "reference_ohm": ref,

@@ -181,8 +181,12 @@ def build_parser():
     line.add_argument("--cutoff-ghz", type=float, help="TE10 cutoff of a rectangular waveguide (default: TEM line)")
     line.add_argument("--waveguide-a-mm", type=float, help="broad wall of a rectangular waveguide (cutoff c/2a)")
     nr.add_argument("--branch", type=int, default=0, help="phase branch n at the lowest frequency")
-    nr.add_argument("--method", choices=("nrw", "nonmagnetic"), default="nrw",
-                    help="nonmagnetic: mu = 1, eps fitted to S11 and S21 (stable at half-wave resonances)")
+    nr.add_argument("--method", choices=("nrw", "nonmagnetic", "nonmagnetic-invariant"), default="nrw",
+                    help="nonmagnetic: mu = 1, eps fitted to S11 and S21 (stable at half-wave resonances); "
+                         "nonmagnetic-invariant: the same without knowing where the sample sits (needs --holder-length-mm)")
+    nr.add_argument("--holder-length-mm", type=float, help="empty-line length between the calibration planes, sample "
+                    "included (position-invariant method)")
+    nr.add_argument("--holder-sigma-mm", type=float, default=0.0, help="1-sigma error of the holder length")
     nr.add_argument("--offset1-mm", type=float, default=0.0, help="empty line between port-1 plane and the sample")
     nr.add_argument("--offset2-mm", type=float, default=0.0, help="empty line between the sample and port-2 plane")
     nr.add_argument("--coax-gap", type=float, nargs=4, metavar=("R1", "R2", "R3", "R4"),
@@ -283,7 +287,7 @@ def _run(args, control):
                                  args.waveguide_a_mm, args.branch, args.offset1_mm, args.offset2_mm,
                                  args.uncertainty_csv, args.thickness_sigma_mm, args.mag_sigma_db,
                                  args.phase_sigma_deg, args.uncertainty_samples, args.seed, args.method,
-                                 args.coax_gap)
+                                 args.coax_gap, args.holder_length_mm, args.holder_sigma_mm)
     if c == "fit-shape":
         return C.cmd_fit_shape(args.composite, args.matrix_csv, args.matrix_eps, args.matrix_mu, args.weight_fractions,
                                args.density_filler, args.density_matrix)
