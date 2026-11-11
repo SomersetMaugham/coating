@@ -184,6 +184,9 @@ def build_parser():
                     help="nonmagnetic: mu = 1, eps fitted to S11 and S21 (stable at half-wave resonances)")
     nr.add_argument("--offset1-mm", type=float, default=0.0, help="empty line between port-1 plane and the sample")
     nr.add_argument("--offset2-mm", type=float, default=0.0, help="empty line between the sample and port-2 plane")
+    nr.add_argument("--coax-gap", type=float, nargs=4, metavar=("R1", "R2", "R3", "R4"),
+                    help="air-gap correction in a coax holder: radii in mm of the inner conductor, the sample bore, the "
+                         "sample outside and the outer conductor")
     nr.add_argument("--uncertainty-csv", metavar="CSV", help="also write 1-sigma uncertainties of eps and mu (Monte Carlo)")
     nr.add_argument("--thickness-sigma-mm", type=float, default=0.0, help="1-sigma thickness error (systematic)")
     nr.add_argument("--mag-sigma-db", type=float, default=0.0, help="1-sigma magnitude noise of each S-parameter point")
@@ -265,7 +268,8 @@ def _run(args, control):
         return C.cmd_extract_nrw(args.s2p, args.thickness_mm, args.output, args.force, args.cutoff_ghz,
                                  args.waveguide_a_mm, args.branch, args.offset1_mm, args.offset2_mm,
                                  args.uncertainty_csv, args.thickness_sigma_mm, args.mag_sigma_db,
-                                 args.phase_sigma_deg, args.uncertainty_samples, args.seed, args.method)
+                                 args.phase_sigma_deg, args.uncertainty_samples, args.seed, args.method,
+                                 args.coax_gap)
     if c == "fit-shape":
         return C.cmd_fit_shape(args.composite, args.matrix_csv, args.matrix_eps, args.matrix_mu, args.weight_fractions,
                                args.density_filler, args.density_matrix)
