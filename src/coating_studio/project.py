@@ -18,7 +18,7 @@ from coating_studio.core.units import DEFAULT_LENGTH_UNIT, DEFAULT_SPECTRAL_UNIT
 from coating_studio.materials.library import builtin_materials
 from coating_studio.materials.models import ConstantMaterial, Material, material_from_dict
 
-SCHEMA_VERSION = 9  # 9: Odelevskiy mixtures (shape_n, percolation); 8: angle-dependent RLC sheets; 7: wavelength-spaced sweep; 6: per-layer real/loss correlation; 5: real/loss error correlation, saved comparison curves; 4: independent loss tolerances; 3: RLC sheets; 2: optimisation targets; 1: one band
+SCHEMA_VERSION = 10  # 10: material parameter tolerances; 9: Odelevskiy mixtures (shape_n, percolation); 8: angle-dependent RLC sheets; 7: wavelength-spaced sweep; 6: per-layer real/loss correlation; 5: real/loss error correlation, saved comparison curves; 4: independent loss tolerances; 3: RLC sheets; 2: optimisation targets; 1: one band
 FILE_EXTENSION = ".coat"
 
 
@@ -271,6 +271,10 @@ class ToleranceSettings:
     # uid -> {"thickness","eps","eps_loss","mu","mu_loss","sheet","loss_correlation"}; a missing key uses the
     # default above.  "loss_correlation" is a coefficient (-1..1, schema 6), the others are relative tolerances.
     per_layer: dict = field(default_factory=dict)
+    # Material parameters perturbed per sample (schema 10): [{"path": ["material", name, *key], "tol": relative}].
+    # The path addresses the same parameters as the optimiser's material variables; one draw per sample moves the
+    # material wherever it is used (every layer, every mixture that references it).  Empty in older files.
+    material_params: list = field(default_factory=list)
     target_db: float = -10.0
     band_min: float | None = None  # Hz; yield band (None -> whole sweep)
     band_max: float | None = None
@@ -295,7 +299,14 @@ class ToleranceSettings:
         # A stored None would stop tolerance_for() from falling back to the default.
         kw["per_layer"] = {uid: {k: v for k, v in vals.items() if v is not None}
                            for uid, vals in kw.get("per_layer", {}).items()}
+        kw["material_params"] = [{"path": list(e["path"]), "tol": float(e["tol"])}
+                                 for e in kw.get("material_params", [])]
         return cls(**kw)
+
+    def material_tolerance(self, path):
+        """Relative tolerance set for material parameter ``path``, or None."""
+        path = list(path)
+        return next((e["tol"] for e in self.material_params if e["path"] == path), None)
 
 
 def _references_from(items):
@@ -388,6 +399,7 @@ class Project:
         if users:
             raise ProjectError(f"material {name!r} is in use: {', '.join(users)}")
         del self.materials[name]
+        self.tolerance.material_params = [e for e in self.tolerance.material_params if e["path"][1] != name]
 
     def rename_material(self, old, new):
         if old == new:
@@ -418,6 +430,9 @@ class Project:
                 v.path = ("material", new) + tuple(v.path[2:])
         for c in self.optimization.choices:
             c.candidates = [new if x == old else x for x in c.candidates]
+        for e in self.tolerance.material_params:
+            if e["path"][1] == old:
+                e["path"] = ["material", new, *e["path"][2:]]
 
     def replace_material(self, name, mat: Material):
         """Replace material ``name`` with ``mat`` (which may carry a new name)."""
@@ -476,7 +491,8 @@ class Project:
                 "structure": self.structure.to_dict(),
                 "variables": [v.to_dict() for v in self.optimization.variables],
                 "choices": [c.to_dict() for c in self.optimization.choices],
-                "per_layer_tol": json.loads(json.dumps(self.tolerance.per_layer))}
+                "per_layer_tol": json.loads(json.dumps(self.tolerance.per_layer)),
+                "material_tol": json.loads(json.dumps(self.tolerance.material_params))}
 
     def restore_model_state(self, state):
         self.materials = {}
@@ -487,6 +503,7 @@ class Project:
         self.optimization.variables = [ContinuousVariable.from_dict(v) for v in state["variables"]]
         self.optimization.choices = [MaterialChoice.from_dict(c) for c in state["choices"]]
         self.tolerance.per_layer = json.loads(json.dumps(state["per_layer_tol"]))
+        self.tolerance.material_params = json.loads(json.dumps(state.get("material_tol", [])))
 
     @classmethod
     def from_dict(cls, d):

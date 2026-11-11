@@ -1244,3 +1244,30 @@ def test_report_pdf_pages_text_margins_and_export_choice(app, tmp_path, monkeypa
     w.doc._settings_dirty = False
     w.doc.undo_stack.setClean()
     w.close()
+
+
+def test_material_parameter_tolerance_table(app):
+    """One row per material parameter; a cell edit is one undo step, a blank cell removes the entry."""
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+
+    w = MainWindow()
+    w.show()
+    w.doc.set_project(EXAMPLES["dallenbach"][1]())
+    t = w.p_tol.mtbl
+    paths = [t.item(r, 0).data(0x0100) for r in range(t.rowCount())]  # Qt.UserRole
+    f0 = ["material", "Carbonyl iron / epoxy", "mu_terms", 0, "f0"]
+    assert f0 in paths and all(p[0] == "material" for p in paths)
+    row = paths.index(f0)
+    assert "f₀" in t.item(row, 0).text()
+    t.item(row, 1).setText("8")
+    assert w.project.tolerance.material_params == [{"path": f0, "tol": pytest.approx(0.08)}]
+    t.item(row, 1).setText("abc")  # rejected, the table shows the stored value again
+    assert w.project.tolerance.material_params[0]["tol"] == pytest.approx(0.08) and t.item(row, 1).text() == "8"
+    w.doc.undo_stack.undo()
+    assert w.project.tolerance.material_params == [] and w.p_tol.mtbl.item(row, 1).text() == ""
+    w.doc.undo_stack.redo()
+    w.p_tol.mtbl.item(row, 1).setText("")
+    assert w.project.tolerance.material_params == []
+    w.doc.undo_stack.setClean()
+    w.close()

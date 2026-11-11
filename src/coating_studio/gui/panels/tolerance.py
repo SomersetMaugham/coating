@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -13,12 +14,13 @@ from PySide6.QtWidgets import (
 
 from coating_studio.core.structure import SheetLayer, SlabLayer
 from coating_studio.gui import spectral
-from coating_studio.gui.fmt import rl_display
+from coating_studio.gui.fmt import param_label, rl_display
 from coating_studio.gui.icons import set_button_icon
 from coating_studio.gui.plots.base import PlotView
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
 from coating_studio.gui.workers import ToleranceWorker, start_worker
 from coating_studio.i18n import tr
+from coating_studio.project import available_params
 from coating_studio.report import corner_label, draw_tolerance_band, samples_text
 from coating_studio.tolerance import (  # noqa: F401 (yield_band re-exported)
     CornerResult, result_band, result_settings, tolerance_frequencies, yield_band, yield_intervals,
@@ -190,6 +192,24 @@ class TolerancePanel(QWidget):
                               "percentage, and overrides the default ρ for that layer.")))
         ll.addWidget(g)
 
+        g = QGroupBox(tr("Material parameter tolerances"))
+        gl = QVBoxLayout(g)
+        self.mtbl = QTableWidget(0, 2)
+        self.mtbl.setHorizontalHeaderLabels([tr("Parameter"), tr("Tolerance (%)")])
+        self.mtbl.verticalHeader().setVisible(False)
+        self.mtbl.setSelectionMode(QAbstractItemView.NoSelection)
+        mh = self.mtbl.horizontalHeader()
+        mh.setSectionResizeMode(0, QHeaderView.Stretch)
+        mh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.mtbl.setMinimumHeight(120)
+        gl.addWidget(self.mtbl)
+        gl.addWidget(muted(tr("Blank cells leave the parameter at its value. A material parameter is drawn once per "
+                              "sample for the material, so every layer that uses it moves together; shifting a "
+                              "term's f₀ or a volume fraction moves the curve along the frequency axis. The layer "
+                              "ε and μ tolerances still apply on top, so lower them when these already cover the "
+                              "same error.")))
+        ll.addWidget(g)
+
         g = QGroupBox(tr("Evaluation"))
         f = QFormLayout(g)
         f.setLabelAlignment(Qt.AlignRight)
@@ -267,6 +287,7 @@ class TolerancePanel(QWidget):
         for chk in self.follow.values():
             chk.toggled.connect(self._commit)
         self.tbl.itemChanged.connect(self._on_cell)
+        self.mtbl.itemChanged.connect(self._on_material_cell)
         self.refresh()
 
     # ------------------------------------------------------------------------
@@ -321,9 +342,54 @@ class TolerancePanel(QWidget):
                         cell.setFlags(Qt.NoItemFlags)
                         cell.setText("—")
                     self.tbl.setItem(r, c, cell)
+            self._refresh_material_table(p)
         finally:
             self._loading = False
         self._apply_corner_state()
+
+    def _refresh_material_table(self, p):
+        """One row per material parameter the optimiser could vary (materials in use and those they reference)."""
+        rows = [(path, label) for path, label, _ in available_params(p) if path[0] == "material"]
+        position = spectral.position_symbol(spectral.unit_of(p))
+        self.mtbl.setRowCount(len(rows))
+        for r, (path, label) in enumerate(rows):
+            it = QTableWidgetItem(param_label(label, position))
+            it.setToolTip(it.text())
+            it.setFlags(Qt.ItemIsEnabled)
+            it.setData(Qt.UserRole, list(path))
+            self.mtbl.setItem(r, 0, it)
+            tol = p.tolerance.material_tolerance(path)
+            cell = QTableWidgetItem("" if tol is None else f"{tol * 100:g}")
+            cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.mtbl.setItem(r, 1, cell)
+
+    def _on_material_cell(self, item):
+        if self._loading or item.column() != 1:
+            return
+        path = self.mtbl.item(item.row(), 0).data(Qt.UserRole)
+        text = item.text().strip().replace("%", "")
+        val = None
+        if text:
+            try:
+                val = float(text) / 100
+            except ValueError:
+                val = None
+            if val is None or not math.isfinite(val) or val < 0:
+                self.refresh()
+                return
+
+        def mut(p):
+            # an edited entry keeps its place: the list order is the draw order, so other entries keep their samples
+            entries = p.tolerance.material_params
+            i = next((i for i, e in enumerate(entries) if e["path"] == path), None)
+            if val is None:
+                if i is not None:
+                    del entries[i]
+            elif i is None:
+                entries.append({"path": list(path), "tol": val})
+            else:
+                entries[i]["tol"] = val
+        self.doc.edit(tr("Change material parameter tolerance"), mut)
 
     def _update_rho_enabled(self):
         """rho couples a loss error to its real-part error, so it needs at least one independent loss tolerance."""

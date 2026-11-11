@@ -9,6 +9,12 @@ None the whole complex value is scaled by one factor (tan delta fixed).  The
 real-part and loss errors are independent by default; ``loss_correlation`` (rho)
 couples them, e.g. rho > 0 for a filler content that raises eps' and eps'' together.  A layer can
 override rho through ``per_layer[uid]["loss_correlation"]``.
+
+``material_params`` perturbs material parameters themselves (a mixture's volume fraction, a Debye/Lorentz term's
+f0, ...), so a process error can move a relaxation or a resonance along the frequency axis, which a constant
+factor on eps(f) cannot.  Each entry is one draw per sample for that material (a batch error): every layer and every
+mixture that uses the material sees the same value, and the per-layer eps/mu factors still apply on top.  These
+draws come after all per-layer draws, so files without entries give the same samples as before.
 """
 
 from __future__ import annotations
@@ -173,17 +179,19 @@ def run_tolerance_targets(project: Project, f, mode="corners", n_angle=None, tar
     for _ti, _t, ang, pol in plan:
         need.setdefault(ang, set()).add(pol)
 
-    def rl_db(perturb=None):
+    def rl_db(perturb=None, materials=None):
         out = {}
         for ang, pset in need.items():
             pols = tuple(q for q in ("TE", "TM") if q in pset)
-            res = solve(project.structure, project.materials, f, ang, pols=pols, perturb=perturb)
+            res = solve(project.structure, materials or project.materials, f, ang, pols=pols, perturb=perturb)
             for q in pols:
                 out[ang, q] = 10 * np.log10(np.maximum(res.quantity("R", q)[:, 0], 1e-30))
         return out
 
     nominal = rl_db()
-    factors = sample_factors(project, s, np.random.default_rng(s.seed), n)
+    rng = np.random.default_rng(s.seed)
+    factors = sample_factors(project, s, rng, n)
+    mats = MaterialSampler(project, s, rng, n)
     samples = {key: [] for key in nominal}
     stopped = False
     for k in range(n):
@@ -191,7 +199,7 @@ def run_tolerance_targets(project: Project, f, mode="corners", n_angle=None, tar
             stopped = True
             break
         perturb = {uid: {key: arr[k] for key, arr in d.items()} for uid, d in factors.items()}
-        for key, db in rl_db(perturb).items():
+        for key, db in rl_db(perturb, mats.at(k)).items():
             samples[key].append(db)
         # a stop request after the last sample does not make a complete run "stopped"
         if progress is not None and progress(k + 1, n) and k + 1 < n:
@@ -221,6 +229,50 @@ def _draw(rng, dist, tol, n):
     if dist == "uniform":
         return 1.0 + rng.uniform(-tol, tol, n)
     return 1.0 + rng.normal(0.0, tol, n)
+
+
+def material_param_info(project: Project, path):
+    """ParamInfo of material parameter ``path`` (``("material", name, *key)``); ValueError if there is none."""
+    path = tuple(path)
+    mat = project.materials.get(path[1]) if len(path) >= 3 and path[0] == "material" else None
+    info = next((p for p in mat.params() if p.key == path[2:]), None) if mat is not None else None
+    if info is None:
+        raise ValueError(f"tolerance: no material parameter {list(path)!r}")
+    return info
+
+
+class MaterialSampler:
+    """Per-sample material mappings for ``ToleranceSettings.material_params``.
+
+    The values are drawn in the constructor (after ``sample_factors``, in list order, so a file without entries
+    draws exactly as before), each as nominal x (1 + relative error) clipped to the parameter's physical bounds
+    (a volume fraction stays in 0..1, or below an Odelevskiy mixture's percolation threshold).  ``at(k)`` returns
+    the material mapping of sample k, or None when nothing is perturbed (the solver then uses the project's)."""
+
+    def __init__(self, project: Project, s: ToleranceSettings, rng, n):
+        self.entries = []
+        self.mats = None
+        for e in s.material_params:
+            tol = float(e["tol"])
+            if not (np.isfinite(tol) and tol >= 0):
+                raise ValueError(f"tolerance of {e['path']!r} must be a non-negative number, got {e['tol']!r}")
+            path = tuple(e["path"])
+            info = material_param_info(project, path)
+            nominal = float(project.materials[path[1]].get(path[2:]))
+            vals = nominal * _draw(rng, s.distribution, tol, n)
+            lo = -np.inf if info.lower is None else info.lower
+            hi = np.inf if info.upper is None else info.upper
+            self.entries.append((path, np.clip(vals, lo, hi)))
+        if self.entries:
+            copies = {name: project.materials[name].clone() for name in {p[1] for p, _ in self.entries}}
+            self.mats = {**project.materials, **copies}
+
+    def at(self, k):
+        if self.mats is None:
+            return None
+        for path, vals in self.entries:
+            self.mats[path[1]].set(path[2:], vals[k])
+        return self.mats
 
 
 def _correlate(d_re, tol_re, d_loss, tol_loss, rho, dist):
@@ -285,19 +337,20 @@ def run_tolerance(project: Project, f, settings: ToleranceSettings | None = None
     n = int(s.n_samples)
     pols = ("TE", "TM") if s.pol == "avg" else (s.pol,)
 
-    def rl_db(perturb=None):
-        res = solve(project.structure, project.materials, f, s.angle, pols=pols, perturb=perturb)
+    def rl_db(perturb=None, materials=None):
+        res = solve(project.structure, materials or project.materials, f, s.angle, pols=pols, perturb=perturb)
         r = res.quantity("R", "avg" if s.pol == "avg" else s.pol)[:, 0]
         return 10 * np.log10(np.maximum(r, 1e-30))
 
     nominal = rl_db()
     factors = sample_factors(project, s, rng, n)
+    mats = MaterialSampler(project, s, rng, n)
     samples = []
     stopped = False
     try:
         for k in range(n):
             perturb = {uid: {key: arr[k] for key, arr in d.items()} for uid, d in factors.items()}
-            samples.append(rl_db(perturb))
+            samples.append(rl_db(perturb, mats.at(k)))
             if progress is not None and progress(k + 1, n) and k + 1 < n:  # not after the last sample
                 raise _Stop
     except _Stop:

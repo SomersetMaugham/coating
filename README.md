@@ -60,6 +60,8 @@ can be added later without rewriting it.
   - Monte-Carlo perturbation of thickness, ε′, ε″, μ′, μ″ and sheet impedance, set globally or per layer.
     The loss parts vary independently of the real parts (so tan δ varies too), or follow them (tan δ fixed);
     RLC sheets vary R, L and C independently.
+  - Material parameters can be varied too (a mixture's volume fraction, a dispersion term's f₀, …), so a process
+    error can shift a relaxation or a resonance along the frequency axis.
   - Shows a percentile band and the manufacturing yield.
 - **Interface.**
   - Undo/redo for edits to the layer stack and materials.
