@@ -1054,11 +1054,13 @@ def cmd_fit_shape(composites, matrix_csv=None, matrix_eps=None, matrix_mu=None, 
 
 def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None, waveguide_a_mm=None, branch=0,
                     offset1_mm=0.0, offset2_mm=0.0, uncertainty_csv=None, thickness_sigma_mm=0.0, mag_sigma_db=0.0,
-                    phase_sigma_deg=0.0, uncertainty_samples=200, seed=0, method="nrw"):
+                    phase_sigma_deg=0.0, uncertainty_samples=200, seed=0, method="nrw", coax_gap=None):
     """eps(f), mu(f) of a sample from a measured .s2p by Nicholson-Ross-Weir (docs/CLI_PLAN.md, section 13.12)."""
     from coating_studio.core.constants import C0
     from coating_studio.materials.csvio import to_csv_text
-    from coating_studio.materials.extraction import RECIPROCITY, SMALL_S11, nonmagnetic, nrw, nrw_uncertainty
+    from coating_studio.materials.extraction import (
+        RECIPROCITY, SMALL_S11, coax_gap_correction, nonmagnetic, nrw, nrw_uncertainty,
+    )
     from coating_studio.touchstone import TouchstoneError, parse_s2p
 
     try:
@@ -1093,20 +1095,35 @@ def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None
         check_output_path(uncertainty_csv, force)
     if method not in ("nrw", "nonmagnetic"):
         raise CliError("usage", f"unknown method {method!r}", 2)
+    post = None
+    if coax_gap is not None:
+        if cutoff_hz is not None:
+            raise CliError("usage", "--coax-gap is for a coaxial holder, not a waveguide", 2)
+        try:
+            coax_gap_correction(1.0, 1.0, *coax_gap)  # checks the radii
+        except ValueError as e:
+            raise CliError("invalid_value", f"--coax-gap: {e}", 3) from None
+        post = lambda e, m: coax_gap_correction(e, m, *coax_gap)  # noqa: E731
     extract = nrw if method == "nrw" else nonmagnetic
     try:
         r = extract(f, s11, s21, thickness_mm * 1e-3, cutoff_hz, branch, s12=s12, offset1=offset1_mm * 1e-3,
                     offset2=offset2_mm * 1e-3)
     except ValueError as e:
         raise CliError("invalid_value", str(e), 4) from None
-    write_text(output, to_csv_text(r.f, r.eps, r.mu))
+    eps_out, mu_out = r.eps, r.mu
+    if post is not None:
+        try:
+            eps_out, mu_out = post(r.eps, r.mu)
+        except ValueError as e:
+            raise CliError("invalid_value", f"--coax-gap: {e}", 4) from None
+    write_text(output, to_csv_text(r.f, eps_out, mu_out))
     unc = None
     if uncertainty_csv:
         try:
             u = nrw_uncertainty(f, s11, s21, thickness_mm * 1e-3, cutoff_hz, branch, s12=s12, offset1=offset1_mm * 1e-3,
                                 offset2=offset2_mm * 1e-3, sigma_thickness=thickness_sigma_mm * 1e-3,
                                 sigma_mag_db=mag_sigma_db, sigma_phase_deg=phase_sigma_deg,
-                                n_samples=uncertainty_samples, seed=seed, method=method)
+                                n_samples=uncertainty_samples, seed=seed, method=method, post=post)
         except ValueError as e:
             raise CliError("invalid_value", str(e), 4) from None
         rows = [[f"{a / 1e9:.9g}", f"{b:.6g}", f"{c:.6g}", f"{d:.6g}", f"{e:.6g}"]
@@ -1114,7 +1131,7 @@ def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None
         write_text(uncertainty_csv, csv_text(["f [GHz]", "u(eps')", "u(eps'')", "u(mu')", "u(mu'')"], rows))
         rel = lambda sd, val: float(np.median(sd / np.maximum(np.abs(val), 1e-12)))  # noqa: E731
         unc = {"output_path": str(uncertainty_csv), "n_samples": u.n_samples, "seed": seed,
-               "median_relative": {"eps_re": rel(u.eps_re, r.eps.real), "mu_re": rel(u.mu_re, r.mu.real)},
+               "median_relative": {"eps_re": rel(u.eps_re, eps_out.real), "mu_re": rel(u.mu_re, mu_out.real)},
                "sigmas": {"thickness_mm": thickness_sigma_mm, "mag_db": mag_sigma_db, "phase_deg": phase_sigma_deg}}
     messages = {
         "half_wave_resonance": lambda a: (f"|S11| < {SMALL_S11:g} at {len(a['f_hz'])} frequencies: the sample is close to a "
@@ -1131,6 +1148,7 @@ def cmd_extract_nrw(s2p_path, thickness_mm, output, force=False, cutoff_ghz=None
     return CommandResult({
         "output_path": str(output), "n_points": int(r.f.size), "data_range_hz": [float(r.f[0]), float(r.f[-1])],
         "line": "TEM" if cutoff_hz is None else "TE10 waveguide", "cutoff_hz": cutoff_hz, "method": method,
+        "coax_gap_mm": None if coax_gap is None else list(coax_gap),
         "thickness_m": thickness_mm * 1e-3, "branch": r.branch, "suggested_branch": r.suggested_branch,
         "delay_mismatch": r.delay_mismatch, "reciprocity_error": r.reciprocity_error, "reference_ohm": ref,
         "resonant_points": int(np.count_nonzero(r.resonant)), "uncertainty": unc,

@@ -150,7 +150,8 @@ class NrwUncertainty:
 
 
 def nrw_uncertainty(f, s11, s21, thickness, cutoff_hz=None, branch=0, s12=None, offset1=0.0, offset2=0.0,
-                    sigma_thickness=0.0, sigma_mag_db=0.0, sigma_phase_deg=0.0, n_samples=200, seed=0, method="nrw"):
+                    sigma_thickness=0.0, sigma_mag_db=0.0, sigma_phase_deg=0.0, n_samples=200, seed=0, method="nrw",
+                    post=None):
     """Standard deviations of eps', eps'', mu', mu'' from measurement errors, by Monte Carlo over ``nrw``.
 
     Error model (all 1 sigma, normal; 0 = that error is off):
@@ -159,7 +160,8 @@ def nrw_uncertainty(f, s11, s21, thickness, cutoff_hz=None, branch=0, s12=None, 
       each frequency (random noise).  Calibration drift is smooth over frequency rather than independent, so treat
       this as a noise estimate, not a full calibration-uncertainty budget.
     The phase branch is held at ``branch``.  Near half-wave resonances the spread grows large: that is the point.
-    ``method``: "nrw" or "nonmagnetic" (the extraction that is repeated)."""
+    ``method``: "nrw" or "nonmagnetic" (the extraction that is repeated); ``post(eps, mu) -> (eps, mu)`` is applied to
+    every sample (e.g. the coax air-gap correction), so the spread is that of the final values."""
     extract = {"nrw": nrw, "nonmagnetic": nonmagnetic}[method]
     f = np.asarray(f, dtype=float)
     if not all(x >= 0 for x in (sigma_thickness, sigma_mag_db, sigma_phase_deg)):
@@ -185,7 +187,7 @@ def nrw_uncertainty(f, s11, s21, thickness, cutoff_hz=None, branch=0, s12=None, 
                         offset1=offset1, offset2=offset2)
         except ValueError:
             continue
-        out.append((r.eps, r.mu))
+        out.append(post(r.eps, r.mu) if post is not None else (r.eps, r.mu))
     if len(out) < 2:
         raise ValueError("too few samples gave a solution")
     eps = np.array([e for e, _ in out])
@@ -260,3 +262,28 @@ def nonmagnetic(f, s11, s21, thickness, cutoff_hz=None, branch=0, s12=None, offs
                   start.suggested_branch, start.resonant, start.delay_mismatch, start.reciprocity_error, warnings)
     r.fit_residual = resid
     return r
+
+
+def coax_gap_correction(eps, mu, r_conductor_in, r_sample_in, r_sample_out, r_conductor_out):
+    """Remove the air gaps around a sample in a coaxial holder (quasi-static layered-coax model; J. Baker-Jarvis et
+    al., NIST Technical Note 1355 (1993)).  Radii in any one unit: inner conductor R1 <= sample bore R2 < sample outer
+    R3 <= outer conductor R4.  The gaps and the sample are radial layers:
+
+        capacitances in series:  L3 / eps_m = L1 + L2 / eps_c   ->  eps_c = eps_m L2 / (L3 - eps_m L1)
+        inductances add:         mu_m L3 = L1 + L2 mu_c         ->  mu_c = (mu_m L3 - L1) / L2
+
+    with L1 = ln(R2/R1) + ln(R4/R3) (air), L2 = ln(R3/R2) (sample), L3 = ln(R4/R1).  Applied to the complex values, so
+    the loss is corrected too.  The eps correction diverges as eps_m L1 -> L3: a large measured eps with a sizeable
+    gap cannot be corrected reliably, and ValueError is raised where Re(L3 - eps_m L1) <= 0.1 L3."""
+    r1, r2, r3, r4 = (float(x) for x in (r_conductor_in, r_sample_in, r_sample_out, r_conductor_out))
+    if not (0 < r1 <= r2 < r3 <= r4):
+        raise ValueError("radii must satisfy 0 < conductor_in <= sample_in < sample_out <= conductor_out")
+    l1 = np.log(r2 / r1) + np.log(r4 / r3)
+    l2 = np.log(r3 / r2)
+    l3 = np.log(r4 / r1)
+    eps = np.asarray(eps, dtype=complex)
+    mu = np.asarray(mu, dtype=complex)
+    den = l3 - eps * l1
+    if np.any(den.real <= 0.1 * l3):
+        raise ValueError("the gap is too large for this permittivity: the correction is ill-conditioned")
+    return eps * l2 / den, (mu * l3 - l1) / l2

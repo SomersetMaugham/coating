@@ -271,3 +271,49 @@ def test_cli_method_option(tmp_path):
     assert res.result["method"] == "nonmagnetic" and res.result["uncertainty"]["n_samples"] == 20
     tab = load_csv(str(tmp_path / "p.csv"), name="p")
     assert np.max(np.abs(tab.eps_mu(f, None)[0] - eps)) < 1e-7
+
+
+def test_coax_gap_correction():
+    """Radial layers of a coax are capacitors in series (eps) and inductors in series (mu) per unit length; the
+    correction inverts that composition, is the identity without gaps, and raises a gap-lowered eps'."""
+    from coating_studio.materials.extraction import coax_gap_correction
+
+    r1, r2, r3, r4 = 1.52, 1.53, 3.49, 3.50  # APC-7 with 10 um gaps on both sides [mm]
+    eps_c, mu_c = np.array([10.0 - 0.5j, 3.0 - 0.01j]), np.array([2.0 - 0.3j, 1.0 + 0j])
+    # forward: elastance (1/C) and inductance of each layer, summed over the radial layers
+    layers = [(r1, r2, 1.0, 1.0), (r2, r3, None, None), (r3, r4, 1.0, 1.0)]
+    for k in range(2):
+        el = sum(np.log(b / a) / (eps_c[k] if e is None else e) for a, b, e, _ in layers)
+        ind = sum(np.log(b / a) * (mu_c[k] if m is None else m) for a, b, _, m in layers)
+        eps_m, mu_m = np.log(r4 / r1) / el, ind / np.log(r4 / r1)
+        e2, m2 = coax_gap_correction(eps_m, mu_m, r1, r2, r3, r4)
+        assert abs(e2 - eps_c[k]) < 1e-12 * abs(eps_c[k]) and abs(m2 - mu_c[k]) < 1e-12 * abs(mu_c[k])
+        assert eps_m.real < eps_c[k].real  # the gaps lower the apparent permittivity
+    e0, m0 = coax_gap_correction(eps_c, mu_c, r1, r1, r4, r4)
+    assert np.allclose(e0, eps_c, rtol=1e-15) and np.allclose(m0, mu_c, rtol=1e-15)
+    with pytest.raises(ValueError):
+        coax_gap_correction(10.0, 1.0, 1.52, 1.40, 3.49, 3.50)  # bore smaller than the conductor
+    with pytest.raises(ValueError, match="ill-conditioned"):
+        coax_gap_correction(200.0, 1.0, 1.52, 1.62, 3.40, 3.50)  # large eps with a large gap
+
+
+def test_cli_coax_gap(tmp_path):
+    from coating_studio.cli.commands import cmd_extract_nrw
+    from coating_studio.cli.output import CliError
+
+    f = np.linspace(2e9, 18e9, 41)
+    eps, mu = LOSSY.eps_mu(f, None)
+    s11, s21 = slab_sparams(f, eps, mu, 2e-3)
+    src = tmp_path / "c.s2p"
+    src.write_text(_s2p_text(f, s11, s21))
+    gap = [1.52, 1.53, 3.49, 3.50]
+    res = cmd_extract_nrw(str(src), 2.0, str(tmp_path / "c.csv"), coax_gap=gap, uncertainty_csv=str(tmp_path / "u.csv"),
+                          thickness_sigma_mm=0.01, uncertainty_samples=20)
+    assert res.result["coax_gap_mm"] == gap
+    from coating_studio.materials.extraction import coax_gap_correction
+
+    want, _ = coax_gap_correction(eps, mu, *gap)
+    got = load_csv(str(tmp_path / "c.csv"), name="c").eps_mu(f, None)[0]
+    assert np.max(np.abs(got - want) / np.abs(want)) < 1e-7
+    with pytest.raises(CliError):
+        cmd_extract_nrw(str(src), 2.0, str(tmp_path / "d.csv"), coax_gap=gap, waveguide_a_mm=22.86)
