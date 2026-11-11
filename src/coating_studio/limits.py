@@ -64,7 +64,7 @@ def static_permeability(mat, resolver, _seen=None):
         if um is None or ui is None:
             return None, xm or xi
         try:
-            mu = mixing_rule(np.array([um]), np.array([ui]), mat.fraction, mat.model, mat.shape)
+            mu = mixing_rule(np.array([um]), np.array([ui]), mat.fraction, mat.model, mat.rule_params)
         except PercolationError:
             return None, xm or xi
         return float(np.real(mu)[0]), xm or xi

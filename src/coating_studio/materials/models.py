@@ -31,6 +31,25 @@ class Shape(NamedTuple):
     pc: float
 
 
+class GemParams(NamedTuple):
+    """Parameters of McLachlan's general effective-media (GEM) rule: percolation threshold pc and exponent t."""
+
+    pc: float
+    t: float
+
+
+def make_gem(percolation, exponent):
+    """``GemParams`` for the 'gem' rule; both values are required (no default, so none is invented)."""
+    if percolation is None or exponent is None:
+        raise ValueError("the gem rule needs percolation and exponent")
+    pc, t = float(percolation), float(exponent)
+    if not 0.0 < pc < 1.0:
+        raise ValueError(f"percolation must be between 0 and 1, got {pc:g}")
+    if not 0.0 < t <= 10.0:
+        raise ValueError(f"exponent must be above 0 and at most 10, got {t:g}")
+    return GemParams(pc, t)
+
+
 def make_shape(model, shape_n, percolation):
     """The ``Shape`` of a mixing model: required for 'odelevskiy' (no default, so none is invented), refused otherwise."""
     if model != "odelevskiy":
@@ -386,17 +405,19 @@ class MixtureMaterial(Material):
     """Effective-medium mixture of an inclusion (volume fraction phi) in a matrix.
 
     model: 'maxwell_garnett' (dilute spherical inclusions), 'bruggeman'
-    (symmetric, valid up to and through percolation), or 'odelevskiy' for non-spherical
+    (symmetric, valid up to and through percolation), 'odelevskiy' for non-spherical
     inclusions, which needs the shape factor ``shape_n`` and the percolation threshold
-    ``percolation`` (N = 1/3 with pc = 1 is Maxwell-Garnett).  The same rule is applied to
-    eps and mu.  Density is the volume-weighted average.
+    ``percolation`` (N = 1/3 with pc = 1 is Maxwell-Garnett), or 'gem' (McLachlan's general
+    effective-media rule), which needs ``percolation`` and ``exponent`` and stays continuous through
+    the threshold (pc = 1/3 with t = 1 is Bruggeman).  The same rule is applied to eps and mu.
+    Density is the volume-weighted average.
     """
 
     kind = "mixture"
-    MODELS = ("maxwell_garnett", "bruggeman", "odelevskiy")
+    MODELS = ("maxwell_garnett", "bruggeman", "odelevskiy", "gem")
 
     def __init__(self, name, matrix, inclusion, fraction=0.1, model="maxwell_garnett", shape_n=None, percolation=None,
-                 **kw):
+                 exponent=None, **kw):
         kw.pop("density", None)
         super().__init__(name, **kw)
         if model not in self.MODELS:
@@ -404,7 +425,14 @@ class MixtureMaterial(Material):
         self.matrix, self.inclusion = matrix, inclusion
         self.fraction = float(fraction)
         self.model = model
-        self.shape = make_shape(model, shape_n, percolation)
+        if model == "gem":
+            if shape_n is not None:
+                raise ValueError("the gem rule takes no shape factor")
+            self.shape, self.gem = None, make_gem(percolation, exponent)
+        else:
+            if exponent is not None:
+                raise ValueError(f"the {model} rule takes no exponent")
+            self.shape, self.gem = make_shape(model, shape_n, percolation), None
         self._busy = False
 
     @property
@@ -413,7 +441,17 @@ class MixtureMaterial(Material):
 
     @property
     def percolation(self):
-        return None if self.shape is None else self.shape.pc
+        params = self.shape or self.gem
+        return None if params is None else params.pc
+
+    @property
+    def exponent(self):
+        return None if self.gem is None else self.gem.t
+
+    @property
+    def rule_params(self):
+        """What ``mixing_rule`` needs besides the model: the Odelevskiy ``Shape``, the ``GemParams`` or None."""
+        return self.shape if self.shape is not None else self.gem
 
     def _guard(self):
         if self._busy:
@@ -430,8 +468,8 @@ class MixtureMaterial(Material):
             em_i = resolver(self.inclusion).eps_mu(f, resolver)
         finally:
             self._busy = False
-        return (mixing_rule(em_m[0], em_i[0], self.fraction, self.model, self.shape),
-                mixing_rule(em_m[1], em_i[1], self.fraction, self.model, self.shape))
+        return (mixing_rule(em_m[0], em_i[0], self.fraction, self.model, self.rule_params),
+                mixing_rule(em_m[1], em_i[1], self.fraction, self.model, self.rule_params))
 
     def get_density(self, resolver):
         self._guard()
@@ -462,11 +500,13 @@ class MixtureMaterial(Material):
         d.update(matrix=self.matrix, inclusion=self.inclusion, fraction=self.fraction, model=self.model)
         if self.shape is not None:
             d.update(shape_n=self.shape.n, percolation=self.shape.pc)
+        if self.gem is not None:
+            d.update(percolation=self.gem.pc, exponent=self.gem.t)
         return d
 
     def __deepcopy__(self, memo):
         m = MixtureMaterial(self.name, self.matrix, self.inclusion, self.fraction, self.model,
-                            shape_n=self.shape_n, percolation=self.percolation, note=self.note)
+                            shape_n=self.shape_n, percolation=self.percolation, exponent=self.exponent, note=self.note)
         return m
 
 
@@ -503,9 +543,45 @@ def odelevskiy(em, ei, phi, shape):
     return em * (1 + phi * d / ((1 - phi / shape.pc) * shape.n * d + em))
 
 
+def gem(em, ei, phi, params):
+    """McLachlan's general effective-media equation (McLachlan, Blaszkiewicz, Newnham, J. Am. Ceram. Soc. 73, 2187 (1990)):
+
+        (1 - phi) (em^(1/t) - e^(1/t)) / (em^(1/t) + A e^(1/t)) + phi (ei^(1/t) - e^(1/t)) / (ei^(1/t) + A e^(1/t)) = 0,
+
+    A = (1 - pc)/pc, applied to complex values as for AC conductivity.  In x = e^(1/t) it is the quadratic
+    A x^2 - B x - a b = 0 (a = em^(1/t), b = ei^(1/t), B = (1 - phi)(A a - b) + phi(A b - a)), solved in closed form;
+    principal powers.  Of the two roots, the physical one has arg x in [-pi/t, 0] (so e = x^t is passive in the
+    e^{+jwt} convention) and Re x > 0; for real positive inputs it is the positive root.  pc = 1/3, t = 1 is Bruggeman.
+    It is continuous through pc, unlike Odelevskiy, but it is a fit: pc and t come from measurements."""
+    em = np.asarray(em, dtype=complex)
+    ei = np.asarray(ei, dtype=complex)
+    a, b = em ** (1.0 / params.t), ei ** (1.0 / params.t)
+    big_a = (1.0 - params.pc) / params.pc
+    big_b = (1.0 - phi) * (big_a * a - b) + phi * (big_a * b - a)
+    disc = np.sqrt(big_b * big_b + 4.0 * big_a * a * b)
+    # Stable roots: the larger one without cancellation, the other from r1 r2 = -a b / A.  A conductive filler makes
+    # |b| >> |a|, and B - disc would then lose the small root's digits (all of them at a contrast of 1e80).
+    q = np.where(np.abs(big_b + disc) >= np.abs(big_b - disc), big_b + disc, big_b - disc)
+    r1 = q / (2.0 * big_a)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        r2 = np.where(q != 0, -2.0 * a * b / q, 0.0)
+    tol = 1e-9
+
+    def score(r):
+        ang = np.angle(r)
+        return (((ang <= tol) & (ang >= -np.pi / params.t - tol)).astype(float) * 2 + (r.real > 0).astype(float))
+
+    s1, s2 = score(r1), score(r2)
+    pick1 = (s1 > s2) | ((s1 == s2) & (r1.real >= r2.real))
+    return np.where(pick1, r1, r2) ** params.t
+
+
 def mixing_rule(em, ei, phi, model, shape=None):
+    """``shape``: the rule's parameters (``Shape`` for 'odelevskiy', ``GemParams`` for 'gem', else None)."""
     if model == "odelevskiy":
         return odelevskiy(em, ei, phi, shape)
+    if model == "gem":
+        return gem(em, ei, phi, shape)
     return maxwell_garnett(em, ei, phi) if model == "maxwell_garnett" else bruggeman(em, ei, phi)
 
 

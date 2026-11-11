@@ -66,7 +66,7 @@ exception, and it falls back if Qt is missing.
   when touching the solver. `materials` is any mapping name→Material. Everything is SI internally,
   and `core/units.py` converts to display units (GHz, mm, °, Ω/sq).
 - **`materials/`**: the `Material` subclasses are Constant, Dispersive (Debye/Lorentz/σ), Tabulated
-  (CSV), Mixture (MG/Bruggeman/Odelevskiy, the last needing a shape factor and percolation threshold) and PowerLaw (Michielssen-style ε′(1 GHz)/fᵃ fits; not causal, so its static μ is
+  (CSV), Mixture (MG/Bruggeman/Odelevskiy/GEM; Odelevskiy needs a shape factor and percolation threshold, GEM a percolation threshold and exponent) and PowerLaw (Michielssen-style ε′(1 GHz)/fᵃ fits; not causal, so its static μ is
   unknown). Uniaxial references two isotropic materials (in-plane, normal); `eps_mu` returns the in-plane values,
   `eps_mu_normal` the z components (None for isotropic materials), and only the solver uses the latter. `eps_mu(f, resolver)` takes a resolver because mixtures
   reference other materials by **name**. Cycles raise `MaterialCycleError`. Tabulated data raises
