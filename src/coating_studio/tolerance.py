@@ -231,12 +231,20 @@ def run_tolerance_corners(project: Project, f, target_db=None, progress=None, sh
                                  should_stop=should_stop)
 
 
+def _draw_delta(rng, dist, tol, n):
+    """Raw deviations: N(0, tol) or U(-tol, tol); zeros (and no draw) for tol <= 0."""
+    if tol <= 0:
+        return np.zeros(n)
+    if dist == "uniform":
+        return rng.uniform(-tol, tol, n)
+    return rng.normal(0.0, tol, n)
+
+
 def _draw(rng, dist, tol, n):
+    """Relative factors 1 + deviation (the same arithmetic and draws as before ``_draw_delta`` existed)."""
     if tol <= 0:
         return np.ones(n)
-    if dist == "uniform":
-        return 1.0 + rng.uniform(-tol, tol, n)
-    return 1.0 + rng.normal(0.0, tol, n)
+    return 1.0 + _draw_delta(rng, dist, tol, n)
 
 
 def material_param_info(project: Project, path):
@@ -269,24 +277,34 @@ class MaterialSampler:
             info = material_param_info(project, path)
             lo = -np.inf if info.lower is None else info.lower
             hi = np.inf if info.upper is None else info.upper
-            self.entries.append((path, _draw(rng, s.distribution, tol, n), lo, hi))
+            mode = e.get("mode", "relative")
+            if mode == "absolute":  # deviations in the parameter's SI unit, added to the current nominal value
+                arr = _draw_delta(rng, s.distribution, tol, n)
+            elif mode == "relative":
+                arr = _draw(rng, s.distribution, tol, n)
+            else:
+                raise ValueError(f"tolerance mode of {e['path']!r} must be 'relative' or 'absolute', got {mode!r}")
+            self.entries.append((path, mode, arr, lo, hi))
 
     def clipped(self, n):
         """[{"path", "n"}]: how many of the first ``n`` samples clip each parameter to its bounds (current values)."""
         out = []
-        for path, factors, lo, hi in self.entries:
-            vals = float(self.project.materials[path[1]].get(path[2:])) * factors[:n]
+        for path, mode, arr, lo, hi in self.entries:
+            vals = self._values(path, mode, arr[:n])
             out.append({"path": list(path), "n": int(np.count_nonzero((vals < lo) | (vals > hi)))})
         return out
+
+    def _values(self, path, mode, arr):
+        nominal = float(self.project.materials[path[1]].get(path[2:]))
+        return nominal + arr if mode == "absolute" else nominal * arr
 
     def at(self, k):
         if not self.entries:
             return None
         mats = self.project.materials
         copies = {name: mats[name].clone() for name in {p[1] for p, *_ in self.entries}}
-        for path, factors, lo, hi in self.entries:
-            nominal = float(mats[path[1]].get(path[2:]))
-            copies[path[1]].set(path[2:], np.clip(nominal * factors[k], lo, hi))
+        for path, mode, arr, lo, hi in self.entries:
+            copies[path[1]].set(path[2:], np.clip(self._values(path, mode, arr[k]), lo, hi))
         return {**mats, **copies}
 
 

@@ -1260,15 +1260,31 @@ def test_material_parameter_tolerance_table(app):
     assert f0 in paths and all(p[0] == "material" for p in paths)
     row = paths.index(f0)
     assert "f₀" in t.item(row, 0).text()
-    t.item(row, 1).setText("8")
+    t.item(row, 2).setText("8")
     assert w.project.tolerance.material_params == [{"path": f0, "tol": pytest.approx(0.08)}]
-    t.item(row, 1).setText("abc")  # rejected, the table shows the stored value again
-    assert w.project.tolerance.material_params[0]["tol"] == pytest.approx(0.08) and t.item(row, 1).text() == "8"
+    t.item(row, 2).setText("abc")  # rejected, the table shows the stored value again
+    assert w.project.tolerance.material_params[0]["tol"] == pytest.approx(0.08) and t.item(row, 2).text() == "8"
     w.doc.undo_stack.undo()
-    assert w.project.tolerance.material_params == [] and w.p_tol.mtbl.item(row, 1).text() == ""
+    assert w.project.tolerance.material_params == [] and w.p_tol.mtbl.item(row, 2).text() == ""
     w.doc.undo_stack.redo()
-    w.p_tol.mtbl.item(row, 1).setText("")
+    w.p_tol.mtbl.item(row, 2).setText("")
     assert w.project.tolerance.material_params == []
+    # absolute kind: the value is in the parameter's unit (f0: GHz) and switching converts at the current value
+    t.item(row, 2).setText("10")  # 10 %
+    cb = t.cellWidget(row, 1)
+    assert cb.itemText(1) == "Absolute (GHz)"
+    cb.setCurrentIndex(cb.findData("absolute"))
+    e = w.project.tolerance.material_param_entry(f0)
+    nominal = w.project.materials["Carbonyl iron / epoxy"].mu_terms[0]["f0"]
+    assert e["mode"] == "absolute" and e["tol"] == pytest.approx(0.1 * nominal)
+    t = w.p_tol.mtbl  # the table was rebuilt by the edit
+    assert t.item(row, 2).text() == f"{0.1 * nominal / 1e9:g}"
+    t.item(row, 2).setText("0.2")
+    assert w.project.tolerance.material_param_entry(f0) == {"path": f0, "tol": pytest.approx(0.2e9), "mode": "absolute"}
+    w.p_tol.mtbl.cellWidget(row, 1).setCurrentIndex(0)  # back to relative: 0.2 GHz / 3 GHz
+    assert w.project.tolerance.material_param_entry(f0) == {"path": f0, "tol": pytest.approx(0.2e9 / nominal)}
+    w.doc.undo_stack.undo()
+    assert w.project.tolerance.material_param_entry(f0)["mode"] == "absolute"
     w.doc.undo_stack.setClean()
     w.close()
 

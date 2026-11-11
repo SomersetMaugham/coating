@@ -14,13 +14,13 @@ from PySide6.QtWidgets import (
 
 from coating_studio.core.structure import SheetLayer, SlabLayer
 from coating_studio.gui import spectral
-from coating_studio.gui.fmt import param_label, rl_display
+from coating_studio.gui.fmt import from_display, param_label, rl_display, to_display, unit_label
 from coating_studio.gui.icons import set_button_icon
 from coating_studio.gui.plots.base import PlotView
 from coating_studio.gui.widgets.inputs import SciSpinBox, muted
 from coating_studio.gui.workers import ToleranceWorker, start_worker
 from coating_studio.i18n import tr
-from coating_studio.project import available_params
+from coating_studio.project import available_params, get_param, param_unit
 from coating_studio.report import corner_label, draw_tolerance_band, samples_text
 from coating_studio.tolerance import (  # noqa: F401 (yield_band re-exported)
     CornerResult, result_band, result_settings, tolerance_frequencies, yield_band, yield_intervals,
@@ -194,15 +194,19 @@ class TolerancePanel(QWidget):
 
         g = QGroupBox(tr("Material parameter tolerances"))
         gl = QVBoxLayout(g)
-        self.mtbl = QTableWidget(0, 2)
-        self.mtbl.setHorizontalHeaderLabels([tr("Parameter"), tr("Tolerance (%)")])
+        self.mtbl = QTableWidget(0, 3)
+        self.mtbl.setHorizontalHeaderLabels([tr("Parameter"), tr("Kind"), tr("Tolerance")])
         self.mtbl.verticalHeader().setVisible(False)
         self.mtbl.setSelectionMode(QAbstractItemView.NoSelection)
         mh = self.mtbl.horizontalHeader()
         mh.setSectionResizeMode(0, QHeaderView.Stretch)
         mh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        mh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.mtbl.setMinimumHeight(120)
         gl.addWidget(self.mtbl)
+        gl.addWidget(muted(tr("Relative: % of the value. Absolute: in the unit shown (a volume fraction 0.01 = 1 vol%); "
+                              "f₀ and γ stay in GHz whatever the spectral axis. Both are 1σ for a normal distribution "
+                              "and ± half-width for a uniform one. Changing the kind converts at the current value.")))
         gl.addWidget(muted(tr("Blank cells leave the parameter at its value. A material parameter is drawn once per "
                               "sample for the material, so every layer that uses it moves together; shifting a "
                               "term's f₀ or a volume fraction moves the curve along the frequency axis. The layer "
@@ -347,8 +351,15 @@ class TolerancePanel(QWidget):
             self._loading = False
         self._apply_corner_state()
 
+    def _abs_unit(self, p, path):
+        try:
+            return param_unit(p, path)
+        except (KeyError, ValueError):
+            return ""
+
     def _refresh_material_table(self, p):
-        """One row per material parameter the optimiser could vary (materials in use and those they reference)."""
+        """One row per material parameter the optimiser could vary (materials in use and those they reference): its
+        name, the kind of tolerance (relative % or absolute in the parameter's own unit) and the value."""
         rows = [(path, label) for path, label, _ in available_params(p) if path[0] == "material"]
         position = spectral.position_symbol(spectral.unit_of(p))
         self.mtbl.setRowCount(len(rows))
@@ -358,37 +369,93 @@ class TolerancePanel(QWidget):
             it.setFlags(Qt.ItemIsEnabled)
             it.setData(Qt.UserRole, list(path))
             self.mtbl.setItem(r, 0, it)
-            tol = p.tolerance.material_tolerance(path)
-            cell = QTableWidgetItem("" if tol is None else f"{tol * 100:g}")
+            unit = self._abs_unit(p, path)
+            cb = QComboBox()
+            cb.addItem(tr("Relative (%)"), "relative")
+            ul = tr("fraction") if unit == "frac" else unit_label(unit)
+            cb.addItem(tr("Absolute ({u})", u=ul) if ul else tr("Absolute"), "absolute")
+            if unit == "frac":
+                cb.setItemData(1, tr("A volume fraction: 0.01 = 1 vol%."), Qt.ToolTipRole)
+            e = p.tolerance.material_param_entry(path)
+            mode = "relative" if e is None else e.get("mode", "relative")
+            cb.setCurrentIndex(cb.findData(mode))
+            cb.currentIndexChanged.connect(lambda _i, row=r: self._on_material_mode(row))
+            self.mtbl.setCellWidget(r, 1, cb)
+            if e is None:
+                text = ""
+            elif mode == "absolute":
+                text = f"{to_display(e['tol'], unit):g}"
+            else:
+                text = f"{e['tol'] * 100:g}"
+            cell = QTableWidgetItem(text)
             cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            self.mtbl.setItem(r, 1, cell)
+            self.mtbl.setItem(r, 2, cell)
+
+    def _row_mode(self, row):
+        cb = self.mtbl.cellWidget(row, 1)
+        return "relative" if cb is None else cb.currentData()
 
     def _on_material_cell(self, item):
-        if self._loading or item.column() != 1:
+        if self._loading or item.column() != 2:
             return
+        p = self.doc.project
         path = self.mtbl.item(item.row(), 0).data(Qt.UserRole)
+        mode = self._row_mode(item.row())
         text = item.text().strip().replace("%", "")
         val = None
         if text:
             try:
-                val = float(text) / 100
+                val = float(text)
             except ValueError:
                 val = None
             if val is None or not math.isfinite(val) or val < 0:
                 self.refresh()
                 return
+            val = from_display(val, self._abs_unit(p, path)) if mode == "absolute" else val / 100
 
-        def mut(p):
+        def mut(pr):
             # an edited entry keeps its place: the list order is the draw order, so other entries keep their samples
-            entries = p.tolerance.material_params
+            entries = pr.tolerance.material_params
             i = next((i for i, e in enumerate(entries) if e["path"] == path), None)
             if val is None:
                 if i is not None:
                     del entries[i]
-            elif i is None:
-                entries.append({"path": list(path), "tol": val})
+                return
+            entry = {"path": list(path), "tol": val}
+            if mode == "absolute":
+                entry["mode"] = "absolute"
+            if i is None:
+                entries.append(entry)
             else:
-                entries[i]["tol"] = val
+                entries[i] = entry
+        self.doc.edit(tr("Change material parameter tolerance"), mut)
+
+    def _on_material_mode(self, row):
+        """The kind changed: convert an existing value at the current nominal value (relative x |value| <-> absolute),
+        so the tolerance means the same at this point; with a zero nominal value a relative one has no equivalent and
+        the entry is removed.  A row without a value only remembers the kind for the next input."""
+        if self._loading:
+            return
+        p = self.doc.project
+        path = self.mtbl.item(row, 0).data(Qt.UserRole)
+        if p.tolerance.material_param_entry(path) is None:
+            return
+        mode = self._row_mode(row)
+        nominal = abs(float(get_param(p, path)))
+
+        def mut(pr):
+            entries = pr.tolerance.material_params
+            i = next(i for i, e in enumerate(entries) if e["path"] == path)
+            e = entries[i]
+            old = e.get("mode", "relative")
+            if old == mode:
+                return
+            if mode == "absolute":
+                entries[i] = {"path": list(path), "tol": e["tol"] * nominal, "mode": "absolute"}
+            elif nominal > 0:
+                entries[i] = {"path": list(path), "tol": e["tol"] / nominal}
+            else:
+                del entries[i]
         self.doc.edit(tr("Change material parameter tolerance"), mut)
 
     def _update_rho_enabled(self):

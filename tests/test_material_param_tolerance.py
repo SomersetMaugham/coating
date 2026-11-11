@@ -90,9 +90,9 @@ def test_mixture_fraction_is_clipped_and_shared_through_references():
     assert fr.min() == 0.0 and fr.max() == 1.0  # clipped to the physical range
     mats = m.at(7)
     assert mats["Carbon / epoxy"].fraction == fr[7]
-    assert mats["Carbon black"].sigma == p.materials["Carbon black"].sigma * m.entries[1][1][7]
+    assert mats["Carbon black"].sigma == p.materials["Carbon black"].sigma * m.entries[1][2][7]
     p.materials["Carbon black"].sigma *= 2  # factors apply to the current nominal value (robust optimisation)
-    assert m.at(7)["Carbon black"].sigma == p.materials["Carbon black"].sigma * m.entries[1][1][7]
+    assert m.at(7)["Carbon black"].sigma == p.materials["Carbon black"].sigma * m.entries[1][2][7]
     assert mats["Epoxy"] is p.materials["Epoxy"]  # untouched materials are not copied
     assert p.materials["Carbon / epoxy"].fraction == 0.3
     assert MaterialSampler(_quiet(EXAMPLES["carbon"][1]()), ToleranceSettings(), np.random.default_rng(0), 5).at(0) is None
@@ -175,3 +175,77 @@ def test_clipped_samples_are_counted_and_reported(tmp_path):
     assert res.result["material_params_clipped"] == r.clipped
     codes = [w["code"] for w in res.warnings]
     assert codes.count("tolerance_clipped") == 1
+
+
+def test_absolute_mode_uses_the_same_draws_and_survives_the_snapshot():
+    """value = nominal + delta with delta from the same random calls as a relative entry; the other entries keep their
+    samples; and the run's settings snapshot (a from_dict round trip) keeps the mode."""
+    p = _quiet(EXAMPLES["dallenbach"][1]())
+    p.tolerance.n_samples = 30
+    sigma = ["material", CI, "sigma"]
+    p.tolerance.material_params = [{"path": F0, "tol": 0.2e9, "mode": "absolute"}, {"path": sigma, "tol": 0.1}]
+    rng = np.random.default_rng(p.tolerance.seed)
+    sample_factors(p, p.tolerance, rng, 30)
+    delta = rng.normal(0.0, 0.2e9, 30)
+    rel_sigma = 1.0 + rng.normal(0.0, 0.1, 30)
+    m = MaterialSampler(p, p.tolerance, np.random.default_rng(p.tolerance.seed), 30)
+    nominal = p.materials[CI].get(tuple(F0[2:]))
+    for k in (0, 7, 29):
+        mats = m.at(k)
+        assert mats[CI].get(tuple(F0[2:])) == nominal + delta[k]
+        assert mats[CI].sigma == p.materials[CI].sigma * rel_sigma[k]
+    rel = _quiet(EXAMPLES["dallenbach"][1]())
+    rel.tolerance.material_params = [{"path": F0, "tol": 0.2e9 / nominal}, {"path": sigma, "tol": 0.1}]
+    r_rel = MaterialSampler(rel, rel.tolerance, np.random.default_rng(rel.tolerance.seed), 30)
+    assert all(r_rel.at(k)[CI].sigma == m.at(k)[CI].sigma for k in range(30))  # the other entry is unchanged
+    snap = ToleranceSettings.from_dict(p.tolerance.to_dict())
+    assert snap.material_params[0]["mode"] == "absolute" and "mode" not in snap.material_params[1]
+    f = tolerance_frequencies(p)
+    band = yield_intervals(p)
+    r = run_tolerance(p, f, band=band)
+    for k in (0, 7):
+        q = p.copy()
+        q.materials[CI].set(tuple(F0[2:]), nominal + delta[k])
+        q.materials[CI].sigma = p.materials[CI].sigma * rel_sigma[k]
+        assert r.worst_db[k] == pytest.approx(_band_worst(q, f, band), abs=1e-12)
+
+
+def test_absolute_mode_with_a_zero_nominal_and_a_moving_nominal():
+    p = EXAMPLES["dallenbach"][1]()
+    loss = ["material", CI, "mu_loss"]
+    assert p.materials[CI].mu_loss == 0.0
+    p.tolerance.n_samples = 400
+    p.tolerance.material_params = [{"path": loss, "tol": 0.05, "mode": "absolute"}]
+    m = MaterialSampler(p, p.tolerance, np.random.default_rng(1), 400)
+    vals = np.array([m.at(k)[CI].mu_loss for k in range(400)])
+    assert vals.max() > 0.05 and vals.min() == 0.0  # a relative tolerance could never move a zero
+    assert 150 < m.clipped(400)[0]["n"] < 250  # about half fall below the lower bound 0
+    delta = m.entries[0][2]  # the stored absolute deviations
+    assert np.array_equal(vals, np.maximum(delta, 0.0))
+    p.materials[CI].mu_loss = 0.5  # the robust optimiser moves the nominal value: the same deviations are added
+    assert np.array_equal([m.at(k)[CI].mu_loss for k in range(400)], np.maximum(0.5 + delta, 0.0))
+
+
+def test_absolute_mode_in_the_spec_and_the_file():
+    p = EXAMPLES["dallenbach"][1]()
+    p.tolerance.material_params = [{"path": F0, "tol": 0.2e9, "mode": "absolute"},
+                                   {"path": ["material", CI, "sigma"], "tol": 0.05}]
+    spec = project_to_spec(p)
+    assert spec["tolerance"]["material_params"] == [
+        {"material": CI, "param": ["mu_terms", 0, "f0"], "tol": pytest.approx(0.2), "mode": "absolute", "unit": "GHz"},
+        {"material": CI, "param": ["sigma"], "tol": 0.05}]  # relative entries look as before
+    back = spec_to_project(spec)[0].tolerance.material_params
+    assert back[0] == {"path": F0, "tol": pytest.approx(0.2e9), "mode": "absolute"} and back[1] == p.tolerance.material_params[1]
+    bad = [({"mode": "absolute"}, "unit"),  # no unit
+           ({"mode": "absolute", "unit": "Hz"}, "unit"),
+           ({"mode": "absolute", "unit": "wt"}, "weight"),
+           ({"unit": "GHz"}, "relative tolerance has no unit"),
+           ({"mode": "percent"}, "mode")]
+    for extra, msg in bad:
+        s2 = project_to_spec(p)
+        s2["tolerance"]["material_params"] = [{"material": CI, "param": ["mu_terms", 0, "f0"], "tol": 0.2, **extra}]
+        with pytest.raises(CliError, match=msg):
+            spec_to_project(s2)
+    q = Project.from_dict(p.to_dict())
+    assert q.to_dict()["schema"] == 15 and q.tolerance.material_params == p.tolerance.material_params
+    assert q.tolerance.material_param_entry(F0)["mode"] == "absolute" and q.tolerance.material_tolerance(F0) == 0.2e9
