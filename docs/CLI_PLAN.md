@@ -43,6 +43,7 @@ Coating Studio의 기능은 지금 GUI로만 쓸 수 있습니다. 코딩 에이
 | `fss-grid` (v8) | 메시·패치 치수에서 L 또는 C와 각도 계수, 유효 한계를 계산 | 13.10절 |
 | `fit-shape` (v10) | 여러 함량의 복합재 측정에서 Odelevskiy 비율 N/pc와 시편별 허용 N 범위를 구함 | 13.11절 |
 | `extract-nrw` (v11) | 측정한 2포트 `.s2p`에서 NRW로 시편의 ε(f), μ(f)를 구해 측정 CSV로 씀 | 13.12절 |
+| `fit-gem` (v12) | 여러 함량의 복합재 측정에서 McLachlan GEM의 퍼콜레이션 임계값 pc와 지수 t를 구함 | 13.13절 |
 
 (v3) `check`는 활성 목표마다 Rozanov 한계 판정(`result.limits`)을 함께 냅니다. `solve`·`optimize`·`tolerance`·`check`는 공통 옵션 `--journal DIR --note TEXT`를 받습니다.
 
@@ -834,7 +835,7 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
 - `validation[]`: `--validate CSV FRACTION`으로 다른 함량의 측정과 비교합니다. rms는 `fitting`과 같게 √mean|예측−측정|² / max|측정|. 겹치는 점이 2개 미만이면 오류, 0.10 초과면 `validation_poor`. 검증이 없으면 `no_validation`.
 - Re(ei) < 0 점은 금속성 충전재에서 있을 수 있어 오류로 하지 않고 경고 `filler_negative_real`.
 
-**명령**: `coating-cli invert-filler COMPOSITE.csv -o FILLER.csv --model {maxwell_garnett,bruggeman,odelevskiy} [--shape-n N --percolation PC] --density-filler R (--fraction V | --fraction-wt W --density-matrix R) (--matrix-csv F | --matrix-eps RE LOSS [--matrix-mu RE LOSS]) [--name N] [--clamp-nonpassive] [--validate CSV FRACTION]... [--force]`
+**명령**: `coating-cli invert-filler COMPOSITE.csv -o FILLER.csv --model {maxwell_garnett,bruggeman,odelevskiy,gem} [--shape-n N --percolation PC | --percolation PC --exponent T] --density-filler R (--fraction V | --fraction-wt W --density-matrix R) (--matrix-csv F | --matrix-eps RE LOSS [--matrix-mu RE LOSS]) [--name N] [--clamp-nonpassive] [--validate CSV FRACTION]... [--force]`
 - 모델·매트릭스·함량·충전재 밀도는 모두 필수이고 기본값이 없습니다. 재료 값을 지어내지 않기 위해서입니다(밀도를 기본값으로 두면 `fraction_wt`와 질량 목적함수가 조용히 틀어집니다). 내장 재료(데모 값)는 매트릭스로 받지 않습니다.
 - `--validate`의 FRACTION은 주 함량과 같은 기준(`--fraction-wt`를 쓰면 무게 분율)입니다. 결과의 `fraction`은 어느 쪽으로 넣어도 부피 분율입니다.
 - `-o`는 필수이고, 어떤 입력 CSV와도 같은 경로면 `--force`가 있어도 거부합니다. CSV 읽기 오류는 `fit`과 같이 종료 3입니다.
@@ -912,6 +913,21 @@ Odelevskiy 규칙(13.9 "비구형 충전재")의 N과 pc를 측정에서 정하�
   복소값에 적용하므로 손실도 보정되고, 불확도 표본에도 같은 보정이 들어갑니다. 도파관과 함께 쓰면 `usage`, Re(L3 − εm·L1) ≤ 0.1·L3이면(틈에 비해 ε가 큼)
   보정이 불안정해 `invalid_value`입니다. 결과의 `coax_gap_mm`.
 - **범위 밖**: 교정 불확도(계통 오차) 전파, GUI의 불확도와 공기 틈 보정.
+
+### 13.13 (v12) 여러 함량에서 GEM의 pc·t: `fit-gem`
+- **`coating-cli fit-gem --composite CSV FRACTION ... (--matrix-csv F | --matrix-eps RE LOSS [--matrix-mu RE LOSS]) [--weight-fractions --density-filler R --density-matrix R]`**
+  (입력 규칙은 `fit-shape`와 같음).
+- **식**: 충전재는 주파수마다 자유로운 복소값입니다. x = ε^(1/t), a = εₘ^(1/t), A = (1 − pc)/pc, R = (1 − φ)(a − x)/(a + A x)이면 함량마다
+  b = εᵢ^(1/t) = x(φ − R A)/(φ + R)가 닫힌 꼴로 나옵니다. 주파수마다 함량별 b를 가중치 1/(|∂b/∂e| s_k)²로 평균해(1차 근사의 상대 잔차 최소화) 충전재를 정하고,
+  모든 함량을 순방향 GEM으로 예측한 상대 rms(함량마다 max_f |e_k|로 정규화)가 비용입니다. ε와 μ에 같은 (pc, t)를 씁니다(혼합 재료와 같음).
+- **탐색**: pc 로그 격자 0.005–0.6(40점) × t 1–4(31점), 가장 낮은 격자점 5곳에서 경계 있는 Nelder–Mead. 평탄 영역은 rms ≤ max(1.1·최소, 최소 + 1e-4)이고
+  최적 격자점과 4방향으로 이어진 점들의 범위에 최적값을 더한 것입니다(신뢰구간이 아님).
+- **결과**: `percolation`, `exponent`, `rms`, `rms_per`, `channels_used`, `flat_region {percolation, exponent}`, `search_range`, `per_composite[]`.
+- **경고**: `gem_one_sided`(모든 함량이 최적 pc의 한쪽), `gem_fit_poor`(rms > 0.10), `gem_at_bound`, `gem_two_fractions`, `gem_t_weak`(평탄 t 폭 ≥ 1.5),
+  `gem_channel_mismatch`(ε·μ 단독 맞춤의 pc가 격자 한 칸 여유를 두고도 겹치지 않음).
+- **사용 흐름**: `fit-gem` → `invert-filler --model gem --percolation PC --exponent T`(한 복합재에서 닫힌 꼴로 역산, 차폐 좌표 −R/φ, 해석적 증폭 계수,
+  모델 비교 상대는 Bruggeman, 임계값 위 함량도 역산·예측 가능) → `--validate`로 다른 함량 확인 → 같은 `percolation`·`exponent`의 GEM 혼합 재료.
+- **범위 밖**: 충전재 역산 GUI 대화상자의 GEM, `fit-gem`의 GUI.
 
 ## 부록 A. (v5) 재료 dict 형식 (`.coat`·명세 공통, SI, 접미사 없음)
 모든 종류 공통: `kind`, `name`, `density`(kg/m³, 혼합 재료에는 없음 — 성분에서 계산), `note`.

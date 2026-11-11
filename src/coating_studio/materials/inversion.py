@@ -13,7 +13,7 @@ import numpy as np
 
 from coating_studio.materials.models import INVERTED_PREFIX, Shape, TabulatedMaterial, mixing_rule
 
-MODELS = ("maxwell_garnett", "bruggeman", "odelevskiy")
+MODELS = ("maxwell_garnett", "bruggeman", "odelevskiy", "gem")
 SPHERICAL_MODELS = ("maxwell_garnett", "bruggeman")
 GAIN_TOL = 1e-12  # the tolerance of checks.check_material
 SCREENING_MARGIN = 1e-9
@@ -48,7 +48,18 @@ def invert_rule(eff, em, phi, model, shape=None):
             d = eff - em
             den = phi * em - (1 - phi / shape.pc) * shape.n * d
             return em * (den + d) / den, shape.n * d / (phi * (em + d * shape.n / shape.pc))
+        if model == "gem":  # closed form in x = e^(1/t); the screening coordinate is -R/phi (Bruggeman's -d/s at t = 1)
+            b, x, _a, r, _big_a = _gem_b(eff, em, phi, shape)
+            return b ** shape.t, -r / phi
     raise ValueError(f"unknown mixing model {model!r}")
+
+
+def _gem_b(eff, em, phi, params):
+    """(b, x, a, R, A) of the GEM inversion: b = ei^(1/t) = x (phi - R A) / (phi + R) (gem_fit's module docstring)."""
+    big_a = (1.0 - params.pc) / params.pc
+    x, a = eff ** (1.0 / params.t), em ** (1.0 / params.t)
+    r = (1 - phi) * (a - x) / (a + big_a * x)
+    return x * (phi - r * big_a) / (phi + r), x, a, r, big_a
 
 
 def _amplification(eff, em, ei, x, phi, model, shape=None):
@@ -58,6 +69,12 @@ def _amplification(eff, em, ei, x, phi, model, shape=None):
             d = 9 * em ** 2 / (phi * (eff + 2 * em) ** 2 * (1 - x) ** 2)
         elif model == "odelevskiy":
             d = phi * em ** 2 / (phi * em - (1 - phi / shape.pc) * shape.n * (eff - em)) ** 2
+        elif model == "gem":  # |dei/de| |e/ei| = |db/dx| |x/b|: the exponent t cancels
+            b, xg, a, r, big_a = _gem_b(eff, em, phi, shape)
+            dbdx = (phi - r * big_a) / (phi + r) + xg * phi * (1 - phi) * a * (1 + big_a) ** 2 / (
+                (a + big_a * xg) ** 2 * (phi + r) ** 2)
+            k = np.abs(dbdx) * np.abs(xg) / np.abs(b)
+            return np.where(np.abs(eff - em) <= GAIN_TOL * np.maximum(np.abs(em), 1.0), 0.0, k)
         else:
             d = (1 + 2 * x) / (1 - x) + 9 * eff * em * (1 - phi) / (phi * (em + 2 * eff) ** 2 * (1 - x) ** 2)
         k = np.abs(d) * np.abs(eff) / np.abs(ei)
@@ -173,6 +190,8 @@ def invert_filler(f, eps_eff, mu_eff, eps_m, mu_m, phi, model, clamp_nonpassive=
         raise ValueError(f"unknown mixing model {model!r}")
     if model == "odelevskiy" and shape is None:
         raise ValueError("the odelevskiy rule needs a shape factor and a percolation threshold")
+    if model == "gem" and shape is None:
+        raise ValueError("the gem rule needs a percolation threshold and an exponent")
     return InversionResult(np.asarray(f, dtype=float), float(phi), model,
                            _channel(eps_eff, eps_m, phi, model, clamp_nonpassive, shape),
                            _channel(mu_eff, mu_m, phi, model, clamp_nonpassive, shape), clamp_nonpassive, shape)
@@ -185,8 +204,9 @@ def rms_relative(pred, ref):
 
 
 def prediction_fractions(phi, shape=None):
+    """Loadings at which predictions are checked; below an Odelevskiy threshold (GEM is defined through it)."""
     top = min(1.5 * phi, MAX_PREDICTED_FRACTION)
-    return [phi / 2, top if shape is None else min(top, MAX_PREDICTED_FRACTION * shape.pc)]
+    return [phi / 2, top if not isinstance(shape, Shape) else min(top, MAX_PREDICTED_FRACTION * shape.pc)]
 
 
 def _predict(res, eps_m, mu_m, phi):
@@ -208,7 +228,7 @@ def prediction_checks(res: InversionResult, eps_eff, mu_eff, eps_m, mu_m) -> dic
     rows = []
     for sign in (-1, 1):
         phi = res.fraction * (1 + sign * FRACTION_STEP)
-        if phi >= 1 or (res.shape is not None and phi >= res.shape.pc):
+        if phi >= 1 or (res.model == "odelevskiy" and phi >= res.shape.pc):
             continue
         moved = invert_filler(res.f, eps_eff, mu_eff, eps_m, mu_m, phi, res.model, res.clamp_nonpassive, res.shape)
         if moved.outside_model_points:
@@ -222,8 +242,8 @@ def prediction_checks(res: InversionResult, eps_eff, mu_eff, eps_m, mu_m) -> dic
             other = invert_filler(res.f, eps_eff, mu_eff, eps_m, mu_m, res.fraction, res.model, res.clamp_nonpassive,
                                   Shape(res.shape.n, 1.0))
             label = "the same shape factor without percolation"
-    else:
-        label = next(m for m in SPHERICAL_MODELS if m != res.model)
+    else:  # GEM is compared with Bruggeman, its pc = 1/3, t = 1 case
+        label = "bruggeman" if res.model == "gem" else next(m for m in SPHERICAL_MODELS if m != res.model)
         other = invert_filler(res.f, eps_eff, mu_eff, eps_m, mu_m, res.fraction, label, res.clamp_nonpassive)
         label = f"the {label} rule"
     if other is not None:
@@ -251,7 +271,12 @@ def validation_errors(filler: TabulatedMaterial, matrix, f, eps, mu, phi, model,
 
 def diagnostics(res: InversionResult) -> dict:
     """The per-point counts and condition numbers of a result, for the CLI's JSON and the dialog."""
-    shape = {} if res.shape is None else {"shape_n": res.shape.n, "percolation": res.shape.pc}
+    if res.shape is None:
+        shape = {}
+    elif res.model == "gem":
+        shape = {"percolation": res.shape.pc, "exponent": res.shape.t}
+    else:
+        shape = {"shape_n": res.shape.n, "percolation": res.shape.pc}
     return {**shape, "fraction": res.fraction, "model": res.model, "n_points": int(res.f.size),
             "data_range_hz": [float(res.f[0]), float(res.f[-1])], "amplification": res.amplification_stats(),
             "ill_conditioned_points": res.ill_conditioned_points, "negative_real_points": res.negative_real_points,
@@ -289,5 +314,10 @@ def provenance_note(source, model, fraction, matrix, shape=None) -> str:
     """The note of an inverted table; ``limits.inversion_provenance`` reads it back.  A ";" in a name is replaced,
     because a name like "a; model=bruggeman; fraction=0.9" would otherwise be read back as the provenance."""
     source, matrix = str(source).replace(";", ","), str(matrix).replace(";", ",")
-    rule = "" if shape is None else f" n={shape.n:.12g}; pc={shape.pc:.12g};"
+    if shape is None:
+        rule = ""
+    elif model == "gem":
+        rule = f" pc={shape.pc:.12g}; t={shape.t:.12g};"
+    else:
+        rule = f" n={shape.n:.12g}; pc={shape.pc:.12g};"
     return " ".join(f"{INVERTED_PREFIX} {source}; model={model}; fraction={fraction:.12g};{rule} matrix={matrix}".split())

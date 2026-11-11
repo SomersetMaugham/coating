@@ -152,10 +152,11 @@ def build_parser():
     inv.add_argument("composite", help="CSV measured on the composite")
     inv.add_argument("--output", "-o", required=True, help="filler CSV to write")
     inv.add_argument("--force", action="store_true", help="overwrite an existing output (never an input file)")
-    inv.add_argument("--model", required=True, choices=("maxwell_garnett", "bruggeman", "odelevskiy"))
+    inv.add_argument("--model", required=True, choices=("maxwell_garnett", "bruggeman", "odelevskiy", "gem"))
     inv.add_argument("--shape-n", type=float, metavar="N", help="shape factor, required with --model odelevskiy")
     inv.add_argument("--percolation", type=float, metavar="PC",
-                     help="percolation threshold as a volume fraction, required with --model odelevskiy")
+                     help="percolation threshold as a volume fraction, required with --model odelevskiy or gem")
+    inv.add_argument("--exponent", type=float, metavar="T", help="GEM exponent t, required with --model gem")
     inv.add_argument("--density-filler", type=float, required=True, metavar="KG_M3")
     inv.add_argument("--density-matrix", type=float, metavar="KG_M3", help="needed with --fraction-wt")
     load = inv.add_mutually_exclusive_group(required=True)
@@ -206,6 +207,19 @@ def build_parser():
     fs.add_argument("--weight-fractions", action="store_true", help="the FRACTIONs are weight fractions")
     fs.add_argument("--density-filler", type=float, metavar="KG_M3", help="needed with --weight-fractions")
     fs.add_argument("--density-matrix", type=float, metavar="KG_M3", help="needed with --weight-fractions")
+
+    gf = sp.add_parser("fit-gem", help="McLachlan GEM percolation threshold and exponent from several loadings",
+                       formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    gf.add_argument("--composite", nargs=2, action="append", required=True, metavar=("CSV", "FRACTION"),
+                    help="a composite and its filler loading (volume fraction, or weight with --weight-fractions); "
+                         "give two or more, ideally on both sides of the threshold")
+    gmat = gf.add_mutually_exclusive_group(required=True)
+    gmat.add_argument("--matrix-csv", metavar="CSV")
+    gmat.add_argument("--matrix-eps", type=float, nargs=2, metavar=("RE", "LOSS"))
+    gf.add_argument("--matrix-mu", type=float, nargs=2, metavar=("RE", "LOSS"), help="default 1 0")
+    gf.add_argument("--weight-fractions", action="store_true", help="the FRACTIONs are weight fractions")
+    gf.add_argument("--density-filler", type=float, metavar="KG_M3", help="needed with --weight-fractions")
+    gf.add_argument("--density-matrix", type=float, metavar="KG_M3", help="needed with --weight-fractions")
 
     fg = sp.add_parser("fss-grid", help="L or C of a dense metal mesh or patch array from its dimensions")
     fg.add_argument("--pattern", required=True, choices=("mesh", "patch"))
@@ -263,7 +277,7 @@ def _run(args, control):
         return C.cmd_invert_filler(args.composite, args.output, args.model, args.density_filler, args.fraction,
                                    args.fraction_wt, args.density_matrix, args.matrix_csv, args.matrix_eps,
                                    args.matrix_mu, args.name, args.clamp_nonpassive, args.validate, args.force,
-                                   args.shape_n, args.percolation)
+                                   args.shape_n, args.percolation, args.exponent)
     if c == "extract-nrw":
         return C.cmd_extract_nrw(args.s2p, args.thickness_mm, args.output, args.force, args.cutoff_ghz,
                                  args.waveguide_a_mm, args.branch, args.offset1_mm, args.offset2_mm,
@@ -273,6 +287,9 @@ def _run(args, control):
     if c == "fit-shape":
         return C.cmd_fit_shape(args.composite, args.matrix_csv, args.matrix_eps, args.matrix_mu, args.weight_fractions,
                                args.density_filler, args.density_matrix)
+    if c == "fit-gem":
+        return C.cmd_fit_gem(args.composite, args.matrix_csv, args.matrix_eps, args.matrix_mu, args.weight_fractions,
+                             args.density_filler, args.density_matrix)
     if c == "fss-grid":
         return C.cmd_fss_grid(args.pattern, args.period_mm, args.strip_width_mm, args.gap_mm, args.eps_eff)
     if c == "build":

@@ -20,7 +20,7 @@ from coating_studio.core.structure import SheetLayer, SlabLayer
 from coating_studio.materials.checks import Issue
 from coating_studio.materials.models import (
     ConstantMaterial, DispersiveMaterial, MaterialCycleError, MixtureMaterial, PercolationError, Shape, TabulatedMaterial,
-    UniaxialMaterial,
+    UniaxialMaterial, GemParams,
     mixing_rule, INVERTED_PREFIX,
 )
 from coating_studio.project import Project, set_param
@@ -207,6 +207,7 @@ def _conductive(mat, resolver, f):
 
 _INVERTED = re.compile(INVERTED_PREFIX + r".*?; model=(\w+); fraction=([0-9.eE+-]+)")
 _INVERTED_SHAPE = re.compile(INVERTED_PREFIX + r".*?; model=\w+; fraction=[0-9.eE+-]+; n=([0-9.eE+-]+); pc=([0-9.eE+-]+);")
+_INVERTED_GEM = re.compile(INVERTED_PREFIX + r".*?; model=gem; fraction=[0-9.eE+-]+; pc=([0-9.eE+-]+); t=([0-9.eE+-]+);")
 ODELEVSKIY_MARGIN = 0.9  # of pc: the result grows without bound as the fraction approaches the threshold
 
 
@@ -218,19 +219,29 @@ def inversion_provenance(material):
 
 
 def inversion_shape(material):
-    """The ``Shape`` an inverted table was computed with, or None."""
-    m = _INVERTED_SHAPE.search(material.note) if isinstance(material.note, str) else None
+    """The ``Shape`` (Odelevskiy) or ``GemParams`` (GEM) an inverted table was computed with, or None."""
+    note = material.note if isinstance(material.note, str) else ""
+    m = _INVERTED_GEM.search(note)
+    if m:
+        return GemParams(float(m.group(1)), float(m.group(2)))
+    m = _INVERTED_SHAPE.search(note)
     return Shape(float(m.group(1)), float(m.group(2))) if m else None
 
 
 def _rule_label(model, shape):
-    return model if shape is None else f"{model} (N = {shape.n:g}, pc = {shape.pc:g})"
+    if shape is None:
+        return model
+    if isinstance(shape, GemParams):
+        return f"{model} (pc = {shape.pc:g}, t = {shape.t:g})"
+    return f"{model} (N = {shape.n:g}, pc = {shape.pc:g})"
 
 
 def _same_shape(a, b):
     if a is None or b is None:
         return a is b
-    return abs(a.n - b.n) <= 1e-9 * a.n and abs(a.pc - b.pc) <= 1e-9 * a.pc
+    if type(a) is not type(b):
+        return False
+    return all(abs(x - y) <= 1e-9 * abs(x) for x, y in zip(a, b))
 
 
 def inverted_filler_issues(project: Project, m, lo_v, hi_v):
@@ -244,10 +255,10 @@ def inverted_filler_issues(project: Project, m, lo_v, hi_v):
     model, phi0 = prov
     shape = inversion_shape(project.resolver(m.inclusion))
     issues = []
-    if m.model != model or not _same_shape(shape, m.shape):
+    if m.model != model or not _same_shape(shape, m.rule_params):
         issues.append(Issue("warning", "inverted_filler_model", m.name,
                             {"inclusion": m.inclusion, "extracted": _rule_label(model, shape),
-                             "model": _rule_label(m.model, m.shape)}))
+                             "model": _rule_label(m.model, m.rule_params)}))
     lo, hi = 0.5 * phi0, min(1.0, 1.5 * phi0)
     if m.shape is not None:
         hi = min(hi, m.shape.pc)

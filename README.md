@@ -32,7 +32,8 @@ can be added later without rewriting it.
   - **Power-law** fits ε′ = ε′(1 GHz)/fᵃ, ε″ = ε″(1 GHz)/fᵇ (and the same for μ), the form of the Michielssen 1993
     absorber database. They are curve fits, not causal models: use them only inside their fitted band.
   - **McLachlan GEM** mixtures for conductive fillers, continuous through a percolation threshold you supply
-    (with an exponent t), for carbon black and CNT that percolate far below Bruggeman's 1/3.
+    (with an exponent t), for carbon black and CNT that percolate far below Bruggeman's 1/3; `coating-cli fit-gem`
+    fits pc and t from composites at several loadings.
   - **Maxwell-Garnett / Bruggeman** effective-medium mixtures, and **Odelevskiy** for flakes and fibres (shape factor
     N and percolation threshold, which you supply; their ratio N/pc can be fitted from several loadings).
   - **Uniaxial** materials (axis along the layer normal) with separate in-plane and normal ε, μ, for flake fillers
