@@ -598,4 +598,10 @@ KO.update({
         "넓게 퍼진 완화 Δ/(1 + (jf/f₀)^α)^β입니다. Debye 항 하나로 맞지 않는 고분자·복합재 데이터에 씁니다.",
     "A Havriliak-Negami term needs 0 < α ≤ 1 and 0 < β ≤ 1; outside that range it can be non-causal or show gain.":
         "Havriliak-Negami 항은 0 < α ≤ 1, 0 < β ≤ 1이어야 합니다. 범위 밖에서는 인과성이 깨지거나 이득이 생길 수 있습니다.",
+    "McLachlan GEM (through percolation)": "McLachlan GEM (퍼콜레이션 전후 연속)",
+    "GEM exponent t (about 2 for many 3-D conductive composites). Fit it and the threshold to measurements at several loadings; t = 1 with a threshold of 1/3 is Bruggeman.":
+        "GEM 지수 t(3차원 전도성 복합재는 대개 2 안팎). 임계값과 함께 여러 함량의 측정에 맞춰 정합니다. t = 1, 임계값 1/3이면 Bruggeman입니다.",
+    "Exponent t": "지수 t",
+    "McLachlan GEM: continuous through the percolation threshold, which it takes as a parameter (carbon black and CNT percolate far below Bruggeman's 1/3).":
+        "McLachlan GEM: 퍼콜레이션 임계값을 파라미터로 받아 그 전후를 연속으로 다룹니다(카본블랙·CNT는 Bruggeman의 1/3보다 훨씬 낮은 함량에서 퍼콜레이션됩니다).",
 })

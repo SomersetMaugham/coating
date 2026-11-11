@@ -421,8 +421,12 @@ class MaterialManager(QDialog):
         self.m_model.addItem("Maxwell-Garnett", "maxwell_garnett")
         self.m_model.addItem("Bruggeman", "bruggeman")
         self.m_model.addItem(tr("Odelevskiy (non-spherical)"), "odelevskiy")
+        self.m_model.addItem(tr("McLachlan GEM (through percolation)"), "gem")
         self.m_n = SciSpinBox(minimum=1e-6, maximum=0.999999)
         self.m_pc = SciSpinBox(minimum=1e-6, maximum=1.0)
+        self.m_t = SciSpinBox(minimum=1e-3, maximum=10.0)
+        self.m_t.setToolTip(tr("GEM exponent t (about 2 for many 3-D conductive composites). Fit it and the threshold to "
+                               "measurements at several loadings; t = 1 with a threshold of 1/3 is Bruggeman."))
         self.m_n.setToolTip(tr("Shape factor N of the inclusions. Fit it to measurements: it often differs from the "
                                "value computed from the particle size."))
         self.m_pc.setToolTip(tr("Percolation threshold as a volume fraction. N = 1/3 with a threshold of 1 is "
@@ -434,16 +438,20 @@ class MaterialManager(QDialog):
         f.addRow(tr("Mixing rule"), self.m_model)
         f.addRow(tr("Shape factor N"), self.m_n)
         f.addRow(tr("Percolation threshold"), self.m_pc)
+        f.addRow(tr("Exponent t"), self.m_t)
         self.m_form = f
         f.addRow(tr("Density (computed)"), self.m_density)
         f.addRow(muted(tr("Maxwell-Garnett: dilute spherical inclusions. Bruggeman: symmetric, valid "
                           "through percolation — preferred for conductive fillers.")))
+        f.addRow(muted(tr("McLachlan GEM: continuous through the percolation threshold, which it takes as a parameter "
+                          "(carbon black and CNT percolate far below Bruggeman's 1/3).")))
         self.m_matrix.activated.connect(self._commit)
         self.m_incl.activated.connect(self._commit)
         self.m_model.activated.connect(self._on_mix_model)
         self.m_frac.valueEdited.connect(self._commit)
         self.m_n.valueEdited.connect(self._commit)
         self.m_pc.valueEdited.connect(self._commit)
+        self.m_t.valueEdited.connect(self._commit)
         self._show_shape_rows()
         return w
 
@@ -464,11 +472,16 @@ class MaterialManager(QDialog):
         return w
 
     def _show_shape_rows(self):
-        shaped = self.m_model.currentData() == "odelevskiy"
-        self.m_form.setRowVisible(self.m_n, shaped)
-        self.m_form.setRowVisible(self.m_pc, shaped)
+        model = self.m_model.currentData()
+        self.m_form.setRowVisible(self.m_n, model == "odelevskiy")
+        self.m_form.setRowVisible(self.m_pc, model in ("odelevskiy", "gem"))
+        self.m_form.setRowVisible(self.m_t, model == "gem")
 
     def _on_mix_model(self, *_):
+        if self.m_model.currentData() == "gem" and not self.m_pc.value() < 1.0:
+            # GEM needs pc < 1; start from its Bruggeman-equivalent values so the switch alone changes nothing
+            self.m_pc.set_value(1 / 3)
+            self.m_t.set_value(1.0)
         self._show_shape_rows()
         self._commit()
 
@@ -593,7 +606,8 @@ class MaterialManager(QDialog):
                 self.m_frac.set_value(m.fraction * 100)
                 self.m_model.setCurrentIndex(max(0, self.m_model.findData(m.model)))
                 self.m_n.set_value(1 / 3 if m.shape is None else m.shape.n)  # Maxwell-Garnett until the user changes them
-                self.m_pc.set_value(1.0 if m.shape is None else m.shape.pc)
+                self.m_pc.set_value(1.0 if m.percolation is None else m.percolation)
+                self.m_t.set_value(1.0 if m.exponent is None else m.exponent)
                 self._show_shape_rows()
             elif isinstance(m, UniaxialMaterial):
                 self.stack.setCurrentIndex(5)
@@ -634,8 +648,11 @@ class MaterialManager(QDialog):
                      fraction=self.m_frac.value() / 100, model=self.m_model.currentData())
             d.pop("shape_n", None)
             d.pop("percolation", None)
+            d.pop("exponent", None)
             if self.m_model.currentData() == "odelevskiy":
                 d.update(shape_n=self.m_n.value(), percolation=self.m_pc.value())
+            elif self.m_model.currentData() == "gem":
+                d.update(percolation=self.m_pc.value(), exponent=self.m_t.value())
         elif m.kind == "uniaxial":
             d.update(inplane=self.u_inplane.currentText(), normal=self.u_normal.currentText())
         return d
