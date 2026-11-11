@@ -1323,3 +1323,28 @@ def test_havriliak_negami_term_row(app):
     w.doc.undo_stack.setClean()
     dlg.close()
     w.close()
+
+
+def test_tolerance_panel_reports_clipped_samples(app):
+    import dataclasses
+
+    import numpy as np
+
+    from coating_studio.examples import EXAMPLES
+    from coating_studio.gui.main_window import MainWindow
+    from coating_studio.tolerance import ToleranceResult
+
+    w = MainWindow()
+    w.doc.set_project(EXAMPLES["carbon"][1]())
+    f = np.array([8e9, 9e9])
+    base = ToleranceResult(f=f, nominal_db=np.array([-20., -21.]), median_db=np.array([-19., -20.]),
+                           lower_db=np.array([-22., -23.]), upper_db=np.array([-15., -16.]),
+                           worst_db=np.array([-15., -18.]), yield_fraction=0.5, n_samples=2)
+    w.p_tol._on_finished(dataclasses.replace(base, clipped=[{"path": ["material", "Carbon / epoxy", "fraction"],
+                                                             "n": 7}]))
+    lbl = w.p_tol.lbl_corners
+    assert lbl.isVisibleTo(w.p_tol) and "Carbon / epoxy/fraction: 7" in lbl.text()
+    w.p_tol._on_finished(base)
+    assert not lbl.isVisibleTo(w.p_tol)
+    w.doc.undo_stack.setClean()
+    w.close()

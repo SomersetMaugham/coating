@@ -74,6 +74,9 @@ class ToleranceResult:
     # the yield was judged on.  None on results built by hand (callers then fall back to the project's settings).
     settings: ToleranceSettings | None = None
     band: list | None = None
+    # [{"path": [...], "n": samples whose drawn value was clipped to the parameter's bounds}] per material parameter;
+    # a large n means the tolerance is wide for that parameter and the effective distribution is not the requested one
+    clipped: list = field(default_factory=list)
 
 
 def result_settings(r, project: Project) -> ToleranceSettings:
@@ -106,6 +109,7 @@ class CornerResult:
     angle_mode: str = "corners"
     fallback_targets: list = field(default_factory=list)
     settings: ToleranceSettings | None = None  # deep copy of the settings of the run (seed, tolerances, samples)
+    clipped: list = field(default_factory=list)  # as ToleranceResult.clipped
 
     @property
     def worst(self):
@@ -214,7 +218,11 @@ def run_tolerance_targets(project: Project, f, mode="corners", n_angle=None, tar
         rows.append((ti, t.name, ang, pol, tdb, r))
         passes.append(np.asarray(r.worst_db) <= tdb)
     joint = float(np.mean(np.all(passes, axis=0)))
-    return CornerResult(rows, joint, rows[0][5].n_samples, stopped, mode, fallback, s)
+    used = rows[0][5].n_samples if n else 0
+    clipped = mats.clipped(used)
+    for row in rows:
+        row[5].clipped = clipped
+    return CornerResult(rows, joint, rows[0][5].n_samples, stopped, mode, fallback, s, clipped)
 
 
 def run_tolerance_corners(project: Project, f, target_db=None, progress=None, should_stop=None) -> CornerResult:
@@ -262,6 +270,14 @@ class MaterialSampler:
             lo = -np.inf if info.lower is None else info.lower
             hi = np.inf if info.upper is None else info.upper
             self.entries.append((path, _draw(rng, s.distribution, tol, n), lo, hi))
+
+    def clipped(self, n):
+        """[{"path", "n"}]: how many of the first ``n`` samples clip each parameter to its bounds (current values)."""
+        out = []
+        for path, factors, lo, hi in self.entries:
+            vals = float(self.project.materials[path[1]].get(path[2:])) * factors[:n]
+            out.append({"path": list(path), "n": int(np.count_nonzero((vals < lo) | (vals > hi)))})
+        return out
 
     def at(self, k):
         if not self.entries:
@@ -354,9 +370,12 @@ def run_tolerance(project: Project, f, settings: ToleranceSettings | None = None
                 raise _Stop
     except _Stop:
         stopped = True
+    used = len(samples)
     if not samples:
         samples = [nominal]
-    return _summarise(f, nominal, np.array(samples), band, s, s.target_db, stopped)
+    r = _summarise(f, nominal, np.array(samples), band, s, s.target_db, stopped)
+    r.clipped = mats.clipped(used)
+    return r
 
 
 def _summarise(f, nominal, arr, band, s, target_db, stopped):

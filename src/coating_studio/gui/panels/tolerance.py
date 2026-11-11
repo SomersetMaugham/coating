@@ -496,9 +496,19 @@ class TolerancePanel(QWidget):
         self.progress.setRange(0, n)
         self.progress.setValue(k)
 
+    def _clipped_text(self, res):
+        """A note on material-parameter draws clipped to their bounds, or ""."""
+        hit = [c for c in getattr(res, "clipped", []) if c["n"]]
+        if not hit:
+            return ""
+        items = "; ".join(f"{'/'.join(str(x) for x in c['path'][1:])}: {c['n']}" for c in hit)
+        return tr("Samples clipped to physical bounds (the tolerance is wide for these parameters): {items}.",
+                  items=items)
+
     def _on_finished(self, res):
         self.plot.result = res
         self.plot.mark_dirty()
+        clipped = self._clipped_text(res)
         if isinstance(res, CornerResult):
             label = lambda i: corner_label(*res.corners[i][:4])  # noqa: E731
             lowest = [f"{label(i)}: {100 * res.corners[i][5].yield_fraction:.1f}%" for i in res.per_target().values()]
@@ -507,7 +517,7 @@ class TolerancePanel(QWidget):
             for ti in res.fallback_targets:
                 text += " " + tr("Target {n}: fewer than 2 angle-grid points, so the two ends of its range were used.",
                                  n=ti + 1)
-            self.lbl_corners.setText(text)
+            self.lbl_corners.setText(text + (" " + clipped if clipped else ""))
             self.lbl_corners.setToolTip("\n".join(f"{label(i)}: {100 * row[5].yield_fraction:.1f}%"
                                                    for i, row in enumerate(res.corners)))
             self.lbl_corners.setVisible(True)
@@ -519,7 +529,9 @@ class TolerancePanel(QWidget):
                          y=100 * (res.joint_yield_fraction or 0.0), n=len(res.corners))
             self.statusMessage.emit(msg)
             return
-        self.lbl_corners.setVisible(False)
+        self.lbl_corners.setText(clipped)
+        self.lbl_corners.setToolTip("")
+        self.lbl_corners.setVisible(bool(clipped))
         self.statusMessage.emit(tr("Tolerance analysis: yield {y:.1f}% of {n} samples",
                                    y=100 * res.yield_fraction, n=res.n_samples))
 
