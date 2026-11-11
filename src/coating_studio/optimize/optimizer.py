@@ -172,7 +172,11 @@ class Evaluator:
         if s.w_mass:
             j += s.w_mass * mass / max(s.mass_ref, 1e-12)
         if s.thickness_max and thick > s.thickness_max:
-            j += 10.0 + 100.0 * (thick / s.thickness_max - 1.0)
+            # The step of 10 keeps the global search firmly inside the limit.  The local polish gets
+            # only the continuous part: a step there breaks L-BFGS-B's finite-difference gradients
+            # when the optimum sits on the limit.  Polish results are re-scored with the step before
+            # they are kept, so a polished design over the limit still never wins.
+            j += (0.0 if smooth else 10.0) + 100.0 * (thick / s.thickness_max - 1.0)
         return ObjectiveTerms(worst, mean_r, thick, mass, float(j), margins[b], per)
 
 

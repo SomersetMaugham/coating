@@ -116,6 +116,19 @@ def test_fit_recovers_debye_parameters():
     assert m.mu_terms[0]["gamma"] == pytest.approx(3e9, rel=1e-4)
 
 
+def test_fit_reports_failure_when_every_start_fails(monkeypatch):
+    # All starting points failing used to crash with AttributeError on best.x; callers catch ValueError.
+    import coating_studio.materials.fitting as fitting
+
+    def always_fail(*args, **kwargs):
+        raise ValueError("x0 is infeasible")
+
+    monkeypatch.setattr(fitting, "least_squares", always_fail)
+    f = np.geomspace(1e9, 10e9, 20)
+    with pytest.raises(ValueError, match="all 7 starting points"):
+        fit_dispersive("fit", f, np.full(f.shape, 4 - 1j), np.ones(f.shape, complex), FitSpec(1, 0))
+
+
 def test_passivity_and_snoek_warnings():
     gain = ConstantMaterial("G", 3.0, -0.2)
     codes = {i.code for i in check_material(gain, [1e9], None)}

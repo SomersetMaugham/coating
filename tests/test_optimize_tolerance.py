@@ -68,6 +68,21 @@ def test_thickness_limit_penalty():
     assert res.terms.thickness <= 1.0e-3 * 1.0001
 
 
+def test_thickness_limit_penalty_has_no_step_for_the_polish():
+    # The local polish (smooth=True) gets a continuous penalty; the true objective keeps the step of 10.
+    from coating_studio.optimize.optimizer import Evaluator
+
+    p = EXAMPLES["dallenbach"][1]()
+    s = p.optimization
+    s.thickness_max = 0.5 * p.structure.total_thickness()
+    ev = Evaluator(p, s)
+    over_true, over_smooth = ev.terms().objective, ev.terms(smooth=True).objective
+    s.thickness_max = None
+    free_true, free_smooth = ev.terms().objective, ev.terms(smooth=True).objective
+    assert over_true - free_true == pytest.approx(10.0 + 100.0)
+    assert over_smooth - free_smooth == pytest.approx(100.0)
+
+
 def test_validation_errors():
     p = Project()
     with pytest.raises(OptimizationError):
