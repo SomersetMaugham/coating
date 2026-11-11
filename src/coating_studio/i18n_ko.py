@@ -615,4 +615,8 @@ KO.update({
         "강건 모드는 자기 표본 중 통과한 비율을 보여 줍니다. 낙관적인 값이므로 수율은 공차 탭에서 별도 표본으로 확인하세요.",
     "Samples meeting every target": "모든 목표를 만족한 표본",
     "Margin at the required share": "요구 비율에서의 여유",
+    "Pattern sheets {a} and {b} are {d_mm:.3g} mm apart, {ratio:.2g} of the shortest wavelength between them. If that is not well above the unit-cell period, near-field coupling between the patterns (higher Floquet modes, not modelled) can shift their resonances: check with a full-wave solver.":
+        "패턴 시트 {a}와 {b} 사이가 {d_mm:.3g} mm로, 그 사이의 최단 파장의 {ratio:.2g}입니다. 이 간격이 단위 셀 주기보다 충분히 크지 않으면 패턴 사이의 근접장 결합(고차 Floquet 모드, 모델에 없음)이 공진을 옮길 수 있습니다. 전파 해석으로 확인하세요.",
+    "Pattern sheets {a} and {b} lie in the same plane and are combined as parallel admittances; coupling between the two patterns is not modelled.":
+        "패턴 시트 {a}와 {b}는 같은 평면에 있어 병렬 어드미턴스로 합쳐집니다. 두 패턴 사이의 결합은 모델에 없습니다.",
 })

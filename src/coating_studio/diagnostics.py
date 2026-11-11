@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 
 from coating_studio.i18n import issue_text
-from coating_studio.limits import limit_issues, mixture_range_issues, target_limits
+from coating_studio.limits import limit_issues, mixture_range_issues, sheet_proximity_issues, target_limits
 from coating_studio.materials.checks import check_material
 
 
@@ -35,4 +35,9 @@ def collect(project, f):
     for iss in extra:
         msg = issue_text(iss, unit=unit)
         problems.append(("warning", f"{iss.material}: {msg}" if iss.material else msg))
+    for iss in sheet_proximity_issues(p, s.f_max):
+        if iss.level == "info":
+            notes.append(issue_text(iss, unit=unit))
+        else:
+            problems.append(("warning", issue_text(iss, unit=unit)))
     return problems, notes
