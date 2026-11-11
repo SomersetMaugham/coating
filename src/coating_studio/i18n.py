@@ -50,6 +50,7 @@ _ISSUES_EN = {
     "snoek": "Snoek limit: delta_mu x f0 = {product:.3g} GHz exceeds ~{limit:.3g} GHz (pure-iron bound); "
              "this permeability is probably not manufacturable.",
     "term_negative": "A dispersion term has a negative strength, frequency or damping.",
+    "hn_exponent": "A Havriliak-Negami term needs 0 < α ≤ 1 and 0 < β ≤ 1; outside that range it can be non-causal or show gain.",
     "eps_huge": "eps' up to {value:.3g} is unusually large.",
     "demo_values": "Built-in demonstration values (representative, not a datasheet). "
                    "Use measured data for a real design.",

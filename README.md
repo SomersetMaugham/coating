@@ -26,7 +26,8 @@ can be added later without rewriting it.
   - A **metal (PEC)** or **semi-infinite** backing.
 - **Materials.**
   - Constant complex ε and μ.
-  - Multi-term **Debye / Lorentz** dispersion, including Snoek-type ferrite relaxation and conductivity σ.
+  - Multi-term **Debye / Lorentz / Havriliak-Negami** dispersion (Cole-Cole and Cole-Davidson as special cases),
+    including Snoek-type ferrite relaxation and conductivity σ.
   - **Measured CSV** data.
   - **Power-law** fits ε′ = ε′(1 GHz)/fᵃ, ε″ = ε″(1 GHz)/fᵇ (and the same for μ), the form of the Michielssen 1993
     absorber database. They are curve fits, not causal models: use them only inside their fitted band.
@@ -156,6 +157,7 @@ a real product.
 | Layer order | The top row of the layer stack faces the incident wave |
 | Units (UI) | GHz, mm, degrees, Ω/sq, S/m, g/cm³ (the engine works in SI) |
 | Debye term | Δ / (1 + j f/f₀) |
+| Havriliak-Negami term | Δ / (1 + (j f/f₀)^α)^β, 0 < α, β ≤ 1 |
 | Lorentz term | Δ·f₀² / (f₀² − f² + j f γ) |
 
 Measured CSV files contain `f, ε′, ε″[, μ′, μ″]`. The frequency unit is read from the header and

@@ -1,4 +1,4 @@
-"""Fit Debye / Lorentz dispersion models to measured eps(f), mu(f).
+"""Fit Debye / Lorentz / Havriliak-Negami dispersion models to measured eps(f), mu(f).
 
 The resulting DispersiveMaterial is causal by construction (each term
 satisfies Kramers-Kronig), so it can be evaluated outside the measured range.
@@ -21,6 +21,7 @@ class FitSpec:
     n_lorentz: int = 0
     fit_sigma: bool = False  # eps only
     fit_const_loss: bool = False
+    n_hn: int = 0  # Havriliak-Negami terms (delta, f0, alpha, beta), after the Debye and Lorentz terms
 
 
 @dataclass
@@ -32,11 +33,11 @@ class FitResult:
 
 def _fit_side(f, data, spec: FitSpec, allow_sigma: bool):
     """Return (inf, const_loss, sigma, terms, rel_rms)."""
-    n_d, n_l = spec.n_debye, spec.n_lorentz
+    n_d, n_l, n_h = spec.n_debye, spec.n_lorentz, spec.n_hn
     use_sigma = spec.fit_sigma and allow_sigma
     scale = max(np.max(np.abs(data)), 1e-12)
     flo, fhi = float(f.min()), float(f.max())
-    n_terms = n_d + n_l
+    n_terms = n_d + n_l + n_h
     if n_terms == 0 and not use_sigma and not spec.fit_const_loss:
         val = complex(np.mean(data.real), np.mean(data.imag))
         resid = np.abs(data - val) / scale
@@ -44,7 +45,7 @@ def _fit_side(f, data, spec: FitSpec, allow_sigma: bool):
     centres = np.geomspace(flo, fhi, n_terms + 2)[1:-1] if n_terms else []
 
     # parameter vector: inf, [const_loss], [log10 sigma], per debye (delta, log f0),
-    # per lorentz (delta, log f0, log gamma)
+    # per lorentz (delta, log f0, log gamma), per Havriliak-Negami (delta, log f0, alpha, beta)
     x0 = [float(np.min(data.real))]
     lb, ub = [-np.inf], [np.inf]
     if spec.fit_const_loss:
@@ -53,14 +54,17 @@ def _fit_side(f, data, spec: FitSpec, allow_sigma: bool):
         x0.append(-2.0); lb.append(-12.0); ub.append(8.0)
     span = max(float(np.ptp(data.real)), 0.1 * scale)
     for k in range(n_terms):
-        lorentz = k >= n_d
         x0 += [span / max(n_terms, 1), np.log10(centres[k])]
         lb += [0.0, np.log10(flo) - 3]
         ub += [np.inf, np.log10(fhi) + 3]
-        if lorentz:
+        if n_d <= k < n_d + n_l:  # Lorentz
             x0.append(np.log10(centres[k]))
             lb.append(np.log10(flo) - 4)
             ub.append(np.log10(fhi) + 3)
+        elif k >= n_d + n_l:  # Havriliak-Negami: exponents in (0, 1], kept off 0 so the power stays well scaled
+            x0 += [0.8, 0.8]
+            lb += [0.05, 0.05]
+            ub += [1.0, 1.0]
 
     def unpack(x):
         i = 0
@@ -75,9 +79,12 @@ def _fit_side(f, data, spec: FitSpec, allow_sigma: bool):
         for k in range(n_terms):
             if k < n_d:
                 terms.append({"type": "debye", "delta": x[i], "f0": 10 ** x[i + 1]}); i += 2
-            else:
+            elif k < n_d + n_l:
                 terms.append({"type": "lorentz", "delta": x[i], "f0": 10 ** x[i + 1],
                               "gamma": 10 ** x[i + 2]}); i += 3
+            else:
+                terms.append({"type": "havriliak_negami", "delta": x[i], "f0": 10 ** x[i + 1],
+                              "alpha": x[i + 2], "beta": x[i + 3]}); i += 4
         return inf, cl, sig, terms
 
     def model(x):

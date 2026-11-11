@@ -36,10 +36,10 @@ def param_label(label: str, position: str = "f₀") -> str:
 def translate_param_name(name: str, position: str = "f₀") -> str:
     # dispersion term labels look like "mu debye #1 delta"
     parts = name.split(" ")
-    if len(parts) == 4 and parts[1] in ("debye", "lorentz") and parts[2].startswith("#"):
+    if len(parts) == 4 and parts[1] in ("debye", "lorentz", "havriliak_negami") and parts[2].startswith("#"):
         sym = "ε" if parts[0] == "eps" else "μ"
-        kind = tr("Debye") if parts[1] == "debye" else tr("Lorentz")
-        what = {"delta": "Δ", "f0": position, "gamma": "γ"}[parts[3]]
+        kind = {"debye": tr("Debye"), "lorentz": tr("Lorentz"), "havriliak_negami": tr("Havriliak-Negami")}[parts[1]]
+        what = {"delta": "Δ", "f0": position, "gamma": "γ", "alpha": "α", "beta": "β"}[parts[3]]
         return f"{sym} {kind} {parts[2]} {what}"
     table = {
         "thickness": tr("thickness"), "R": "R", "X": "X",
