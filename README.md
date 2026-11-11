@@ -37,6 +37,8 @@ can be added later without rewriting it.
     N and percolation threshold, which you supply; their ratio N/pc can be fitted from several loadings).
   - **Uniaxial** materials (axis along the layer normal) with separate in-plane and normal ε, μ, for flake fillers
     aligned in the coating plane; the normal components act at oblique incidence.
+- **Measured S-parameters → ε, μ.** `coating-cli extract-nrw` extracts a sample's ε(f) and μ(f) from a two-port `.s2p`
+  (coax, free space or rectangular waveguide; Nicholson-Ross-Weir) with a phase-branch check and half-wave warnings.
 - **Material checks.**
   - **CSV → dispersion-model fitting**, which gives a causal model you can extrapolate.
   - **Filler inversion** from one measured composite ("Invert filler…" or `coating-cli invert-filler`). The result holds
