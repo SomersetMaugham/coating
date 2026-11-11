@@ -168,6 +168,19 @@ def build_parser():
     inv.add_argument("--validate", nargs=2, action="append", default=[], metavar=("CSV", "FRACTION"),
                      help="composite at another loading, to test the prediction (same fraction basis as above)")
 
+    fs = sp.add_parser("fit-shape", help="Odelevskiy ratio N/pc from composites measured at several loadings",
+                       formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    fs.add_argument("--composite", nargs=2, action="append", required=True, metavar=("CSV", "FRACTION"),
+                    help="a composite and its filler loading (volume fraction, or weight with --weight-fractions); "
+                         "give two or more")
+    fmat = fs.add_mutually_exclusive_group(required=True)
+    fmat.add_argument("--matrix-csv", metavar="CSV")
+    fmat.add_argument("--matrix-eps", type=float, nargs=2, metavar=("RE", "LOSS"))
+    fs.add_argument("--matrix-mu", type=float, nargs=2, metavar=("RE", "LOSS"), help="default 1 0")
+    fs.add_argument("--weight-fractions", action="store_true", help="the FRACTIONs are weight fractions")
+    fs.add_argument("--density-filler", type=float, metavar="KG_M3", help="needed with --weight-fractions")
+    fs.add_argument("--density-matrix", type=float, metavar="KG_M3", help="needed with --weight-fractions")
+
     fg = sp.add_parser("fss-grid", help="L or C of a dense metal mesh or patch array from its dimensions")
     fg.add_argument("--pattern", required=True, choices=("mesh", "patch"))
     fg.add_argument("--period-mm", type=float, required=True)
@@ -225,6 +238,9 @@ def _run(args, control):
                                    args.fraction_wt, args.density_matrix, args.matrix_csv, args.matrix_eps,
                                    args.matrix_mu, args.name, args.clamp_nonpassive, args.validate, args.force,
                                    args.shape_n, args.percolation)
+    if c == "fit-shape":
+        return C.cmd_fit_shape(args.composite, args.matrix_csv, args.matrix_eps, args.matrix_mu, args.weight_fractions,
+                               args.density_filler, args.density_matrix)
     if c == "fss-grid":
         return C.cmd_fss_grid(args.pattern, args.period_mm, args.strip_width_mm, args.gap_mm, args.eps_eff)
     if c == "build":

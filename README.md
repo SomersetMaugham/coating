@@ -31,12 +31,14 @@ can be added later without rewriting it.
   - **Power-law** fits ε′ = ε′(1 GHz)/fᵃ, ε″ = ε″(1 GHz)/fᵇ (and the same for μ), the form of the Michielssen 1993
     absorber database. They are curve fits, not causal models: use them only inside their fitted band.
   - **Maxwell-Garnett / Bruggeman** effective-medium mixtures, and **Odelevskiy** for flakes and fibres (shape factor
-    N and percolation threshold, which you supply from measurements).
+    N and percolation threshold, which you supply; their ratio N/pc can be fitted from several loadings).
 - **Material checks.**
   - **CSV → dispersion-model fitting**, which gives a causal model you can extrapolate.
   - **Filler inversion** from one measured composite ("Invert filler…" or `coating-cli invert-filler`). The result holds
     effective values tied to the mixing rule and loading, not measured filler properties, and has been verified on
     synthetic data only.
+  - **Odelevskiy ratio fit** from composites at several loadings (`coating-cli fit-shape`). Measurements fix only
+    N/pc, never N and pc separately. Verified on synthetic data only.
   - Passivity warnings.
   - Snoek-limit realism warnings.
 - **Results.** The result views are:

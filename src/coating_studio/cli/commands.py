@@ -935,6 +935,108 @@ def cmd_invert_filler(composite, output, model, density_filler, fraction=None, f
                           "validation": validation}, warnings=warnings)
 
 
+def _shape_warning(code, a):
+    return warning(code, {
+        "shape_at_bound": lambda: f"N/pc = {a['b']:.4g} lies at the edge of the searched range; the data may need a "
+                                  "ratio outside it, or another rule",
+        "shape_fit_poor": lambda: f"the best ratio reproduces the composites only to {a['rms']:.1%} rms (above "
+                                  f"{a['limit']:.0%}); the rule may not describe this composite family",
+        "shape_flat": lambda: f"the fit hardly changes over N/pc = {a['lo']:.4g}-{a['hi']:.4g}; the ratio is poorly "
+                              "determined by these loadings",
+        "shape_two_fractions": lambda: "two loadings fit one ratio with nothing left to test it; a third loading "
+                                       "would show whether the rule holds",
+        "shape_no_admissible_n": lambda: f"{a['label']}: no shape factor gives an accepted filler table at this "
+                                         "ratio; invert-filler would fail on it",
+    }[code]())
+
+
+def cmd_fit_shape(composites, matrix_csv=None, matrix_eps=None, matrix_mu=None, weight_fractions=False,
+                  density_filler=None, density_matrix=None):
+    """The Odelevskiy ratio N/pc from composites at several loadings (docs/CLI_PLAN.md, section 13.11)."""
+    from coating_studio.cli.spec import wt_to_vol
+    from coating_studio.materials.shape_fit import FIT_POOR, admissible_n, fit_shape
+
+    def bad(message, **details):
+        return CliError("invalid_value", message, 3, details)
+
+    if len(composites) < 2:
+        raise bad("fit-shape needs at least two --composite CSV FRACTION: one loading fits any N/pc")
+    if weight_fractions:
+        if density_filler is None or density_filler <= 0 or density_matrix is None or density_matrix <= 0:
+            raise bad("--weight-fractions needs a positive --density-filler and --density-matrix")
+    elif density_filler is not None or density_matrix is not None:
+        raise bad("--density-filler and --density-matrix go with --weight-fractions")
+    if matrix_mu is not None and matrix_eps is None:
+        raise bad("--matrix-mu goes with --matrix-eps; a matrix CSV carries its own mu")
+    paths = [os.path.abspath(c[0]) for c in composites]
+    if len(set(paths)) < len(paths):
+        raise bad("the same CSV was given twice")
+    fractions = []
+    for path, value in composites:
+        try:
+            v = float(value)
+        except ValueError:
+            raise bad(f"--composite {path}: {value!r} is not a number") from None
+        if not 0.0 < v < 1.0:
+            raise bad(f"--composite {path}: the fraction must be between 0 and 1, got {v:g}")
+        fractions.append(wt_to_vol(v, density_filler, density_matrix) if weight_fractions else v)
+    if min(abs(a - b) for i, a in enumerate(fractions) for b in fractions[i + 1:]) <= 1e-9:
+        raise bad("the loadings must differ", fractions=fractions)
+
+    tabs = [_read_measured(path) for path, _ in composites]
+    if matrix_csv:
+        matrix = _read_measured(matrix_csv, "matrix")
+        ranges = [t.f_range for t in tabs] + [matrix.f_range]
+    else:
+        matrix = ConstantMaterial("matrix", matrix_eps[0], matrix_eps[1], *(matrix_mu or (1.0, 0.0)))
+        ranges = [t.f_range for t in tabs]
+    lo, hi = max(r[0] for r in ranges), min(r[1] for r in ranges)
+    f = tabs[0].f[(tabs[0].f >= lo * (1 - 1e-9)) & (tabs[0].f <= hi * (1 + 1e-9))]
+    if f.size < 2:
+        raise bad("fewer than two frequencies of the first composite lie where every input has data",
+                  common_range_hz=[float(lo), float(hi)] if hi > lo else None)
+    f = np.clip(f, lo, hi)  # the 1e-9 tolerance must not step outside a tabulated range
+    try:
+        eps_m, mu_m = matrix.eps_mu(f, None)
+        data = [t.eps_mu(f, None) for t in tabs]
+    except MODEL_ERRORS as e:
+        raise model_error(e) from None
+    eps = np.array([d[0] for d in data])
+    mu = np.array([d[1] for d in data])
+    try:
+        fit = fit_shape(fractions, {"eps": (eps_m, eps), "mu": (mu_m, mu)})
+    except ValueError as e:
+        raise bad(str(e)) from None
+    b = fit.n_over_pc
+
+    per, warns = [], []
+    for k, (path, _) in enumerate(composites):
+        adm = admissible_n(b, fractions, f, eps[k], mu[k], eps_m, mu_m, fractions[k])
+        per.append({"csv": str(path), "fraction": fractions[k],
+                    "rms_eps": None if fit.rms_per["eps"] is None else fit.rms_per["eps"][k],
+                    "rms_mu": None if fit.rms_per["mu"] is None else fit.rms_per["mu"][k],
+                    "shape_n_range": None if adm is None else [adm[0], adm[1]],
+                    "percolation_range": None if adm is None else [min(adm[0] / b, 1.0), min(adm[1] / b, 1.0)],
+                    "admissible_share": None if adm is None else adm[2]})
+        if adm is None:
+            warns.append(("shape_no_admissible_n", {"label": str(path)}))
+    flo, fhi = fit.flat_interval
+    if fit.at_bound:
+        warns.insert(0, ("shape_at_bound", {"b": b}))
+    if fit.rms > FIT_POOR:
+        warns.insert(0, ("shape_fit_poor", {"rms": fit.rms, "limit": FIT_POOR}))
+    if flo < 0.5 * b or fhi > 1.5 * b:
+        warns.append(("shape_flat", {"lo": flo, "hi": fhi}))
+    if len(composites) == 2:
+        warns.append(("shape_two_fractions", {}))
+    return CommandResult({
+        "n_over_pc": b, "rms": fit.rms, "channels_used": fit.channels_used, "n_points": int(f.size),
+        "data_range_hz": [float(f[0]), float(f[-1])], "search_range": list(fit.search_range),
+        "flat_interval": [flo, fhi], "profile": {"n_over_pc": fit.profile_b.tolist(), "rms": fit.profile_rms.tolist()},
+        "per_composite": per,
+    }, warnings=[_shape_warning(c, a) for c, a in warns])
+
+
 # ---------------------------------------------------------------------------
 # build, spec, journal
 

@@ -41,6 +41,7 @@ Coating Studio의 기능은 지금 GUI로만 쓸 수 있습니다. 코딩 에이
 | `fit` (v6) | 측정 CSV를 Debye/Lorentz 분산 모델로 맞춰 재료 dict와 잔차를 냄 | 13.8절 |
 | `invert-filler` (v7) | 복합재 측정 CSV에서 충전재의 유효 파라미터를 역산해 CSV로 씀 | 13.9절 |
 | `fss-grid` (v8) | 메시·패치 치수에서 L 또는 C와 각도 계수, 유효 한계를 계산 | 13.10절 |
+| `fit-shape` (v10) | 여러 함량의 복합재 측정에서 Odelevskiy 비율 N/pc와 시편별 허용 N 범위를 구함 | 13.11절 |
 
 (v3) `check`는 활성 목표마다 Rozanov 한계 판정(`result.limits`)을 함께 냅니다. `solve`·`optimize`·`tolerance`·`check`는 공통 옵션 `--journal DIR --note TEXT`를 받습니다.
 
@@ -857,6 +858,21 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
 - **GUI**: RLC 시트 속성의 "From grid dimensions…". 치수는 프로젝트의 두께 단위로 받고, 기본 적용은 시트를 순수하게 만듭니다(메시: C 제거, 패치: L = 0, 다른 쪽 계수 제거). 남은 소자가 있으면 메시의 리액턴스 부호까지 뒤집히기 때문입니다. "Keep the other element"로 유지할 수 있습니다. 스윕과 활성 목표의 최대 주파수를 한 번만 비교합니다. 새 값이 기존 L·C 변수 범위 밖이면 범위 재설정을 제안합니다(기본 켬). 그대로 두면 최적화기가 시작값을 범위 안으로 잘라 치수에서 얻은 값을 잃습니다.
 - **한계**: 패치의 C는 ε_eff에 비례하지만, 적용 뒤 패널에서 ε_eff를 바꾸면 각도 계수만 바뀝니다. 스트립 배열(식 10·11)은 프리셋 되짚기에서 패치와 구별되지 않아 넣지 않았습니다.
 
+### 13.11 (v10) 여러 함량에서 Odelevskiy 비율: `fit-shape`
+Odelevskiy 규칙(13.9 "비구형 충전재")의 N과 pc를 측정에서 정하는 명령입니다. 계산은 `materials/shape_fit.py`(Qt 없음)에 있고, 근거와 수치는 개발 이력 3.34에 있습니다.
+
+- **정해지는 것은 B = N/pc 하나입니다.** y = e_h/(e_i − e_h)로 쓰면 e = e_h + e_h·p/(u − B·p), u = N + y입니다. 충전재가 주파수마다 자유로운 표이면 N은 u에 흡수되므로, 어느 함량의 측정으로도 N과 pc를 따로 정할 수 없습니다. B가 같은 두 (N, pc)는 둘 다 표를 만들 수 있는 한 모든 함량에서 같은 값을 예측합니다.
+- **N은 판정을 바꿉니다.** 역산의 차폐 좌표가 x = N/u이므로, 같은 B에서도 N이 크면 `outside_model`로 거부될 수 있습니다(예: 매트릭스 3, 복합재 5 − 0.1j, 함량 0.1, B = 0.5에서 N = 0.15는 통과하고 0.25·0.5는 거부). 그래서 기본 (N, pc)를 내지 않고, 시편마다 `invert-filler`가 받아들이는 N 범위를 보고합니다.
+- **맞춤**: 주파수마다 u 하나를 감쇠 Gauss-Newton으로 구하고(시작값은 가중 선형 최소제곱 해, 비용이 줄 때만 받아들임), B는 [1e-4, (1 − 1e-6)/max p]의 로그 격자 200점에서 고른 뒤 이웃 구간에서 Brent로 다듬습니다. 잔차는 시편·채널마다 max|e_k|로 나눈 값이고(`fit`, `invert-filler`의 rms와 같은 정규화), `rms`는 쓰인 모든 (채널, 시편, 주파수) 잔차의 rms입니다. 복합재가 모든 함량에서 매트릭스와 같은 채널(비자성 μ = 1)은 빼고 해당 rms를 null로 둡니다.
+- **평탄 구간**: 최소점을 포함하는 연결 구간 중 rms ≤ max(1.1·rms_min, rms_min + 1e-4)인 곳(끝은 log B에서 선형 보간). 잡음 수준을 모르므로 신뢰구간이 아닙니다. 함량이 2개면 하나를 빼는 교차 검증이 불가능해 쓰지 않습니다.
+- **허용 N**: 시편마다 (B·max p, min(B, 1)) 안 400점에서 pc = min(N/B, 1)로 `invert_filler`를 실제로 돌려 `ok`인 점의 최소·최대와 비율(`admissible_share`)을 냅니다. 끝값은 실제로 통과한 점이라 그대로 `invert-filler`에 넣을 수 있습니다. 구간 안에 거부되는 점이 섞일 수 있어 비율을 함께 봅니다.
+- **명령**: `coating-cli fit-shape --composite CSV FRACTION --composite CSV FRACTION [...] (--matrix-csv F | --matrix-eps RE LOSS [--matrix-mu RE LOSS]) [--weight-fractions --density-filler R --density-matrix R]`
+  - 함량 2개 이상, 서로 달라야 하고(1e-9), 같은 CSV를 두 번 줄 수 없습니다. `--weight-fractions`를 주면 두 밀도가 필수이고, 주지 않으면 밀도를 받지 않습니다. 결과의 `fraction`은 늘 부피 분율입니다. 이름은 `invert-filler`의 값을 받는 `--fraction-wt`와 겹치지 않게 했습니다.
+  - 격자는 첫 시편의 주파수 중 모든 입력(시편, 매트릭스 CSV)이 덮는 점이고, 나머지는 보간합니다. 2점 미만이면 `invalid_value`(3). 출력 파일과 저널은 없습니다.
+- **경고**: `shape_fit_poor`(rms > 0.10, 규칙이 이 복합재 계열을 설명하지 못할 수 있음), `shape_at_bound`(B가 탐색 범위 끝), `shape_flat`(평탄 구간 끝이 B의 0.5배 미만이나 1.5배 초과), `shape_two_fractions`(함량 2개: 남는 검사가 없음), `shape_no_admissible_n`(그 시편에서 허용 N이 없음).
+- **사용 흐름**: B와 허용 N 범위를 사용자에게 보여 주고, N은 사용자가 형상 정보로 정합니다(편상의 감자 계수 등). 그다음 `invert-filler --model odelevskiy --shape-n N --percolation N/B --validate …`로 표를 만들고 다른 함량으로 검증합니다. 맞춤이 좋다는 것은 측정한 함량 사이의 예측이 된다는 뜻이지 충전재 모양의 증거가 아닙니다(Bruggeman으로 만든 데이터도 rms 0.08~1.5 %로 맞음).
+- **범위 밖**: 공동 맞춤 표를 파일로 쓰기(어느 함량도 정확히 재현하지 않아 출처·왕복 검사와 맞지 않음), N·pc의 최적화 변수화, GUI.
+
 ## 부록 A. (v5) 재료 dict 형식 (`.coat`·명세 공통, SI, 접미사 없음)
 모든 종류 공통: `kind`, `name`, `density`(kg/m³, 혼합 재료에는 없음 — 성분에서 계산), `note`.
 
@@ -978,6 +994,15 @@ v5 문서 한 파일만 주고, 코드를 모르는 두 테스터(Claude 서브�
  "prediction": {"at_fractions": [0.1, 0.3], "fraction_sensitivity": {"rms_eps": 0.05, "rms_mu": 0.04},
                 "model_disagreement": {"rms_eps": 0.08, "rms_mu": 0.03}, "model_disagreement_reason": null},
  "validation": [{"csv": "comp30.csv", "fraction": 0.3, "n_points": 171, "rms_eps": 0.02, "rms_mu": 0.03}]}
+```
+
+`fit-shape --composite c05.csv 0.05 --composite c10.csv 0.1 --composite c15.csv 0.15 --matrix-eps 3 0.05`
+```json
+{"n_over_pc": 0.4, "rms": 5.7e-10, "channels_used": ["eps"], "n_points": 40, "data_range_hz": [1e9, 18e9],
+ "search_range": [1e-4, 6.66666], "flat_interval": [0.4, 0.4015],
+ "profile": {"n_over_pc": [1e-4, "…200 values"], "rms": [0.71, "…"]},
+ "per_composite": [{"csv": "c05.csv", "fraction": 0.05, "rms_eps": 7.5e-10, "rms_mu": null,
+                    "shape_n_range": [0.0608, 0.1643], "percolation_range": [0.152, 0.411], "admissible_share": 0.307}]}
 ```
 
 `fss-grid --pattern patch --period-mm 5 --gap-mm 0.5 --eps-eff 2.2`
