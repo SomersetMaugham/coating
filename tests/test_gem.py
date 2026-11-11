@@ -114,3 +114,14 @@ def test_gui_switch_to_gem_keeps_bruggeman_values(tmp_path):
     w.doc.undo_stack.setClean()
     dlg.close()
     w.close()
+
+
+@pytest.mark.parametrize("contrast", [1e6, 1e9, 1e12])
+def test_bruggeman_keeps_its_digits_at_high_contrast(contrast):
+    """Bruggeman used the plain quadratic formula and lost the small root's digits when the filler is far more
+    conductive than the matrix (4e-6 relative at 1e12).  It now forms the roots like ``gem``, so the two agree."""
+    em = np.full(4, 3 - 0.05j)
+    ei = 20 - 1j * contrast * np.array([1.0, 0.7, 1.3, 2.0])
+    for phi in (0.05, 0.2, 0.5, 0.8):
+        ref = gem(em, ei, phi, GemParams(1 / 3, 1.0))
+        assert np.max(np.abs(bruggeman(em, ei, phi) - ref) / np.abs(ref)) < 1e-12
