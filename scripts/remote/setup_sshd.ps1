@@ -2,6 +2,7 @@
 # PowerShell after reading it; see docs/WINDOWS_WSL_TESTING.md.  Safe to run again.
 #
 #   powershell -ExecutionPolicy Bypass -File setup_sshd.ps1 -User <account> -MacIp 192.168.0.23 -PublicKey "ssh-ed25519 AAAA... coat-win"
+#   (-MacIp LocalSubnet: accept any address of the local subnet, for a Mac whose DHCP address changes)
 #
 # -User is the account the Mac logs in as (the one whose WSL distro runs the Linux tests).  It is required: in an
 # elevated PowerShell started with another administrator's credentials, $env:USERNAME is that other account.
@@ -13,7 +14,7 @@
 #     it reads the new settings
 #   - sshd_config: key login only (PasswordAuthentication no), only -User may log in (AllowUsers); the old file is
 #     kept as sshd_config.bak-<time> and restored if `sshd -t` rejects the new one
-#   - firewall: the sshd rule accepts only -MacIp, on private networks only
+#   - firewall: the sshd rule accepts only -MacIp (one address, or the keyword LocalSubnet), on private networks only
 #   - adds -PublicKey to the right authorized_keys file (administrators_authorized_keys for administrators), saved
 #     without a BOM and readable only by its owner(s); UTF-16 or loose permissions make sshd ignore the key
 param(
@@ -29,7 +30,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     throw "Run this in an administrator PowerShell."
 }
 if ($PublicKey -notmatch '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-\S+) \S+') { throw "-PublicKey does not look like a public key line" }
-[void][System.Net.IPAddress]::Parse($MacIp)
+if ($MacIp -ne "LocalSubnet") { [void][System.Net.IPAddress]::Parse($MacIp) }
 if ($User -match '\s') { throw "Account names with spaces cannot be written to AllowUsers safely; use another account." }
 $userSid = (New-Object Security.Principal.NTAccount($User)).Translate([Security.Principal.SecurityIdentifier]).Value
 if ($User -ne $env:USERNAME) { Write-Warning "Setting up '$User' while running as '$env:USERNAME'." }
@@ -59,7 +60,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "sshd -t rejected the new sshd_config; the old one was restored"
 }
 
-# 3. Firewall: only the Mac, only on private networks
+# 3. Firewall: only the Mac (or the local subnet), only on private networks
 $rule = Get-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -ErrorAction SilentlyContinue
 if (-not $rule) {
     New-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -DisplayName "OpenSSH SSH Server (sshd)" -Direction Inbound `

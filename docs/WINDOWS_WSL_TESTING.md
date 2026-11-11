@@ -26,15 +26,16 @@ SSH 서버를 켜는 것이라 다음을 지킵니다. `setup_sshd.ps1`이 설�
 | 대비 | 이유 |
 |---|---|
 | **키 로그인만** (`PasswordAuthentication no`) | Windows OpenSSH는 기본으로 비밀번호 로그인을 허용합니다. 같은 네트워크의 기기가 비밀번호를 대입할 수 없게 합니다. |
-| **방화벽: 맥의 IP만, 개인 네트워크에서만** | 같은 Wi-Fi의 다른 기기, 공용 네트워크에서의 접속을 막습니다. |
+| **방화벽: 같은 서브넷(`LocalSubnet`)만, 개인 네트워크에서만** (사용자 결정, 2026-11-11) | 공용 네트워크와 다른 망에서의 접속을 막습니다. 처음에는 맥의 IP 하나만 받았지만, DHCP로 맥 IP가 자주 바뀌어 같은 서브넷으로 넓혔습니다. 집 네트워크의 다른 기기도 22번에 접속을 *시도*할 수는 있지만, 키 로그인만·계정 하나라 키 없이는 들어오지 못합니다. 공유기에서 맥에 고정 IP(DHCP 예약)를 줄 수 있으면 `setup_sshd.ps1 -MacIp <맥 IP>`로 다시 좁힐 수 있습니다. |
 | **로그인 계정 하나** (`AllowUsers`) | 다른 계정으로는 들어올 수 없습니다. |
 | **sshd 시작 방식: 자동** (사용자 결정, 2026-11-08) | 위 세 겹이 있어 늘 켜 두기로 했습니다. 더 조이려면 `setup_sshd.ps1 -StartMode Manual`로 테스트할 때만 켜고, 맥에서 `COAT_TEST_SSHD_START=Manual`을 줍니다(매 실행 점검이 기대하는 방식). |
-| (할 수 있으면) **공유기에 22번 포트 포워딩 없음**, UPnP 끄기 | 추가 안전장치입니다. 공유기를 볼 수 없어도 됩니다: 방화벽이 출발지 IP가 맥인 접속만 받으므로, 포워딩이 있어도 인터넷에서 오는 접속은 막힙니다(TCP는 출발지 위조로 연결을 맺을 수 없음). |
+| (할 수 있으면) **공유기에 22번 포트 포워딩 없음**, UPnP 끄기 | 추가 안전장치입니다. 방화벽이 같은 서브넷에서 온 접속만 받으므로, 포워딩이 있어도 인터넷에서 오는 접속은 보통 막힙니다(공유기가 출발지 주소를 바꾸는 NAT 설정이 아니라면). |
 | **맥의 개인 키에 암호** (키체인에 저장) | 키 파일이 유출되어도 바로 쓸 수 없습니다. |
 
-맥의 IP가 바뀌면 방화벽이 맥도 막습니다(안전한 쪽으로 실패). 공유기에서 맥에 **고정 IP(DHCP 예약)**를 줄 수 있으면 좋고, 그럴 수 없으면
-IP가 바뀔 때 Windows 관리자 PowerShell에서 `Set-NetFirewallRule -Name OpenSSH-Server-In-TCP -RemoteAddress <새 IP>`로 고칩니다.
-예전 IP를 다른 기기가 받아도 키 없이는 로그인할 수 없습니다.
+**IP가 바뀌어도 되게**(2026-11-11): 맥은 Windows를 IP가 아니라 mDNS 이름(`<Windows 컴퓨터 이름>.local`)으로 찾고, 호스트 키는
+`HostKeyAlias`로 이름에 묶습니다. Windows 방화벽은 이름을 받지 못하므로 `LocalSubnet`으로 둡니다. 그래서 두 기기의 IP가 바뀌어도 설정을 고치지 않습니다.
+맥의 IP 하나만 받도록 좁혀 둔 경우에는 맥 IP가 바뀔 때 방화벽이 맥도 막고(안전한 쪽으로 실패), Windows 관리자 PowerShell에서
+`Set-NetFirewallRule -Name OpenSSH-Server-In-TCP -RemoteAddress <새 IP>`로 고칩니다.
 
 Windows 네트워크 프로필은 **개인**이어야 규칙이 적용됩니다. 남의 기기가 있는 네트워크라서 공용으로 두어야 한다면, 네트워크를 개인으로
 바꾸지 말고(파일 공유 등 다른 방화벽도 풀림) SSH 규칙만 공용에서도 맥 IP를 받도록 스크립트를 고칩니다.
@@ -46,11 +47,15 @@ ssh-keygen -t ed25519 -f ~/.ssh/coat_win -C coat-win     # 암호(passphrase)를
 ssh-add --apple-use-keychain ~/.ssh/coat_win
 cat ~/.ssh/coat_win.pub                                    # Windows 설정에 붙여 넣을 공개키
 ipconfig getifaddr en0                                     # 맥의 IP (Wi-Fi). 유선이면 en1 등
+dscacheutil -q host -a name <Windows 컴퓨터 이름>.local     # mDNS로 Windows가 찾아지는지 (hostname 명령의 결과 + .local)
 ```
-`~/.ssh/config`에 추가합니다(`<...>`는 실제 값으로):
+`~/.ssh/config`에 추가합니다(`<...>`는 실제 값으로). IP 대신 mDNS 이름을 쓰고, 호스트 키를 IP가 아닌 `coat-win`이라는 이름으로 확인합니다.
+IPv6 링크 로컬 주소로도 풀리는데 방화벽이 받지 않으므로 IPv4만 씁니다:
 ```
 Host coat-win
-    HostName <Windows IP>
+    HostName <Windows 컴퓨터 이름>.local
+    HostKeyAlias coat-win
+    AddressFamily inet
     User <Windows 사용자 이름>
     IdentityFile ~/.ssh/coat_win
     IdentitiesOnly yes
@@ -102,7 +107,8 @@ ssh-keyscan -t ed25519 <Windows IP> 2>/dev/null > /tmp/coat_win_hostkey && ssh-k
 ```powershell
 ssh-keygen -lf C:\ProgramData\ssh\ssh_host_ed25519_key.pub                                                     # Windows의 지문
 ```
-`SHA256:…`이 글자 하나까지 같으면 `cat /tmp/coat_win_hostkey >> ~/.ssh/known_hosts`. 그다음 맥에서:
+`SHA256:…`이 글자 하나까지 같으면, 줄 앞의 IP를 `HostKeyAlias` 이름으로 바꿔 등록합니다:
+`sed 's/^[^ ]*/coat-win/' /tmp/coat_win_hostkey >> ~/.ssh/known_hosts`. 그다음 맥에서:
 ```bash
 ssh coat-win whoami                                         # 암호 없이 사용자 이름이 나와야 함
 ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password -o BatchMode=no coat-win
